@@ -18,7 +18,7 @@ import type {
 
 import { deriveState, invalidateStateCache } from "./state.js";
 import type { GSDState } from "./types.js";
-import { loadFile, parseContinue, parsePlan, parseRoadmap, parseSummary, extractUatType, inlinePriorMilestoneSummary, getManifestStatus } from "./files.js";
+import { loadFile, parseContinue, parsePlan, parseRoadmap, parseSummary, extractUatType, inlinePriorMilestoneSummary, getManifestStatus, clearParseCache } from "./files.js";
 export { inlinePriorMilestoneSummary };
 import type { UatType } from "./files.js";
 import { collectSecretsFromManifest } from "../get-secrets-from-user.js";
@@ -29,6 +29,7 @@ import {
   relMilestoneFile, relSliceFile, relTaskFile, relSlicePath, relMilestonePath,
   milestonesDir, resolveGsdRootFile, relGsdRootFile,
   buildMilestoneFileName, buildSliceFileName, buildTaskFileName,
+  clearPathCache,
 } from "./paths.js";
 import { saveActivityLog } from "./activity-log.js";
 import { synthesizeCrashRecovery, getDeepDiagnostic } from "./session-forensics.js";
@@ -575,6 +576,8 @@ export async function startAuto(
     // Self-heal: clear stale runtime records where artifacts already exist
     await selfHealRuntimeRecords(base, ctx);
     invalidateStateCache();
+    clearParseCache();
+    clearPathCache();
     await dispatchNextUnit(ctx, pi);
     return;
   }
@@ -767,6 +770,8 @@ export async function handleAgentEnd(
   // Invalidate deriveState() cache — the unit just completed and may have
   // written planning files (task summaries, roadmap checkboxes, etc.)
   invalidateStateCache();
+  clearParseCache();
+  clearPathCache();
 
   // Small delay to let files settle (git commits, file writes)
   await new Promise(r => setTimeout(r, 500));
@@ -1338,6 +1343,8 @@ async function dispatchNextUnit(
         }
         // Re-derive state from the now-merged working tree
         invalidateStateCache();
+        clearParseCache();
+        clearPathCache();
         state = await deriveState(basePath);
         mid = state.activeMilestone?.id;
         midTitle = state.activeMilestone?.title;
@@ -1403,6 +1410,8 @@ async function dispatchNextUnit(
             );
             // Re-derive state from main so downstream logic sees merged state
             invalidateStateCache();
+            clearParseCache();
+            clearPathCache();
             state = await deriveState(basePath);
             mid = state.activeMilestone?.id;
             midTitle = state.activeMilestone?.title;
