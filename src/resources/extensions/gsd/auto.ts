@@ -1921,6 +1921,30 @@ async function dispatchNextUnit(
       }
     }
 
+    // General reconciliation: if the last attempt DID produce the expected
+    // artifact on disk, clear the counter and advance instead of stopping.
+    // The execute-task path above handles its special case (writing placeholder
+    // summaries). This catch-all covers complete-slice, plan-slice,
+    // research-slice, and all other unit types where the Nth attempt at the
+    // dispatch limit succeeded but the counter check fires before anyone
+    // verifies disk state. Without this, a successful final attempt is
+    // indistinguishable from a failed one.
+    if (verifyExpectedArtifact(unitType, unitId, basePath)) {
+      ctx.ui.notify(
+        `Loop recovery: ${unitType} ${unitId} — artifact verified after ${prevCount + 1} dispatches. Advancing.`,
+        "info",
+      );
+      // Persist completion so the idempotency check prevents re-dispatch
+      // if deriveState keeps returning this unit (see #462).
+      persistCompletedKey(basePath, dispatchKey);
+      completedKeySet.add(dispatchKey);
+      unitDispatchCount.delete(dispatchKey);
+      invalidateStateCache();
+      await new Promise(r => setImmediate(r));
+      await dispatchNextUnit(ctx, pi);
+      return;
+    }
+
     const expected = diagnoseExpectedArtifact(unitType, unitId, basePath);
     const remediation = buildLoopRemediationSteps(unitType, unitId, basePath);
     await stopAuto(ctx, pi);
