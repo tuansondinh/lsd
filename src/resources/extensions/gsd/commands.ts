@@ -5,7 +5,8 @@
  */
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@gsd/pi-coding-agent";
-import { existsSync, readFileSync } from "node:fs";
+import { AuthStorage } from "@gsd/pi-coding-agent";
+import { existsSync, readFileSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { deriveState } from "./state.js";
@@ -53,10 +54,10 @@ function dispatchDoctorHeal(pi: ExtensionAPI, scope: string | undefined, reportT
 
 export function registerGSDCommand(pi: ExtensionAPI): void {
   pi.registerCommand("gsd", {
-    description: "GSD — Get Shit Done: /gsd next|auto|stop|status|queue|prefs|hooks|doctor|migrate|remote",
+    description: "GSD — Get Shit Done: /gsd next|auto|stop|status|queue|prefs|config|hooks|doctor|migrate|remote",
 
     getArgumentCompletions: (prefix: string) => {
-      const subcommands = ["next", "auto", "stop", "status", "queue", "discuss", "prefs", "hooks", "doctor", "migrate", "remote"];
+      const subcommands = ["next", "auto", "stop", "status", "queue", "discuss", "prefs", "config", "hooks", "doctor", "migrate", "remote"];
       const parts = prefix.trim().split(/\s+/);
 
       if (parts.length <= 1) {
@@ -151,6 +152,11 @@ export function registerGSDCommand(pi: ExtensionAPI): void {
         return;
       }
 
+      if (trimmed === "config") {
+        await handleConfig(ctx);
+        return;
+      }
+
       if (trimmed === "hooks") {
         const { formatHookStatus } = await import("./post-unit-hooks.js");
         ctx.ui.notify(formatHookStatus(), "info");
@@ -174,7 +180,7 @@ export function registerGSDCommand(pi: ExtensionAPI): void {
       }
 
       ctx.ui.notify(
-        `Unknown: /gsd ${trimmed}. Use /gsd, /gsd next, /gsd auto, /gsd stop, /gsd status, /gsd queue, /gsd discuss, /gsd prefs [global|project|status|wizard|setup], /gsd hooks, /gsd doctor [audit|fix|heal] [M###/S##], /gsd migrate <path>, or /gsd remote [slack|discord|status|disconnect].`,
+        `Unknown: /gsd ${trimmed}. Use /gsd, /gsd next, /gsd auto, /gsd stop, /gsd status, /gsd queue, /gsd discuss, /gsd prefs, /gsd config, /gsd hooks, /gsd doctor [audit|fix|heal] [M###/S##], /gsd migrate <path>, or /gsd remote [slack|discord|status|disconnect].`,
         "warning",
       );
     },
@@ -519,6 +525,74 @@ function serializePreferencesToFrontmatter(prefs: Record<string, unknown>): stri
   }
 
   return lines.join("\n") + "\n";
+}
+
+// ─── Tool Config Wizard ───────────────────────────────────────────────────────
+
+const TOOL_KEYS = [
+  { id: "tavily",   env: "TAVILY_API_KEY",   label: "Tavily Search",     hint: "tavily.com/app/api-keys" },
+  { id: "brave",    env: "BRAVE_API_KEY",     label: "Brave Search",      hint: "brave.com/search/api" },
+  { id: "context7", env: "CONTEXT7_API_KEY",  label: "Context7 Docs",     hint: "context7.com/dashboard" },
+  { id: "jina",     env: "JINA_API_KEY",      label: "Jina Page Extract", hint: "jina.ai/api" },
+  { id: "groq",     env: "GROQ_API_KEY",      label: "Groq Voice",        hint: "console.groq.com" },
+] as const;
+
+function getConfigAuthStorage(): InstanceType<typeof AuthStorage> {
+  const authPath = join(process.env.HOME ?? "", ".gsd", "agent", "auth.json");
+  mkdirSync(dirname(authPath), { recursive: true });
+  return AuthStorage.create(authPath);
+}
+
+async function handleConfig(ctx: ExtensionCommandContext): Promise<void> {
+  const auth = getConfigAuthStorage();
+
+  // Show current status
+  const statusLines = ["GSD Tool Configuration\n"];
+  for (const tool of TOOL_KEYS) {
+    const hasKey = !!process.env[tool.env] || !!(auth.get(tool.id) as { key?: string })?.key;
+    statusLines.push(`  ${hasKey ? "✓" : "✗"} ${tool.label}${hasKey ? "" : ` — get key at ${tool.hint}`}`);
+  }
+  ctx.ui.notify(statusLines.join("\n"), "info");
+
+  // Ask which tools to configure
+  const options = TOOL_KEYS.map(t => {
+    const hasKey = !!process.env[t.env] || !!(auth.get(t.id) as { key?: string })?.key;
+    return `${t.label} ${hasKey ? "(configured ✓)" : "(not set)"}`;
+  });
+  options.push("(done)");
+
+  let changed = false;
+  while (true) {
+    const choice = await ctx.ui.select("Configure which tool? Press Escape when done.", options);
+    if (!choice || choice === "(done)") break;
+
+    const toolIdx = TOOL_KEYS.findIndex(t => choice.startsWith(t.label));
+    if (toolIdx === -1) break;
+
+    const tool = TOOL_KEYS[toolIdx];
+    const input = await ctx.ui.input(
+      `API key for ${tool.label} (${tool.hint}):`,
+      "paste your key here",
+    );
+
+    if (input !== null && input !== undefined) {
+      const key = input.trim();
+      if (key) {
+        auth.set(tool.id, { type: "api_key", key });
+        process.env[tool.env] = key;
+        ctx.ui.notify(`${tool.label} key saved and activated.`, "info");
+        // Update option label
+        options[toolIdx] = `${tool.label} (configured ✓)`;
+        changed = true;
+      }
+    }
+  }
+
+  if (changed) {
+    await ctx.waitForIdle();
+    await ctx.reload();
+    ctx.ui.notify("Configuration saved. Extensions reloaded with new keys.", "info");
+  }
 }
 
 async function ensurePreferencesFile(
