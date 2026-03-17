@@ -143,11 +143,11 @@ export async function selectAndApplyModel(
  * Resolve a model ID string to a model object from the available models list.
  * Handles formats: "provider/model", "bare-id", "org/model-name" (OpenRouter).
  */
-function resolveModelId(
+function resolveModelId<T extends { id: string; provider: string }>(
   modelId: string,
-  availableModels: Array<{ id: string; provider: string }>,
+  availableModels: T[],
   currentProvider: string | undefined,
-): { id: string; provider: string } | undefined {
+): T | undefined {
   const slashIdx = modelId.indexOf("/");
 
   if (slashIdx !== -1) {
