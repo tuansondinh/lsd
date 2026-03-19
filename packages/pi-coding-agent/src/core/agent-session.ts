@@ -1465,6 +1465,26 @@ export class AgentSession {
 	}
 
 	/**
+	 * Apply a model change: set the model on the agent, persist to session/settings,
+	 * re-clamp thinking level, and emit the model_select event.
+	 */
+	private async _applyModelChange(
+		model: Model<any>,
+		thinkingLevel: ThinkingLevel,
+		source: "set" | "cycle" | "restore",
+		options?: { persist?: boolean },
+	): Promise<void> {
+		const previousModel = this.model;
+		this.agent.setModel(model);
+		this.sessionManager.appendModelChange(model.provider, model.id);
+		if (options?.persist !== false) {
+			this.settingsManager.setDefaultModelAndProvider(model.provider, model.id);
+		}
+		this.setThinkingLevel(thinkingLevel);
+		await this._emitModelSelect(model, previousModel, source);
+	}
+
+	/**
 	 * Set model directly.
 	 * Validates API key, saves to session and settings.
 	 * @throws Error if no API key available for the model
@@ -1475,18 +1495,8 @@ export class AgentSession {
 			throw new Error(`No API key for ${model.provider}/${model.id}`);
 		}
 
-		const previousModel = this.model;
 		const thinkingLevel = this._getThinkingLevelForModelSwitch();
-		this.agent.setModel(model);
-		this.sessionManager.appendModelChange(model.provider, model.id);
-		if (options?.persist !== false) {
-			this.settingsManager.setDefaultModelAndProvider(model.provider, model.id);
-		}
-
-		// Re-clamp thinking level for new model's capabilities
-		this.setThinkingLevel(thinkingLevel);
-
-		await this._emitModelSelect(model, previousModel, "set");
+		await this._applyModelChange(model, thinkingLevel, "set", options);
 	}
 
 	/**
@@ -1535,22 +1545,11 @@ export class AgentSession {
 		const len = scopedModels.length;
 		const nextIndex = direction === "forward" ? (currentIndex + 1) % len : (currentIndex - 1 + len) % len;
 		const next = scopedModels[nextIndex];
+
+		// Explicit scoped model thinking level overrides current session level;
+		// undefined scoped model thinking level inherits the current session preference.
 		const thinkingLevel = this._getThinkingLevelForModelSwitch(next.thinkingLevel);
-
-		// Apply model
-		this.agent.setModel(next.model);
-		this.sessionManager.appendModelChange(next.model.provider, next.model.id);
-		if (options?.persist !== false) {
-			this.settingsManager.setDefaultModelAndProvider(next.model.provider, next.model.id);
-		}
-
-		// Apply thinking level.
-		// - Explicit scoped model thinking level overrides current session level
-		// - Undefined scoped model thinking level inherits the current session preference
-		// setThinkingLevel clamps to model capabilities.
-		this.setThinkingLevel(thinkingLevel);
-
-		await this._emitModelSelect(next.model, currentModel, "cycle");
+		await this._applyModelChange(next.model, thinkingLevel, "cycle", options);
 
 		return { model: next.model, thinkingLevel: this.thinkingLevel, isScoped: true };
 	}
@@ -1573,16 +1572,7 @@ export class AgentSession {
 		}
 
 		const thinkingLevel = this._getThinkingLevelForModelSwitch();
-		this.agent.setModel(nextModel);
-		this.sessionManager.appendModelChange(nextModel.provider, nextModel.id);
-		if (options?.persist !== false) {
-			this.settingsManager.setDefaultModelAndProvider(nextModel.provider, nextModel.id);
-		}
-
-		// Re-clamp thinking level for new model's capabilities
-		this.setThinkingLevel(thinkingLevel);
-
-		await this._emitModelSelect(nextModel, currentModel, "cycle");
+		await this._applyModelChange(nextModel, thinkingLevel, "cycle", options);
 
 		return { model: nextModel, thinkingLevel: this.thinkingLevel, isScoped: false };
 	}
