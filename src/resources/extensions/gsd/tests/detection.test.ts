@@ -702,3 +702,14 @@ test("detectProjectSignals: Django project does NOT get dep:fastapi marker", () 
     cleanup(dir);
   }
 });
+
+test("detectProjectSignals: FastAPI detected case-insensitively (PyPI canonical name)", () => {
+  const dir = makeTempDir("signals-fastapi-case");
+  try {
+    writeFileSync(join(dir, "pyproject.toml"), '[project]\ndependencies = ["FastAPI>=0.100"]\n', "utf-8");
+    const signals = detectProjectSignals(dir);
+    assert.ok(signals.detectedFiles.includes("dep:fastapi"), "should detect FastAPI (mixed case)");
+  } finally {
+    cleanup(dir);
+  }
+});
