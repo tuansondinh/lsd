@@ -90,7 +90,7 @@ test("loadDefinition: valid 3-step YAML returns correct structure", () => {
     assert.deepEqual(def.steps[2].requires, ["outline"]);
     assert.deepEqual(def.steps[2].produces, ["draft.md"]);
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   }
 });
 
@@ -235,7 +235,7 @@ test("loadDefinition: missing file → descriptive error", () => {
       },
     );
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   }
 });
 
@@ -258,7 +258,7 @@ steps:
       },
     );
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   }
 });
 
@@ -281,7 +281,7 @@ steps:
     const def = loadDefinition(dir, "test-workflow");
     assert.deepEqual(def.steps[1].requires, ["first"]);
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   }
 });
 
@@ -302,7 +302,7 @@ steps:
     const def = loadDefinition(dir, "test-workflow");
     assert.deepEqual(def.steps[1].contextFrom, ["first"]);
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   }
 });
 
@@ -738,7 +738,7 @@ steps:
     const def = loadDefinition(dir, "test-workflow");
     assert.equal(def.params, undefined);
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   }
 });
 
@@ -755,7 +755,7 @@ steps:
     const def = loadDefinition(dir, "test-workflow");
     assert.equal(def.description, undefined);
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   }
 });
 
@@ -773,6 +773,6 @@ steps:
     assert.deepEqual(def.steps[0].requires, []);
     assert.deepEqual(def.steps[0].produces, []);
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   }
 });

@@ -36,7 +36,7 @@ afterEach(() => {
     process.chdir(savedCwd);
   }
   for (const d of tmpDirs) {
-    rmSync(d, { recursive: true, force: true });
+    rmSync(d, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   }
   tmpDirs.length = 0;
 });

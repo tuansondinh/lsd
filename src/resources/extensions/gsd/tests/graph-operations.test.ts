@@ -32,7 +32,7 @@ function makeTmpDir(): string {
 }
 
 function cleanupDir(dir: string): void {
-  rmSync(dir, { recursive: true, force: true });
+  rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
 }
 
 /** Minimal valid graph for testing. */
