@@ -401,7 +401,7 @@ test('(p) run-uat prompt allows PASS when human-only checks remain as NEEDS-HUMA
       'prompt defines PASS as valid when all automatable checks passed',
     );
     assert.ok(
-      /PARTIAL.*automatable checks.*skipped|inconclusive/i.test(promptResult),
+      /PARTIAL.*automatable checks.*(skipped|inconclusive)/i.test(promptResult),
       'prompt reserves PARTIAL for when automatable checks themselves are inconclusive',
     );
     // human-experience mode should NOT force PARTIAL when automatable checks pass
