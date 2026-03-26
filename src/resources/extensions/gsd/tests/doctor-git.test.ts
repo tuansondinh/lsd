@@ -167,22 +167,22 @@ describe('doctor-git', async () => {
         const fixed = await runGSDDoctor(dir, { fix: true, isolationMode: "worktree" });
 
         // The fix must NOT skip removal — it should chdir out and remove
-        assertTrue(
+        assert.ok(
           !fixed.fixesApplied.some(f => f.includes("skipped removing worktree")),
           "does NOT skip removal when cwd is inside worktree",
         );
-        assertTrue(
+        assert.ok(
           fixed.fixesApplied.some(f => f.includes("removed orphaned worktree")),
           "removes orphaned worktree even when cwd was inside it",
         );
 
         // Verify worktree is gone
         const wtList = run("git worktree list", dir);
-        assertTrue(!wtList.includes("milestone/M001"), "worktree removed after fix with cwd inside");
+        assert.ok(!wtList.includes("milestone/M001"), "worktree removed after fix with cwd inside");
 
         // Verify cwd was moved out (should be basePath, not still inside worktree)
         const newCwd = process.cwd();
-        assertTrue(
+        assert.ok(
           !newCwd.startsWith(wtPath),
           "cwd moved out of worktree after fix",
         );
