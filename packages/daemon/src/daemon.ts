@@ -13,6 +13,7 @@ import { Orchestrator } from './orchestrator.js';
 export class Daemon {
   private shuttingDown = false;
   private keepaliveTimer: ReturnType<typeof setInterval> | undefined;
+  private healthTimer: ReturnType<typeof setInterval> | undefined;
   private readonly onSigterm: () => void;
   private readonly onSigint: () => void;
   private sessionManager: SessionManager | undefined;
@@ -23,6 +24,7 @@ export class Daemon {
   constructor(
     private readonly config: DaemonConfig,
     private readonly logger: Logger,
+    private readonly healthIntervalMs: number = 300_000,
   ) {
     this.onSigterm = () => void this.shutdown();
     this.onSigint = () => void this.shutdown();
@@ -105,6 +107,21 @@ export class Daemon {
         this.discordBot = undefined;
       }
     }
+
+    // Health heartbeat — logs uptime, session count, Discord status, memory
+    const startTime = Date.now();
+    this.healthTimer = setInterval(() => {
+      const sessions = this.sessionManager?.getAllSessions() ?? [];
+      const activeSessions = sessions.filter(
+        (s) => s.status === 'running' || s.status === 'blocked',
+      ).length;
+      this.logger.info('health', {
+        uptime_s: Math.floor((Date.now() - startTime) / 1000),
+        active_sessions: activeSessions,
+        discord_connected: !!this.discordBot?.getClient()?.isReady(),
+        memory_rss_mb: Math.round(process.memoryUsage().rss / 1024 / 1024),
+      });
+    }, this.healthIntervalMs);
   }
 
   /** Scan configured project roots for project directories. */
@@ -140,6 +157,12 @@ export class Daemon {
     // Remove signal handlers to avoid double-fire
     process.removeListener('SIGTERM', this.onSigterm);
     process.removeListener('SIGINT', this.onSigint);
+
+    // Clear health heartbeat timer
+    if (this.healthTimer) {
+      clearInterval(this.healthTimer);
+      this.healthTimer = undefined;
+    }
 
     // Clear keepalive so the event loop can drain
     if (this.keepaliveTimer) {

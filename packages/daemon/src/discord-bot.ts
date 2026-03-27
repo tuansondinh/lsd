@@ -129,6 +129,26 @@ export class DiscordBot {
       this.handleInteraction(interaction);
     });
 
+    // Reconnection observability — structured logging for all shard lifecycle events (R027)
+    client.on('shardError', (error) => {
+      this.logger.error('discord shard error', { error: error.message });
+    });
+    client.on('shardDisconnect', (event, shardId) => {
+      this.logger.warn('discord shard disconnected', { shardId, code: event.code });
+    });
+    client.on('shardReconnecting', (shardId) => {
+      this.logger.info('discord shard reconnecting', { shardId });
+    });
+    client.on('shardResume', (shardId, replayedEvents) => {
+      this.logger.info('discord shard resumed', { shardId, replayedEvents });
+    });
+    client.on('warn', (message) => {
+      this.logger.warn('discord warning', { message });
+    });
+    client.on('error', (error) => {
+      this.logger.error('discord error', { error: error.message });
+    });
+
     await client.login(this.config.token);
     this.client = client;
     this.destroyed = false;

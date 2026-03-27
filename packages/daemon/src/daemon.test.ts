@@ -417,7 +417,110 @@ describe('Daemon', () => {
   });
 });
 
-// ---------- CLI integration ----------
+// ---------- Health heartbeat ----------
+
+describe('Health heartbeat', () => {
+  it('logs health entry with expected fields after interval tick', async () => {
+    const dir = tmpDir();
+    cleanupDirs.push(dir);
+    const logPath = join(dir, 'health.log');
+
+    const config: DaemonConfig = {
+      discord: undefined,
+      projects: { scan_roots: [] },
+      log: { file: logPath, level: 'info', max_size_mb: 50 },
+    };
+
+    const logger = new Logger({ filePath: logPath, level: 'info' });
+    // Use 50ms interval for fast test
+    const daemon = new Daemon(config, logger, 50);
+
+    await daemon.start();
+
+    // Wait for at least one health tick
+    await new Promise((r) => setTimeout(r, 120));
+
+    const origExit = process.exit;
+    // @ts-expect-error — overriding process.exit for test
+    process.exit = () => {};
+    try {
+      await daemon.shutdown();
+    } finally {
+      process.exit = origExit;
+    }
+
+    const content = readFileSync(logPath, 'utf-8');
+    const lines = content.trim().split('\n');
+    const healthLines = lines.filter((l) => {
+      const e: LogEntry = JSON.parse(l);
+      return e.msg === 'health';
+    });
+
+    assert.ok(healthLines.length >= 1, 'should have at least one health log entry');
+
+    const entry: LogEntry = JSON.parse(healthLines[0]!);
+    assert.equal(entry.msg, 'health');
+    assert.equal(typeof entry.data?.uptime_s, 'number');
+    assert.equal(typeof entry.data?.active_sessions, 'number');
+    assert.equal(typeof entry.data?.discord_connected, 'boolean');
+    assert.equal(typeof entry.data?.memory_rss_mb, 'number');
+    assert.equal(entry.data?.discord_connected, false); // no discord configured
+    assert.equal(entry.data?.active_sessions, 0); // no sessions
+  });
+
+  it('health timer is cleared on shutdown — no lingering intervals', async () => {
+    const dir = tmpDir();
+    cleanupDirs.push(dir);
+    const logPath = join(dir, 'health-cleanup.log');
+
+    const config: DaemonConfig = {
+      discord: undefined,
+      projects: { scan_roots: [] },
+      log: { file: logPath, level: 'info', max_size_mb: 50 },
+    };
+
+    const logger = new Logger({ filePath: logPath, level: 'info' });
+    // Use 50ms interval
+    const daemon = new Daemon(config, logger, 50);
+
+    await daemon.start();
+
+    // Wait for one tick
+    await new Promise((r) => setTimeout(r, 80));
+
+    const origExit = process.exit;
+    // @ts-expect-error — overriding process.exit for test
+    process.exit = () => {};
+    try {
+      await daemon.shutdown();
+    } finally {
+      process.exit = origExit;
+    }
+
+    // Count health entries at shutdown
+    const contentAtShutdown = readFileSync(logPath, 'utf-8');
+    const healthCountAtShutdown = contentAtShutdown
+      .trim()
+      .split('\n')
+      .filter((l) => JSON.parse(l).msg === 'health').length;
+
+    // Wait another interval — no new health entries should appear
+    await new Promise((r) => setTimeout(r, 120));
+
+    // Re-read (logger is closed, so file shouldn't change)
+    const contentAfterWait = readFileSync(logPath, 'utf-8');
+    const healthCountAfterWait = contentAfterWait
+      .trim()
+      .split('\n')
+      .filter((l) => JSON.parse(l).msg === 'health').length;
+
+    assert.equal(
+      healthCountAfterWait,
+      healthCountAtShutdown,
+      'no new health entries should appear after shutdown',
+    );
+  });
+});
 
 describe('CLI integration', () => {
   it('--help prints usage and exits 0', () => {
