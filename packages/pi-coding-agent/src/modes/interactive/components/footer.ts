@@ -1,6 +1,7 @@
 import { type Component, truncateToWidth, visibleWidth } from "@gsd/pi-tui";
 import type { AgentSession } from "../../../core/agent-session.js";
 import type { ReadonlyFooterDataProvider } from "../../../core/footer-data-provider.js";
+import type { PermissionMode } from "../../../core/tool-approval.js";
 import { theme } from "../theme/theme.js";
 
 /**
@@ -44,6 +45,7 @@ export function formatPromptCost(cost: number): string {
  */
 export class FooterComponent implements Component {
 	private autoCompactEnabled = true;
+	private permissionMode: PermissionMode = "danger-full-access";
 
 	constructor(
 		private session: AgentSession,
@@ -52,6 +54,10 @@ export class FooterComponent implements Component {
 
 	setAutoCompactEnabled(enabled: boolean): void {
 		this.autoCompactEnabled = enabled;
+	}
+
+	setPermissionMode(mode: PermissionMode): void {
+		this.permissionMode = mode;
 	}
 
 	/**
@@ -147,6 +153,14 @@ export class FooterComponent implements Component {
 			contextPercentStr = contextPercentDisplay;
 		}
 		statsParts.push(contextPercentStr);
+
+		const permissionModeLabel =
+			this.permissionMode === "danger-full-access"
+				? "⚡ full-access"
+				: this.permissionMode === "accept-on-edit"
+					? "✓ accept-edit"
+					: "🤖 auto";
+		statsParts.push(permissionModeLabel);
 
 		let statsLeft = statsParts.join(" ");
 

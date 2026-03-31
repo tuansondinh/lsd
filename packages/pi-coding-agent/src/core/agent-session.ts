@@ -78,6 +78,13 @@ import { getLatestCompactionEntry } from "./session-manager.js";
 import type { SettingsManager } from "./settings-manager.js";
 import { BUILTIN_SLASH_COMMANDS, type SlashCommandInfo, type SlashCommandLocation } from "./slash-commands.js";
 import { buildSystemPrompt } from "./system-prompt.js";
+import {
+	getPermissionMode,
+	MUTATING_TOOLS,
+	READ_ONLY_TOOLS,
+	requestClassifierDecision,
+	requestFileChangeApproval,
+} from "./tool-approval.js";
 import type { BashOperations } from "./tools/bash.js";
 import { createAllTools } from "./tools/index.js";
 
@@ -536,6 +543,32 @@ export class AgentSession {
 		this.agent.setBeforeToolCall(async ({ toolCall, args }) => {
 			// Wait for all queued agent events to settle before emitting to extensions
 			await this._agentEventQueue;
+
+			const mode = getPermissionMode();
+			if (mode === "accept-on-edit" && toolCall.name === "bash") {
+				await requestFileChangeApproval({
+					action: "edit",
+					path: "(bash command)",
+					message: String((args as any)?.command ?? toolCall.name),
+				});
+			} else if (mode === "auto") {
+				if (READ_ONLY_TOOLS.has(toolCall.name)) {
+					return undefined;
+				}
+				if (MUTATING_TOOLS.has(toolCall.name)) {
+					const approved = await requestClassifierDecision({
+						toolName: toolCall.name,
+						toolCallId: toolCall.id,
+						args,
+					});
+					if (!approved) {
+						return {
+							block: true,
+							reason: `Auto mode blocked ${toolCall.name} (classifier denied)`,
+						};
+					}
+				}
+			}
 
 			if (!this._extensionRunner?.hasHandlers("tool_call")) return undefined;
 

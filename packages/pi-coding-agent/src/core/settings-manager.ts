@@ -113,6 +113,8 @@ export interface Settings {
 	lastChangelogVersion?: string;
 	defaultProvider?: string;
 	defaultModel?: string;
+	permissionMode?: "danger-full-access" | "accept-on-edit" | "auto";
+	classifierModel?: string;
 	defaultThinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
 	transport?: TransportSetting; // default: "sse"
 	steeringMode?: "all" | "one-at-a-time";
@@ -656,12 +658,34 @@ export class SettingsManager {
 		return this.settings.defaultModel;
 	}
 
+	getPermissionMode(): "danger-full-access" | "accept-on-edit" | "auto" {
+		return this.settings.permissionMode ?? "accept-on-edit";
+	}
+
+	getClassifierModel(): string | undefined {
+		return this.settings.classifierModel;
+	}
+
 	setDefaultProvider(provider: string): void {
 		this.setScopedSetting("defaultProvider", provider);
 	}
 
 	setDefaultModel(modelId: string): void {
 		this.setScopedSetting("defaultModel", modelId);
+	}
+
+	setPermissionMode(mode: "danger-full-access" | "accept-on-edit" | "auto"): void {
+		this.setGlobalSetting("permissionMode", mode);
+	}
+
+	setClassifierModel(modelRef: string | undefined): void {
+		if (modelRef === undefined) {
+			delete this.globalSettings.classifierModel;
+			this.markModified("classifierModel");
+			this.save();
+			return;
+		}
+		this.setGlobalSetting("classifierModel", modelRef);
 	}
 
 	setDefaultModelAndProvider(provider: string, modelId: string): void {

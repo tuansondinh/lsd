@@ -338,6 +338,13 @@ const modelRegistry = new ModelRegistry(authStorage, modelsJsonPath)
 markStartup('ModelRegistry')
 const settingsManager = SettingsManager.create(agentDir)
 markStartup('SettingsManager.create')
+process.env.LUCENT_CODE_PERMISSION_MODE = settingsManager.getPermissionMode()
+const configuredClassifierModel = settingsManager.getClassifierModel()
+if (configuredClassifierModel) {
+  process.env.LUCENT_CODE_CLASSIFIER_MODEL = configuredClassifierModel
+} else {
+  delete process.env.LUCENT_CODE_CLASSIFIER_MODEL
+}
 
 // Run onboarding wizard on first launch (no LLM provider configured)
 if (!isPrintMode && shouldRunOnboarding(authStorage, settingsManager.getDefaultProvider())) {

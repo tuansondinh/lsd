@@ -54,11 +54,19 @@ import type {
 } from "../../core/extensions/index.js";
 import { FooterDataProvider, type ReadonlyFooterDataProvider } from "../../core/footer-data-provider.js";
 import { type AppAction, KeybindingsManager } from "../../core/keybindings.js";
+import { ClassifierService } from "../../core/classifier-service.js";
 import { createCompactionSummaryMessage } from "../../core/messages.js";
 import { resolveModelScope } from "../../core/model-resolver.js";
 import type { ResourceDiagnostic } from "../../core/resource-loader.js";
 import { type SessionContext, SessionManager } from "../../core/session-manager.js";
 import { BUILTIN_SLASH_COMMANDS } from "../../core/slash-commands.js";
+import {
+	getPermissionMode,
+	setPermissionMode,
+	setFileChangeApprovalHandler,
+	setClassifierHandler,
+	type PermissionMode,
+} from "../../core/tool-approval.js";
 import type { TruncationResult } from "../../core/tools/truncate.js";
 import { getChangelogPath, getNewEntries, parseChangelog } from "../../utils/changelog.js";
 import { extensionForImageMimeType, readClipboardImage } from "../../utils/clipboard-image.js";
@@ -287,6 +295,7 @@ export class InteractiveMode {
 		this.footerDataProvider = new FooterDataProvider();
 		this.footer = new FooterComponent(session, this.footerDataProvider);
 		this.footer.setAutoCompactEnabled(session.autoCompactionEnabled);
+		this.footer.setPermissionMode(getPermissionMode());
 
 		// Load hide thinking block setting
 		this.hideThinkingBlock = this.settingsManager.getHideThinkingBlock();
@@ -496,6 +505,8 @@ export class InteractiveMode {
 		// Start the UI
 		this.ui.start();
 		this.isInitialized = true;
+
+		this._registerApprovalHandlers();
 
 		// Set terminal title
 		this.updateTerminalTitle();
@@ -1585,6 +1596,80 @@ export class InteractiveMode {
 		return result === "Yes";
 	}
 
+	private _registerApprovalHandlers(): void {
+		const classifierService = new ClassifierService(this.session.modelRegistry.authStorage);
+
+		setFileChangeApprovalHandler(async (request) => {
+			this.loadingAnimation?.setMessage("Waiting for approval…");
+
+			const actionLabel = request.action.toUpperCase();
+			const title = `Allow ${actionLabel}: ${request.path}\n${request.message}`;
+			const approved = await this._showApprovalConfirm(title);
+
+			if (this.loadingAnimation) {
+				this.loadingAnimation.setMessage(this.defaultWorkingMessage);
+			}
+			return approved;
+		});
+
+		setClassifierHandler(async (request) => {
+			this.loadingAnimation?.setMessage("Classifying tool call…");
+
+			const argsPreview = (() => {
+				try {
+					const s = JSON.stringify(request.args);
+					return s.length > 120 ? s.slice(0, 120) + "…" : s;
+				} catch {
+					return String(request.args);
+				}
+			})();
+
+			const context = {
+				userMessages: this.session.agent.state.messages
+					.filter((message) => message.role === "user")
+					.slice(-10)
+					.map((message) => {
+						if (typeof message.content === "string") return message.content;
+						return message.content
+							.filter((block): block is { type: "text"; text: string } => block.type === "text")
+							.map((block) => block.text)
+							.join("\n");
+					})
+					.filter((text) => text.trim().length > 0),
+				projectInstructions: undefined,
+			};
+
+			const classifierModel = this.settingsManager.getClassifierModel();
+			const classifierProvider = classifierModel?.startsWith("google/") ? "google" : "anthropic";
+			const decision = await classifierService.classifyToolCall(request.toolName, request.args, context, {
+				provider: classifierProvider,
+				classifierModel: classifierModel ?? process.env.LUCENT_CODE_CLASSIFIER_MODEL,
+				sessionId: this.session.sessionId,
+			});
+
+			if (decision.approved) {
+				if (this.loadingAnimation) {
+					this.loadingAnimation.setMessage(this.defaultWorkingMessage);
+				}
+				return true;
+			}
+
+			this.loadingAnimation?.setMessage("Waiting for approval…");
+			const title = `Classifier ${decision.source === "rule" ? "blocked" : "did not approve"} ${request.toolName}\n${decision.reason}\n${argsPreview}`;
+			const approved = await this._showApprovalConfirm(title);
+
+			if (this.loadingAnimation) {
+				this.loadingAnimation.setMessage(this.defaultWorkingMessage);
+			}
+			return approved;
+		});
+	}
+
+	private async _showApprovalConfirm(title: string): Promise<boolean> {
+		const result = await this.showExtensionSelector(title, ["Yes", "No"]);
+		return result === "Yes";
+	}
+
 	/**
 	 * Show a text input for extensions.
 	 */
@@ -1903,6 +1988,7 @@ export class InteractiveMode {
 		this.defaultEditor.onAction("cycleThinkingLevel", () => this.cycleThinkingLevel());
 		this.defaultEditor.onAction("cycleModelForward", () => this.cycleModel("forward"));
 		this.defaultEditor.onAction("cycleModelBackward", () => this.cycleModel("backward"));
+		this.defaultEditor.onAction("cyclePermissionMode", () => this.cyclePermissionMode());
 
 		// Global debug handler on TUI (works regardless of focus)
 		this.ui.onDebug = () => this.handleDebugCommand();
@@ -2040,6 +2126,19 @@ export class InteractiveMode {
 		this.chatContainer.addChild(text);
 		this.lastStatusSpacer = spacer;
 		this.lastStatusText = text;
+		this.ui.requestRender();
+	}
+
+	private cyclePermissionMode(): void {
+		const modes: PermissionMode[] = ["danger-full-access", "accept-on-edit", "auto"];
+		const current = getPermissionMode();
+		const idx = modes.indexOf(current);
+		const next = modes[(idx + 1) % modes.length];
+		setPermissionMode(next);
+		this.settingsManager.setPermissionMode(next);
+		process.env.LUCENT_CODE_PERMISSION_MODE = next;
+		this.footer.setPermissionMode(next);
+		this.showStatus(`Permission mode: ${next}`);
 		this.ui.requestRender();
 	}
 
