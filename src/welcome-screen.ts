@@ -42,7 +42,7 @@ export function printWelcomeScreen(opts: WelcomeScreenOptions): void {
 
   // Narrow terminal fallback
   if (termWidth < 70) {
-    process.stderr.write(`\n  let stuff develop v${version}\n  ${shortCwd}\n\n`)
+    process.stderr.write(`\n  Lucent Software Developer v${version}\n  ${shortCwd}\n\n`)
     return
   }
 
@@ -59,7 +59,7 @@ export function printWelcomeScreen(opts: WelcomeScreenOptions): void {
   const leftRows = ['', ...GSD_LOGO, '']
 
   // ── Right rows (8 total, null = divider) ────────────────────────────────────
-  const titleLeft  = `  ${chalk.bold('let stuff develop')}`
+  const titleLeft  = `  ${chalk.bold('Lucent Software Developer')}`
   const titleRight = chalk.dim(`v${version}`)
   const titleFill  = RIGHT_INNER - visLen(titleLeft) - visLen(titleRight)
   const titleRow   = titleLeft + ' '.repeat(Math.max(1, titleFill)) + titleRight
@@ -73,7 +73,7 @@ export function printWelcomeScreen(opts: WelcomeScreenOptions): void {
 
   // Tools left, hint right-aligned on the same row
   const toolsLeft  = toolParts.length > 0 ? chalk.dim('  ' + toolParts.join('  ·  ')) : ''
-  const hintRight  = chalk.dim('/gsd to begin  ·  /gsd help')
+  const hintRight  = chalk.dim('/lsd to begin  ·  /lsd help')
   const footerFill = RIGHT_INNER - visLen(toolsLeft) - visLen(hintRight)
   const footerRow  = toolsLeft + ' '.repeat(Math.max(1, footerFill)) + hintRight
 
