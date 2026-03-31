@@ -95,6 +95,8 @@ export interface SlashCommandContext {
 	showUserMessageSelector(): void;
 	showTreeSelector(): void;
 	showProviderManager(): void;
+	runSetupWizard(): Promise<void>;
+	cyclePermissionMode(): void;
 	showOAuthSelector(mode: "login" | "logout"): Promise<void>;
 	showSessionSelector(): void;
 	handleClearCommand(): Promise<void>;
@@ -174,6 +176,14 @@ export async function dispatchSlashCommand(
 	}
 	if (text === "/provider") {
 		ctx.showProviderManager();
+		return true;
+	}
+	if (text === "/config" || text === "/setup") {
+		await ctx.runSetupWizard();
+		return true;
+	}
+	if (text === "/permission") {
+		ctx.cyclePermissionMode();
 		return true;
 	}
 	if (text === "/login") {

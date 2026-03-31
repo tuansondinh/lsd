@@ -1,6 +1,6 @@
 # Migration from v1
 
-If you have projects with `.planning` directories from the original Get Shit Done (v1), you can migrate them to GSD-2's `.gsd` format.
+If you have projects with `.planning` directories from the original Lucent Software Developer (v1), you can migrate them to GSD-2's `.gsd` format.
 
 ## Running the Migration
 

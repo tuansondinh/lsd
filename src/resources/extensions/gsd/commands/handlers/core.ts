@@ -11,7 +11,7 @@ import { projectRoot } from "../context.js";
 
 export function showHelp(ctx: ExtensionCommandContext): void {
   const lines = [
-    "GSD — Get Shit Done\n",
+    "GSD — Lucent Software Developer\n",
     "WORKFLOW",
     "  /gsd start <tpl>   Start a workflow template (bugfix, spike, feature, hotfix, etc.)",
     "  /gsd templates     List available workflow templates  [info <name>]",

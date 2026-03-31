@@ -1156,7 +1156,7 @@ export async function showSmartEntry(
       ), "gsd-run", ctx, "discuss-milestone");
     } else {
       const choice = await showNextAction(ctx, {
-        title: "GSD — Get Shit Done",
+        title: "GSD — Lucent Software Developer",
         summary: ["No active milestone."],
         actions: [
           {

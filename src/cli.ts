@@ -7,9 +7,11 @@ import {
   SessionManager,
   createAgentSession,
   InteractiveMode,
+  resetStdinForTui,
   runPrintMode,
   runRpcMode,
 } from '@gsd/pi-coding-agent'
+import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { agentDir, sessionsDir, authFilePath } from './app-paths.js'
@@ -201,14 +203,6 @@ if (packageCommand.handled) {
   process.exit(packageCommand.exitCode)
 }
 
-// `gsd config` — replay the setup wizard and exit
-if (cliFlags.messages[0] === 'config') {
-  const authStorage = AuthStorage.create(authFilePath)
-  loadStoredEnvKeys(authStorage)
-  await runOnboarding(authStorage)
-  process.exit(0)
-}
-
 // `gsd web stop [path|all]` — stop web server before anything else
 if (cliFlags.messages[0] === 'web' && cliFlags.messages[1] === 'stop') {
   const webFlags = parseWebCliArgs(process.argv)
@@ -347,18 +341,21 @@ if (configuredClassifierModel) {
   delete process.env.LUCENT_CODE_CLASSIFIER_MODEL
 }
 
+// `gsd config` — replay the setup wizard and exit
+if (cliFlags.messages[0] === 'config') {
+  await runOnboarding(authStorage, settingsManager)
+  process.exit(0)
+}
+
 // Run onboarding wizard on first launch (no LLM provider configured)
 if (!isPrintMode && shouldRunOnboarding(authStorage, settingsManager.getDefaultProvider())) {
-  await runOnboarding(authStorage)
+  await runOnboarding(authStorage, settingsManager)
 
   // Clean up stdin state left by @clack/prompts.
   // readline.emitKeypressEvents() adds a permanent data listener and
   // readline.createInterface() may leave stdin paused. Remove stale
   // listeners and pause stdin so the TUI can start with a clean slate.
-  process.stdin.removeAllListeners('data')
-  process.stdin.removeAllListeners('keypress')
-  if (process.stdin.setRawMode) process.stdin.setRawMode(false)
-  process.stdin.pause()
+  resetStdinForTui()
 }
 
 // Update check — non-blocking banner check; interactive prompt deferred to avoid
@@ -706,7 +703,23 @@ if (!process.env.GSD_FIRST_RUN_BANNER) {
   })
 }
 
-const interactiveMode = new InteractiveMode(session)
+const interactiveMode = new InteractiveMode(session, {
+  runSetupWizard: async () => {
+    const cliCommand = process.platform === 'win32' ? 'lsd.cmd' : 'lsd'
+    const result = spawnSync(cliCommand, ['config'], {
+      stdio: 'inherit',
+      env: process.env,
+    })
+    if (result.error) {
+      throw result.error
+    }
+    if (typeof result.status === 'number' && result.status !== 0) {
+      throw new Error(`config wizard exited with status ${result.status}`)
+    }
+    loadStoredEnvKeys(authStorage)
+    resetStdinForTui()
+  },
+})
 markStartup('InteractiveMode')
 printStartupTimings()
 await interactiveMode.run()

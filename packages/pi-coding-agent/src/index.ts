@@ -2,6 +2,7 @@
 
 // Config paths
 export { getAgentDir, VERSION } from "./config.js";
+export { resetStdinForTui } from "./utils/reset-stdin.js";
 export {
 	AgentSession,
 	type AgentSessionConfig,

@@ -2090,7 +2090,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Windows backspace in masked input + custom browser path support (#36, #34)
 
 ### Changed
-- Renamed "Get Stuff Done" to "Get Shit Done"
+- Renamed "Get Stuff Done" to "Lucent Software Developer"
 
 ## [0.3.0] - 2026-03-11
 

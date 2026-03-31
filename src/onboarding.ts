@@ -13,9 +13,10 @@
 import { execFile } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import type { AuthStorage } from '@gsd/pi-coding-agent'
+import type { AuthStorage, SettingsManager } from '@gsd/pi-coding-agent'
 import { renderLogo } from './logo.js'
 import { agentDir } from './app-paths.js'
+import { accentAnsi } from './cli-theme.js'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -92,6 +93,15 @@ const OTHER_PROVIDERS = [
   { value: 'mistral', label: 'Mistral' },
   { value: 'ollama-cloud', label: 'Ollama Cloud' },
   { value: 'custom-openai', label: 'Custom (OpenAI-compatible)' },
+]
+
+const CLASSIFIER_MODEL_OPTIONS = [
+  { value: 'anthropic/claude-haiku-4-5', label: 'Claude Haiku 4.5', hint: 'fast default' },
+  { value: 'anthropic/claude-sonnet-4-5', label: 'Claude Sonnet 4.5', hint: 'stronger reasoning' },
+  { value: 'google/gemini-2.5-flash', label: 'Gemini 2.5 Flash', hint: 'fast and cheap' },
+  { value: 'google/gemini-2.5-pro', label: 'Gemini 2.5 Pro', hint: 'stronger reasoning' },
+  { value: 'google/gemini-3-flash-preview', label: 'Gemini 3 Flash Preview', hint: 'newer flash option' },
+  { value: 'google/gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro Preview', hint: 'newer pro option' },
 ]
 
 // ─── Dynamic imports ──────────────────────────────────────────────────────────
@@ -172,7 +182,7 @@ export function shouldRunOnboarding(authStorage: AuthStorage, settingsDefaultPro
  * All steps are skippable. All errors are recoverable.
  * Writes status to stderr during execution.
  */
-export async function runOnboarding(authStorage: AuthStorage): Promise<void> {
+export async function runOnboarding(authStorage: AuthStorage, settingsManager: SettingsManager): Promise<void> {
   let p: ClackModule
   let pc: PicoModule
   try {
@@ -184,8 +194,8 @@ export async function runOnboarding(authStorage: AuthStorage): Promise<void> {
   }
 
   // ── Intro ─────────────────────────────────────────────────────────────────
-  process.stderr.write(renderLogo(pc.cyan))
-  p.intro(pc.bold('Welcome to GSD — let\'s get you set up'))
+  process.stderr.write(renderLogo(accentAnsi))
+  p.intro(pc.bold('Welcome to LSD — let\'s get you set up'))
 
   // ── LLM Provider Selection ────────────────────────────────────────────────
   let llmConfigured = false
@@ -194,11 +204,11 @@ export async function runOnboarding(authStorage: AuthStorage): Promise<void> {
   } catch (err) {
     // User cancelled (Ctrl+C in clack throws) or unexpected error
     if (isCancelError(p, err)) {
-      p.cancel('Setup cancelled — you can run /login inside GSD later.')
+      p.cancel('Setup cancelled — you can run /login inside LSD later.')
       return
     }
     p.log.warn(`LLM setup failed: ${err instanceof Error ? err.message : String(err)}`)
-    p.log.info('You can configure your LLM provider later with /login inside GSD.')
+    p.log.info('You can configure your LLM provider later with /login inside LSD.')
   }
 
   // ── Web Search Provider ──────────────────────────────────────────────────
@@ -237,6 +247,18 @@ export async function runOnboarding(authStorage: AuthStorage): Promise<void> {
     p.log.warn(`Tool key setup failed: ${err instanceof Error ? err.message : String(err)}`)
   }
 
+  // ── Auto-mode Classifier Model ───────────────────────────────────────────
+  let classifierModel: string | null = null
+  try {
+    classifierModel = await runClassifierModelStep(p, pc, settingsManager)
+  } catch (err) {
+    if (isCancelError(p, err)) {
+      p.cancel('Setup cancelled.')
+      return
+    }
+    p.log.warn(`Classifier model setup failed: ${err instanceof Error ? err.message : String(err)}`)
+  }
+
   // ── Summary ───────────────────────────────────────────────────────────────
   const summaryLines: string[] = []
   if (llmConfigured) {
@@ -249,19 +271,19 @@ export async function runOnboarding(authStorage: AuthStorage): Promise<void> {
       summaryLines.push(`${pc.green('✓')} LLM provider configured`)
     }
   } else {
-    summaryLines.push(`${pc.yellow('↷')} LLM provider: skipped — use /login inside GSD`)
+    summaryLines.push(`${pc.yellow('↷')} LLM provider: skipped — use /login inside LSD`)
   }
 
   if (searchConfigured) {
     summaryLines.push(`${pc.green('✓')} Web search: ${searchConfigured}`)
   } else {
-    summaryLines.push(`${pc.dim('↷')} Web search: not configured — use /search-provider inside GSD`)
+    summaryLines.push(`${pc.dim('↷')} Web search: not configured — use /search-provider inside LSD`)
   }
 
   if (remoteConfigured) {
     summaryLines.push(`${pc.green('✓')} Remote questions: ${remoteConfigured}`)
   } else {
-    summaryLines.push(`${pc.dim('↷')} Remote questions: not configured — use /gsd remote inside GSD`)
+    summaryLines.push(`${pc.dim('↷')} Remote questions: not configured — use /lsd remote inside LSD`)
   }
 
   if (toolKeyCount > 0) {
@@ -270,8 +292,57 @@ export async function runOnboarding(authStorage: AuthStorage): Promise<void> {
     summaryLines.push(`${pc.dim('↷')} Tool keys: none configured`)
   }
 
+  if (classifierModel) {
+    summaryLines.push(`${pc.green('✓')} Classifier model: ${classifierModel}`)
+  } else {
+    summaryLines.push(`${pc.dim('↷')} Classifier model: app default`)
+  }
+
   p.note(summaryLines.join('\n'), 'Setup complete')
-  p.outro(pc.dim('Launching GSD...'))
+  p.outro(pc.dim('Launching LSD...'))
+}
+
+async function runClassifierModelStep(
+  p: ClackModule,
+  pc: PicoModule,
+  settingsManager: SettingsManager,
+): Promise<string | null> {
+  const existing = settingsManager.getClassifierModel()
+  const options = []
+
+  if (existing) {
+    options.push({ value: 'keep', label: `Keep current (${existing})`, hint: 'already configured' })
+  }
+
+  options.push(
+    { value: 'default', label: 'Use app default', hint: 'good baseline if you do not want to choose' },
+    ...CLASSIFIER_MODEL_OPTIONS,
+    { value: 'skip', label: 'Skip for now', hint: 'change later in /settings' },
+  )
+
+  const choice = await p.select({
+    message: 'Choose the Auto-mode classifier model',
+    options,
+  })
+
+  if (p.isCancel(choice) || choice === 'skip') {
+    return existing ?? null
+  }
+  if (choice === 'keep') {
+    return existing ?? null
+  }
+  if (choice === 'default') {
+    settingsManager.setClassifierModel(undefined)
+    delete process.env.LUCENT_CODE_CLASSIFIER_MODEL
+    p.log.success(`Classifier model: ${pc.green('app default')}`)
+    return null
+  }
+
+  const selected = String(choice)
+  settingsManager.setClassifierModel(selected)
+  process.env.LUCENT_CODE_CLASSIFIER_MODEL = selected
+  p.log.success(`Classifier model: ${pc.green(selected)}`)
+  return selected
 }
 
 // ─── LLM Authentication Step ──────────────────────────────────────────────────
@@ -295,7 +366,7 @@ async function runLlmStep(p: ClackModule, pc: PicoModule, authStorage: AuthStora
   authOptions.push(
     { value: 'browser', label: 'Sign in with your browser', hint: 'recommended — same login as claude.ai / ChatGPT' },
     { value: 'api-key', label: 'Paste an API key', hint: 'from your provider dashboard' },
-    { value: 'skip', label: 'Skip for now', hint: 'use /login inside GSD later' },
+    { value: 'skip', label: 'Skip for now', hint: 'use /login inside LSD later' },
   )
 
   const method = await p.select({
@@ -574,7 +645,7 @@ async function runWebSearchStep(
   options.push(
     { value: 'brave', label: 'Brave Search', hint: 'requires API key — brave.com/search/api' },
     { value: 'tavily', label: 'Tavily', hint: 'requires API key — tavily.com' },
-    { value: 'skip', label: 'Skip for now', hint: 'use /search-provider inside GSD later' },
+    { value: 'skip', label: 'Skip for now', hint: 'use /search-provider inside LSD later' },
   )
 
   const choice = await p.select({
@@ -692,7 +763,7 @@ async function runRemoteQuestionsStep(
   )
 
   const choice = await p.select({
-    message: 'Set up remote questions? (get notified when GSD needs input)',
+    message: 'Set up remote questions? (get notified when LSD needs input)',
     options,
   })
 
@@ -811,7 +882,7 @@ async function runRemoteQuestionsStep(
       const res = await fetch(`https://api.telegram.org/bot${trimmed}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: trimmedChatId, text: 'GSD remote questions connected.' }),
+        body: JSON.stringify({ chat_id: trimmedChatId, text: 'LSD remote questions connected.' }),
         signal: AbortSignal.timeout(15_000),
       })
       const data = await res.json() as any
@@ -906,7 +977,7 @@ async function runDiscordChannelStep(p: ClackModule, pc: PicoModule, token: stri
   // Select channel
   const MANUAL_VALUE = '__manual__'
   const channelChoice = await p.select({
-    message: 'Which channel should GSD use for remote questions?',
+    message: 'Which channel should LSD use for remote questions?',
     options: [
       ...channels.map(ch => ({ value: ch.id, label: `#${ch.name}` })),
       { value: MANUAL_VALUE, label: 'Enter channel ID manually' },
@@ -936,4 +1007,3 @@ async function runDiscordChannelStep(p: ClackModule, pc: PicoModule, token: stri
   p.log.success(`Discord channel: ${pc.green(channelName ? `#${channelName}` : channelId)}`)
   return channelName ?? null
 }
-

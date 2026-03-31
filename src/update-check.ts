@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import chalk from 'chalk'
 import { appRoot } from './app-paths.js'
@@ -47,6 +47,14 @@ export function writeUpdateCache(cache: UpdateCheckCache, cachePath: string = CA
   }
 }
 
+function clearUpdateCache(cachePath: string = CACHE_FILE): void {
+  try {
+    rmSync(cachePath, { force: true })
+  } catch {
+    // Non-fatal — don't block startup if cache deletion fails
+  }
+}
+
 function printUpdateBanner(current: string, latest: string): void {
   process.stderr.write(
     `  ${chalk.yellow('Update available:')} ${chalk.dim(`v${current}`)} → ${chalk.bold(`v${latest}`)}\n` +
@@ -92,7 +100,10 @@ export async function checkForUpdates(options: UpdateCheckOptions = {}): Promise
     const res = await fetch(registryUrl, { signal: controller.signal })
     clearTimeout(timeout)
 
-    if (!res.ok) return
+    if (!res.ok) {
+      if (res.status === 404) clearUpdateCache(cachePath)
+      return
+    }
 
     const data = (await res.json()) as { version?: string }
     const latestVersion = data.version
@@ -145,6 +156,8 @@ export async function checkAndPromptForUpdates(options: UpdateCheckOptions = {})
           latestVersion = data.version
           writeUpdateCache({ lastCheck: Date.now(), latestVersion }, cachePath)
         }
+      } else if (res.status === 404) {
+        clearUpdateCache(cachePath)
       }
     } catch {
       // Network unavailable — silently skip

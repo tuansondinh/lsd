@@ -70,6 +70,7 @@ import {
 import type { TruncationResult } from "../../core/tools/truncate.js";
 import { getChangelogPath, getNewEntries, parseChangelog } from "../../utils/changelog.js";
 import { extensionForImageMimeType, readClipboardImage } from "../../utils/clipboard-image.js";
+import { resetStdinForTui } from "../../utils/reset-stdin.js";
 import { ensureTool } from "../../utils/tools-manager.js";
 import { AssistantMessageComponent } from "./components/assistant-message.js";
 import { BashExecutionComponent } from "./components/bash-execution.js";
@@ -161,6 +162,8 @@ export interface InteractiveModeOptions {
 	submitPromptsDirectly?: boolean;
 	/** Control what happens when the user requests shutdown from the TUI. */
 	shutdownBehavior?: "exit_process" | "stop_ui" | "ignore";
+	/** Optional host-provided setup wizard entrypoint (e.g. app onboarding). */
+	runSetupWizard?: () => Promise<void>;
 }
 
 export class InteractiveMode {
@@ -2068,6 +2071,8 @@ export class InteractiveMode {
 			showUserMessageSelector: () => this.showUserMessageSelector(),
 			showTreeSelector: () => this.showTreeSelector(),
 			showProviderManager: () => this.showProviderManager(),
+			runSetupWizard: () => this.runSetupWizard(),
+			cyclePermissionMode: () => this.cyclePermissionMode(),
 			showOAuthSelector: (mode) => this.showOAuthSelector(mode),
 			showSessionSelector: () => this.showSessionSelector(),
 			handleClearCommand: () => this.handleClearCommand(),
@@ -2140,6 +2145,34 @@ export class InteractiveMode {
 		this.footer.setPermissionMode(next);
 		this.showStatus(`Permission mode: ${next}`);
 		this.ui.requestRender();
+	}
+
+	private async runSetupWizard(): Promise<void> {
+		if (!this.options.runSetupWizard) {
+			this.showWarning("Setup wizard is not available in this host. Use the app's config command instead.");
+			return;
+		}
+
+		let wizardError: unknown = undefined;
+		this.ui.stop();
+		try {
+			await this.options.runSetupWizard();
+		} catch (error) {
+			wizardError = error;
+		} finally {
+			resetStdinForTui();
+
+			this.ui.start();
+			this.updateTerminalTitle();
+			await this.updateAvailableProviderCount();
+			this.footer.invalidate();
+			this.ui.requestRender(true);
+		}
+
+		if (wizardError) {
+			const message = wizardError instanceof Error ? wizardError.message : String(wizardError);
+			this.showWarning(`Configuration wizard failed: ${message}`);
+		}
 	}
 
 	private addMessageToChat(message: AgentMessage, options?: { populateHistory?: boolean }): void {

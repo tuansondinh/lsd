@@ -147,7 +147,7 @@ const SUBCOMMAND_HELP: Record<string, string> = {
 SUBCOMMAND_HELP['wt'] = SUBCOMMAND_HELP['worktree']
 
 export function printHelp(version: string): void {
-  process.stdout.write(`GSD v${version} — Get Shit Done\n\n`)
+  process.stdout.write(`GSD v${version} — Lucent Software Developer\n\n`)
   process.stdout.write('Usage: gsd [options] [message...]\n\n')
   process.stdout.write('Options:\n')
   process.stdout.write('  --mode <text|json|rpc|mcp> Output mode (default: interactive)\n')
