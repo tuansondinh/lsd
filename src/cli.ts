@@ -25,12 +25,6 @@ import chalk from 'chalk'
 import { accentHex } from './cli-theme.js'
 import { checkForUpdates } from './update-check.js'
 import { printHelp, printSubcommandHelp } from './help-text.js'
-import {
-  parseCliArgs as parseWebCliArgs,
-  runWebCliBranch,
-  migrateLegacyFlatSessions,
-} from './cli-web-branch.js'
-import { stopWebMode } from './web-mode.js'
 import { getProjectSessionsDir } from './project-sessions.js'
 import { markStartup, printStartupTimings } from './startup-timings.js'
 import { bootstrapRtk, GSD_RTK_DISABLED_ENV } from './rtk.js'
@@ -60,8 +54,6 @@ interface CliFlags {
   appendSystemPrompt?: string
   tools?: string[]
   messages: string[]
-  web?: boolean
-  webPath?: string
 
   /** Set by `gsd sessions` when the user picks a specific session to resume */
   _selectedSessionPath?: string
@@ -119,12 +111,6 @@ function parseCliArgs(argv: string[]): CliFlags {
     } else if (arg === '--help' || arg === '-h') {
       printHelp(process.env.GSD_VERSION || '0.0.0')
       process.exit(0)
-    } else if (arg === '--web') {
-      flags.web = true
-      // Capture optional project path after --web (not a flag)
-      if (i + 1 < args.length && !args[i + 1].startsWith('-')) {
-        flags.webPath = args[++i]
-      }
     } else if (!arg.startsWith('--') && !arg.startsWith('-')) {
       flags.messages.push(arg)
     }
@@ -171,7 +157,7 @@ exitIfManagedResourcesAreNewer(agentDir)
 // Early TTY check — must come before heavy initialization to avoid dangling
 // handles that prevent process.exit() from completing promptly.
 const hasSubcommand = cliFlags.messages.length > 0
-if (!process.stdin.isTTY && !isPrintMode && !hasSubcommand && !cliFlags.listModels && !cliFlags.web) {
+if (!process.stdin.isTTY && !isPrintMode && !hasSubcommand && !cliFlags.listModels) {
   process.stderr.write('[lsd] Error: Interactive mode requires a terminal (TTY).\n')
   process.stderr.write('[lsd] Non-interactive alternatives:\n')
   process.stderr.write('[lsd]   gsd auto                       Auto-mode (pipeable, no TUI)\n')
@@ -202,35 +188,6 @@ const packageCommand = await runPackageCommand({
 if (packageCommand.handled) {
   process.exit(packageCommand.exitCode)
 }
-
-// `gsd web stop [path|all]` — stop web server before anything else
-if (cliFlags.messages[0] === 'web' && cliFlags.messages[1] === 'stop') {
-  const webFlags = parseWebCliArgs(process.argv)
-  const webBranch = await runWebCliBranch(webFlags, {
-    stopWebMode,
-    stderr: process.stderr,
-    baseSessionsDir: sessionsDir,
-    agentDir,
-  })
-  if (webBranch.handled) {
-    process.exit(webBranch.exitCode)
-  }
-}
-
-// `gsd --web [path]` or `gsd web [start] [path]` — launch browser-only web mode
-if (cliFlags.web || (cliFlags.messages[0] === 'web' && cliFlags.messages[1] !== 'stop')) {
-  await ensureRtkBootstrap()
-  const webFlags = parseWebCliArgs(process.argv)
-  const webBranch = await runWebCliBranch(webFlags, {
-    stderr: process.stderr,
-    baseSessionsDir: sessionsDir,
-    agentDir,
-  })
-  if (webBranch.handled) {
-    process.exit(webBranch.exitCode)
-  }
-}
-
 
 // `gsd sessions` — list past sessions and pick one to resume
 if (cliFlags.messages[0] === 'sessions') {
@@ -582,11 +539,6 @@ await ensureRtkBootstrap()
 // /resume only shows sessions from the current working directory.
 const cwd = process.cwd()
 const projectSessionsDir = getProjectSessionsDir(cwd)
-
-// Migrate legacy flat sessions: before per-directory scoping, all .jsonl session
-// files lived directly in ~/.gsd/sessions/. Move them into the correct per-cwd
-// subdirectory so /resume can find them.
-migrateLegacyFlatSessions(sessionsDir, projectSessionsDir)
 
 const sessionManager = cliFlags._selectedSessionPath
   ? SessionManager.open(cliFlags._selectedSessionPath, projectSessionsDir)

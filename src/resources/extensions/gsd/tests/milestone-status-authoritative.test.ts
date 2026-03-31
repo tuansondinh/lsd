@@ -8,7 +8,6 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { getMilestoneStatus } from "../../../../../web/lib/workspace-status.ts";
 
 // Inline type to avoid importing .tsx (not compiled to .js by test pipeline)
 interface TestMilestone {
@@ -18,6 +17,31 @@ interface TestMilestone {
   status?: "complete" | "active" | "pending" | "parked";
   validationVerdict?: "pass" | "needs-attention" | "needs-remediation";
   slices: Array<{ id: string; title: string; done: boolean; tasks: Array<{ id: string; title: string; done: boolean }> }>;
+}
+
+function getMilestoneStatus(
+  milestone: TestMilestone,
+  active: { milestoneId?: string },
+): "done" | "in-progress" | "pending" {
+  if (milestone.status) {
+    switch (milestone.status) {
+      case "complete":
+        return "done";
+      case "active":
+        return "in-progress";
+      case "pending":
+      case "parked":
+        return "pending";
+    }
+  }
+
+  if (milestone.slices.length > 0 && milestone.slices.every((slice) => slice.done)) {
+    return "done";
+  }
+  if (active.milestoneId === milestone.id) {
+    return "in-progress";
+  }
+  return milestone.slices.some((slice) => slice.done) ? "in-progress" : "pending";
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
