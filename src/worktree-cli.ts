@@ -19,6 +19,7 @@
  */
 
 import chalk from 'chalk'
+import { accentHex } from './cli-theme.js'
 import { createJiti } from '@mariozechner/jiti'
 import { fileURLToPath } from 'node:url'
 import { generateWorktreeName } from './worktree-name-gen.js'
@@ -130,10 +131,10 @@ function formatStatus(s: WorktreeStatus): string {
   const badge = s.uncommitted
     ? chalk.yellow(' (uncommitted)')
     : s.filesChanged > 0
-      ? chalk.cyan(' (unmerged)')
+      ? chalk.hex(accentHex())(' (unmerged)')
       : chalk.green(' (clean)')
 
-  lines.push(`  ${chalk.bold.cyan(s.name)}${badge}`)
+  lines.push(`  ${chalk.bold.hex(accentHex())(s.name)}${badge}`)
   lines.push(`    ${chalk.dim('branch')}  ${chalk.magenta(s.branch)}`)
   lines.push(`    ${chalk.dim('path')}    ${chalk.dim(s.path)}`)
 
@@ -300,7 +301,7 @@ async function handleStatusBanner(basePath: string): Promise<void> {
 
   if (withChanges.length === 0) return
 
-  const names = withChanges.map(w => chalk.cyan(w.name)).join(', ')
+  const names = withChanges.map(w => chalk.hex(accentHex())(w.name)).join(', ')
   process.stderr.write(
     chalk.dim('[gsd] ') +
     chalk.yellow(`${withChanges.length} worktree${withChanges.length === 1 ? '' : 's'} with unmerged changes: `) +
