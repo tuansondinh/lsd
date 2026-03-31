@@ -71,11 +71,9 @@ export function printWelcomeScreen(opts: WelcomeScreenOptions): void {
   if (process.env.TAVILY_API_KEY)     toolParts.push('Tavily ✓')
   if (process.env.CONTEXT7_API_KEY)   toolParts.push('Context7 ✓')
 
-  // Tools left, hint right-aligned on the same row
+  // Tools summary row
   const toolsLeft  = toolParts.length > 0 ? chalk.dim('  ' + toolParts.join('  ·  ')) : ''
-  const hintRight  = chalk.dim('/lsd to begin  ·  /lsd help')
-  const footerFill = RIGHT_INNER - visLen(toolsLeft) - visLen(hintRight)
-  const footerRow  = toolsLeft + ' '.repeat(Math.max(1, footerFill)) + hintRight
+  const footerRow  = rpad(toolsLeft, RIGHT_INNER)
 
   const DIVIDER = null
   const rightRows: (string | null)[] = [
