@@ -54,19 +54,36 @@ function resolvePromptInput(input: string | undefined, description: string): str
 	return input;
 }
 
+function tryReadContextFile(filePath: string): { path: string; content: string } | null {
+	if (!existsSync(filePath)) {
+		return null;
+	}
+	try {
+		return {
+			path: filePath,
+			content: readFileSync(filePath, "utf-8"),
+		};
+	} catch (error) {
+		console.error(chalk.yellow(`Warning: Could not read ${filePath}: ${error}`));
+		return null;
+	}
+}
+
 function loadContextFileFromDir(dir: string): { path: string; content: string } | null {
-	const candidates = ["AGENTS.md", "CLAUDE.md"];
-	for (const filename of candidates) {
-		const filePath = join(dir, filename);
-		if (existsSync(filePath)) {
-			try {
-				return {
-					path: filePath,
-					content: readFileSync(filePath, "utf-8"),
-				};
-			} catch (error) {
-				console.error(chalk.yellow(`Warning: Could not read ${filePath}: ${error}`));
-			}
+	const candidates = [
+		join(dir, "lsd.md"),
+		join(dir, ".lsd", "lsd.md"),
+		join(dir, CONFIG_DIR_NAME, "lsd.md"),
+		join(dir, "LSD.md"),
+		join(dir, ".lsd", "LSD.md"),
+		join(dir, CONFIG_DIR_NAME, "LSD.md"),
+		join(dir, "AGENTS.md"),
+		join(dir, "CLAUDE.md"),
+	];
+	for (const filePath of new Set(candidates)) {
+		const loaded = tryReadContextFile(filePath);
+		if (loaded) {
+			return loaded;
 		}
 	}
 	return null;
@@ -81,7 +98,8 @@ function loadProjectContextFiles(
 	const contextFiles: Array<{ path: string; content: string }> = [];
 	const seenPaths = new Set<string>();
 
-	const globalContext = loadContextFileFromDir(resolvedAgentDir);
+	const appRootDir = resolve(resolvedAgentDir, "..");
+	const globalContext = loadContextFileFromDir(appRootDir) ?? loadContextFileFromDir(resolvedAgentDir);
 	if (globalContext) {
 		contextFiles.push(globalContext);
 		seenPaths.add(globalContext.path);

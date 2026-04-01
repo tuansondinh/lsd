@@ -339,6 +339,7 @@ export {
 	resolveClassifierResponse,
 	requestFileChangeApproval,
 	setFileChangeApprovalHandler,
+	setPermissionMode,
 	setSubagentApprovalRouter,
 	setSubagentClassifierRouter,
 } from "./core/tool-approval.js";

@@ -8,8 +8,9 @@
 
 import os from 'node:os'
 import chalk from 'chalk'
-import { GSD_LOGO } from './logo.js'
-import { accentHex } from './cli-theme.js'
+import { GSD_LOGO_SEGMENTS } from './logo.js'
+import { brandNameChalk, LSD_BLUE, LSD_PINK, LSD_YELLOW } from './lsd-brand.js'
+
 
 export interface WelcomeScreenOptions {
   version: string
@@ -46,6 +47,11 @@ export function printWelcomeScreen(opts: WelcomeScreenOptions): void {
     return
   }
 
+  // ── LSD vibrant colors ───────────────────────────────────────────────────
+  const YELLOW = LSD_YELLOW
+  const BLUE = LSD_BLUE
+  const PINK = LSD_PINK
+
   // ── Panel widths ────────────────────────────────────────────────────────────
   // Layout: 1 leading space + LEFT_INNER logo content + 1 inner divider + RIGHT_INNER info
   // Total: 1 + LEFT_INNER + 1 + RIGHT_INNER = termWidth
@@ -56,11 +62,11 @@ export function printWelcomeScreen(opts: WelcomeScreenOptions): void {
   const H = '─', DV = '│', DS = '├'
 
   // ── Left rows: blank + 6 logo lines + blank (8 total) ───────────────────────
-  const leftRows = ['', ...GSD_LOGO, '']
+  const leftRows: (readonly [string, string, string] | null)[] = [null, ...GSD_LOGO_SEGMENTS, null]
 
   // ── Right rows (8 total, null = divider) ────────────────────────────────────
-  const titleLeft  = `  ${chalk.bold('Lucent Software Developer')}`
-  const titleRight = chalk.dim(`v${version}`)
+  const titleLeft  = `  ${brandNameChalk()}`
+  const titleRight = chalk.hex(YELLOW)(`v${version}`)
   const titleFill  = RIGHT_INNER - visLen(titleLeft) - visLen(titleRight)
   const titleRow   = titleLeft + ' '.repeat(Math.max(1, titleFill)) + titleRight
 
@@ -72,16 +78,16 @@ export function printWelcomeScreen(opts: WelcomeScreenOptions): void {
   if (process.env.CONTEXT7_API_KEY)   toolParts.push('Context7 ✓')
 
   // Tools summary row
-  const toolsLeft  = toolParts.length > 0 ? chalk.dim('  ' + toolParts.join('  ·  ')) : ''
+  const toolsLeft  = toolParts.length > 0 ? chalk.hex(PINK).dim('  ' + toolParts.join('  ·  ')) : ''
   const footerRow  = rpad(toolsLeft, RIGHT_INNER)
 
   const DIVIDER = null
   const rightRows: (string | null)[] = [
     titleRow,
     DIVIDER,
-    modelName ? `  Model      ${chalk.dim(modelName)}`  : '',
-    provider  ? `  Provider   ${chalk.dim(provider)}`   : '',
-    `  Directory  ${chalk.dim(shortCwd)}`,
+    modelName ? `  Model      ${chalk.hex(BLUE).dim(modelName)}`  : '',
+    provider  ? `  Provider   ${chalk.hex(BLUE).dim(provider)}`   : '',
+    `  Directory  ${chalk.hex(BLUE).dim(shortCwd)}`,
     DIVIDER,
     footerRow,
     '',
@@ -90,25 +96,30 @@ export function printWelcomeScreen(opts: WelcomeScreenOptions): void {
   // ── Render ──────────────────────────────────────────────────────────────────
   const out: string[] = ['']
 
-  // Top bar — full-width accent separator, matches auto-mode widget ui.bar()
-  out.push(chalk.hex(accentHex())(H.repeat(termWidth)))
+  // Top bar — full-width blue separator
+  out.push(chalk.hex(BLUE)(H.repeat(termWidth)))
 
   for (let i = 0; i < 8; i++) {
-    const row      = leftRows[i] ?? ''
-    const lContent = rpad(row ? chalk.hex(accentHex())(row) : '', LEFT_INNER)
+    const row = leftRows[i]
+    const lContent = row
+      ? rpad(
+          chalk.hex(YELLOW)(row[0]) + chalk.hex(BLUE)(row[1]) + chalk.hex(PINK)(row[2]),
+          LEFT_INNER,
+        )
+      : ' '.repeat(LEFT_INNER)
     const rRow     = rightRows[i]
 
     if (rRow === null) {
-      // Section divider: left logo area + dim ├────... extending right
-      out.push(' ' + lContent + chalk.dim(DS + H.repeat(RIGHT_INNER)))
+      // Section divider: left logo area + blue ├────... extending right
+      out.push(' ' + lContent + chalk.hex(BLUE).dim(DS + H.repeat(RIGHT_INNER)))
     } else {
       // Content row: 1 space + logo │ info (no outer vertical borders)
-      out.push(' ' + lContent + chalk.dim(DV) + rpad(rRow, RIGHT_INNER))
+      out.push(' ' + lContent + chalk.hex(BLUE).dim(DV) + rpad(rRow, RIGHT_INNER))
     }
   }
 
-  // Bottom bar — full-width accent separator
-  out.push(chalk.hex(accentHex())(H.repeat(termWidth)))
+  // Bottom bar — full-width blue separator
+  out.push(chalk.hex(BLUE)(H.repeat(termWidth)))
   out.push('')
 
   process.stderr.write(out.join('\n') + '\n')

@@ -13,7 +13,8 @@ import type { BashInterceptorRule } from "./tools/bash-interceptor.js";
 
 export interface CompactionSettings {
 	enabled?: boolean; // default: true
-	reserveTokens?: number; // default: 16384
+	thresholdPercent?: number; // default: 85
+	reserveTokens?: number; // default: 16384 (used for compaction summary generation budget)
 	keepRecentTokens?: number; // default: 20000
 }
 
@@ -113,7 +114,7 @@ export interface Settings {
 	lastChangelogVersion?: string;
 	defaultProvider?: string;
 	defaultModel?: string;
-	permissionMode?: "danger-full-access" | "accept-on-edit" | "auto";
+	permissionMode?: "danger-full-access" | "accept-on-edit" | "auto" | "plan";
 	classifierModel?: string;
 	defaultThinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
 	transport?: TransportSetting; // default: "sse"
@@ -658,7 +659,7 @@ export class SettingsManager {
 		return this.settings.defaultModel;
 	}
 
-	getPermissionMode(): "danger-full-access" | "accept-on-edit" | "auto" {
+	getPermissionMode(): "danger-full-access" | "accept-on-edit" | "auto" | "plan" {
 		return this.settings.permissionMode ?? "accept-on-edit";
 	}
 
@@ -674,7 +675,7 @@ export class SettingsManager {
 		this.setScopedSetting("defaultModel", modelId);
 	}
 
-	setPermissionMode(mode: "danger-full-access" | "accept-on-edit" | "auto"): void {
+	setPermissionMode(mode: "danger-full-access" | "accept-on-edit" | "auto" | "plan"): void {
 		this.setGlobalSetting("permissionMode", mode);
 	}
 
@@ -752,6 +753,14 @@ export class SettingsManager {
 		this.setNestedGlobalSetting("compaction", "enabled", enabled);
 	}
 
+	setCompactionThresholdPercent(percent: number): void {
+		this.setNestedGlobalSetting("compaction", "thresholdPercent", percent);
+	}
+
+	getCompactionThresholdPercent(): number {
+		return this.settings.compaction?.thresholdPercent ?? 85;
+	}
+
 	getCompactionReserveTokens(): number {
 		return this.settings.compaction?.reserveTokens ?? COMPACTION_RESERVE_TOKENS;
 	}
@@ -760,11 +769,12 @@ export class SettingsManager {
 		return this.settings.compaction?.keepRecentTokens ?? COMPACTION_KEEP_RECENT_TOKENS;
 	}
 
-	getCompactionSettings(): { enabled: boolean; reserveTokens: number; keepRecentTokens: number } {
+	getCompactionSettings(): { enabled: boolean; reserveTokens: number; keepRecentTokens: number; thresholdPercent: number } {
 		return {
 			enabled: this.getCompactionEnabled(),
 			reserveTokens: this.getCompactionReserveTokens(),
 			keepRecentTokens: this.getCompactionKeepRecentTokens(),
+			thresholdPercent: this.getCompactionThresholdPercent(),
 		};
 	}
 

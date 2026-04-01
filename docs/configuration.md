@@ -658,7 +658,7 @@ dynamic_routing:
 
 ### `service_tier` (v2.42)
 
-OpenAI service tier preference for supported models. Toggle with `/gsd fast`.
+OpenAI service tier preference for supported models. Toggle with `/fast`.
 
 | Value | Behavior |
 |-------|----------|
@@ -773,7 +773,7 @@ notifications:
 auto_visualize: true
 
 # Service tier
-service_tier: priority         # "priority" or "flex" (for /gsd fast)
+service_tier: priority         # "priority" or "flex" (for /fast)
 
 # Diagnostics
 forensics_dedup: true          # deduplicate before filing forensics issues

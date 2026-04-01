@@ -1,4 +1,4 @@
-export type PermissionMode = "danger-full-access" | "accept-on-edit" | "auto";
+export type PermissionMode = "danger-full-access" | "accept-on-edit" | "auto" | "plan";
 
 export const READ_ONLY_TOOLS = new Set(["read", "grep", "find", "ls", "lsp", "hashline_read"]);
 export const MUTATING_TOOLS = new Set(["bash", "edit", "write", "hashline_edit"]);
@@ -49,6 +49,7 @@ export function getPermissionMode(): PermissionMode {
 	const mode = process.env.LUCENT_CODE_PERMISSION_MODE;
 	if (mode === "accept-on-edit") return "accept-on-edit";
 	if (mode === "auto") return "auto";
+	if (mode === "plan") return "plan";
 	if (mode === "danger-full-access") return "danger-full-access";
 	return "accept-on-edit";
 }

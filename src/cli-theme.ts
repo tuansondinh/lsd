@@ -17,10 +17,10 @@ function colors(): Record<string, string> {
   if (!_colors) {
     try {
       const resolved = getResolvedThemeColors()
-      _colors = resolved ?? { accent: '#c85520', borderAccent: '#c85520', borderMuted: '#502810' }
+      _colors = resolved ?? { accent: '#3b82f6', borderAccent: '#3b82f6', borderMuted: '#1e3a8a' }
     } catch {
       // Theme not yet on disk (first run) — use built-in dark defaults
-      _colors = { accent: '#c85520', borderAccent: '#c85520', borderMuted: '#502810' }
+      _colors = { accent: '#3b82f6', borderAccent: '#3b82f6', borderMuted: '#1e3a8a' }
     }
   }
   return _colors
@@ -28,9 +28,9 @@ function colors(): Record<string, string> {
 
 // ── Hex accessor (for chalk.hex()) ───────────────────────────────────────────
 
-/** Returns a accent hex color from the active theme (e.g. `'#c85520'`). */
+/** Returns a accent hex color from the active theme (e.g. `'#3b82f6'`). */
 export function accentHex(): string {
-  return colors().accent ?? '#c85520'
+  return colors().accent ?? '#3b82f6'
 }
 
 // ── ANSI helpers (for non-chalk contexts: picocolors, renderLogo) ────────────

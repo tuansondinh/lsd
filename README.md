@@ -98,7 +98,7 @@ One command. Walk away. Come back to a built project with clean git history.
 - **Docker sandbox template** — official Docker template for isolated auto mode. (#2360)
 - **DB-backed planning tools** — write-side state transitions use atomic SQLite tool calls. (#2141)
 - **Declarative workflow engine** — YAML workflows through auto-loop. (#2024)
-- **`/gsd fast`** — toggle service tier for prioritized API routing. (#1862)
+- **`/fast`** — toggle service tier for prioritized API routing. (#1862)
 
 ---
 

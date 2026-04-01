@@ -49,7 +49,7 @@ export interface Args {
 	fileArgs: string[];
 	/** Unknown flags (potentially extension flags) - map of flag name to value */
 	unknownFlags: Map<string, boolean | string>;
-	/** --bare: suppress CLAUDE.md/AGENTS.md, user skills, prompt templates, themes, project preferences */
+	/** --bare: suppress lsd.md/CLAUDE.md/AGENTS.md, user skills, prompt templates, themes, project preferences */
 	bare?: boolean;
 }
 

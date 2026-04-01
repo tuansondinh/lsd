@@ -6,6 +6,7 @@
   "tier": "bundled",
   "requires": { "platform": ">=2.29.0" },
   "provides": {
-    "commands": ["create-slash-command", "create-extension", "audit", "clear"]
+    "commands": ["create-slash-command", "create-extension", "audit", "clear", "plan", "execute", "cancel-plan"],
+    "flags": ["plan"]
   }
 }

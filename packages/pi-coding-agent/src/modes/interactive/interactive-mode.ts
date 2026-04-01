@@ -2135,7 +2135,7 @@ export class InteractiveMode {
 	}
 
 	private cyclePermissionMode(): void {
-		const modes: PermissionMode[] = ["danger-full-access", "accept-on-edit", "auto"];
+		const modes: PermissionMode[] = ["danger-full-access", "accept-on-edit", "auto", "plan"];
 		const current = getPermissionMode();
 		const idx = modes.indexOf(current);
 		const next = modes[(idx + 1) % modes.length];
@@ -2910,6 +2910,7 @@ export class InteractiveMode {
 			const selector = new SettingsSelectorComponent(
 				{
 					autoCompact: this.session.autoCompactionEnabled,
+					autoCompactThresholdPercent: this.settingsManager.getCompactionThresholdPercent(),
 					classifierModel: this.settingsManager.getClassifierModel() ?? "default",
 					showImages: this.settingsManager.getShowImages(),
 					autoResizeImages: this.settingsManager.getImageAutoResize(),
@@ -2948,6 +2949,10 @@ export class InteractiveMode {
 					onAutoCompactChange: (enabled) => {
 						this.session.setAutoCompactionEnabled(enabled);
 						this.footer.setAutoCompactEnabled(enabled);
+					},
+					onAutoCompactThresholdPercentChange: (percent) => {
+						this.settingsManager.setCompactionThresholdPercent(percent);
+						this.showStatus(`Auto-compact threshold: ${percent}%`);
 					},
 					onClassifierModelChange: (modelRef) => {
 						this.settingsManager.setClassifierModel(modelRef);

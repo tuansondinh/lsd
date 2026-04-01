@@ -25,6 +25,7 @@ export const THINKING_DESCRIPTIONS: Record<ThinkingLevel, string> = {
 
 export interface SettingsConfig {
 	autoCompact: boolean;
+	autoCompactThresholdPercent: number;
 	classifierModel: string;
 	showImages: boolean;
 	autoResizeImages: boolean;
@@ -53,6 +54,7 @@ export interface SettingsConfig {
 
 export interface SettingsCallbacks {
 	onAutoCompactChange: (enabled: boolean) => void;
+	onAutoCompactThresholdPercentChange: (percent: number) => void;
 	onClassifierModelChange: (modelRef: string) => void;
 	onShowImagesChange: (enabled: boolean) => void;
 	onAutoResizeImagesChange: (enabled: boolean) => void;
@@ -158,6 +160,13 @@ export class SettingsSelectorComponent extends Container {
 				description: "Automatically compact context when it gets too large",
 				currentValue: config.autoCompact ? "true" : "false",
 				values: ["true", "false"],
+			},
+			{
+				id: "autocompact-threshold",
+				label: "Auto-compact threshold",
+				description: "Trigger auto-compaction when context usage reaches this percentage",
+				currentValue: String(config.autoCompactThresholdPercent),
+				values: ["70", "75", "80", "85", "90", "95"],
 			},
 			{
 				id: "classifier-model",
@@ -279,8 +288,8 @@ export class SettingsSelectorComponent extends Container {
 
 		// Only show image toggle if terminal supports it
 		if (supportsImages) {
-			// Insert after autocompact
-			items.splice(1, 0, {
+			// Insert after autocompact threshold
+			items.splice(2, 0, {
 				id: "show-images",
 				label: "Show images",
 				description: "Render images inline in terminal",
@@ -290,7 +299,7 @@ export class SettingsSelectorComponent extends Container {
 		}
 
 		// Image auto-resize toggle (always available, affects both attached and read images)
-		items.splice(supportsImages ? 2 : 1, 0, {
+		items.splice(supportsImages ? 3 : 2, 0, {
 			id: "auto-resize-images",
 			label: "Auto-resize images",
 			description: "Resize large images to 2000x2000 max for better model compatibility",
@@ -389,6 +398,9 @@ export class SettingsSelectorComponent extends Container {
 				switch (id) {
 					case "autocompact":
 						callbacks.onAutoCompactChange(newValue === "true");
+						break;
+					case "autocompact-threshold":
+						callbacks.onAutoCompactThresholdPercentChange(parseInt(newValue, 10));
 						break;
 					case "classifier-model":
 						callbacks.onClassifierModelChange(newValue);

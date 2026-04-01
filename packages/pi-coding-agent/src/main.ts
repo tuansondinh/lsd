@@ -424,7 +424,7 @@ export async function main(args: string[]) {
 		noThemes: firstPass.noThemes || firstPass.bare,
 		systemPrompt: firstPass.systemPrompt,
 		appendSystemPrompt: firstPass.appendSystemPrompt,
-		// --bare: suppress CLAUDE.md/AGENTS.md ancestor walk
+		// --bare: suppress lsd.md/CLAUDE.md/AGENTS.md ancestor walk
 		...(firstPass.bare ? { agentsFilesOverride: () => ({ agentsFiles: [] }) } : {}),
 	});
 	await resourceLoader.reload();

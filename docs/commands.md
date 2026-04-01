@@ -26,7 +26,7 @@
 | `/gsd export --html --all` | Generate retrospective reports for all milestones at once |
 | `/gsd update` | Update GSD to the latest version in-session |
 | `/gsd knowledge` | Add persistent project knowledge (rule, pattern, or lesson) |
-| `/gsd fast` | Toggle service tier for supported models (prioritized API routing) |
+| `/fast` | Toggle service tier for supported models (prioritized API routing) |
 | `/gsd rate` | Rate last unit's model tier (over/ok/under) — improves adaptive routing |
 | `/gsd changelog` | Show categorized release notes |
 | `/gsd logs` | Browse activity logs, debug logs, and metrics |

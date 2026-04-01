@@ -31,7 +31,7 @@ export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<BuiltinSlashCommand> = [
 	{ name: "provider", description: "Manage provider configuration" },
 	{ name: "config", description: "Re-run the setup wizard" },
 	{ name: "setup", description: "Re-run the setup wizard" },
-	{ name: "permission", description: "Cycle permission mode (danger-full-access/accept-on-edit/auto)" },
+	{ name: "permission", description: "Cycle permission mode (danger-full-access/accept-on-edit/auto/plan)" },
 	{ name: "login", description: "Login with OAuth provider" },
 	{ name: "logout", description: "Logout from OAuth provider" },
 	{ name: "new", description: "Start a new session" },

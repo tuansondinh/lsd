@@ -6,15 +6,33 @@
  *   - src/loader.ts (via ./logo.js)
  */
 
-/** Raw logo lines — no ANSI codes, no leading newline. */
-export const GSD_LOGO: readonly string[] = [
-  '  ██╗     ███████╗██████╗ ',
-  '  ██║     ██╔════╝██╔══██╗',
-  '  ██║     ███████╗██║  ██║',
-  '  ██║     ╚════██║██║  ██║',
-  '  ███████╗███████║██████╔╝',
-  '  ╚══════╝╚══════╝╚═════╝ ',
+/** Raw logo segments — no ANSI codes, no leading newline. */
+export const GSD_LOGO_SEGMENTS: readonly (readonly [string, string, string])[] = [
+  ['  ██╗     ', '███████╗', '██████╗ '],
+  ['  ██║     ', '██╔════╝', '██╔══██╗'],
+  ['  ██║     ', '███████╗', '██║  ██║'],
+  ['  ██║     ', '╚════██║', '██║  ██║'],
+  ['  ███████╗', '███████║', '██████╔╝'],
+  ['  ╚══════╝', '╚══════╝', '╚═════╝ '],
 ]
+
+/** Raw logo lines — no ANSI codes, no leading newline. */
+export const GSD_LOGO: readonly string[] = GSD_LOGO_SEGMENTS.map(parts => parts.join(''))
+
+export interface LogoColorizers {
+  l: (s: string) => string
+  s: (s: string) => string
+  d: (s: string) => string
+}
+
+/** Render the logo with distinct colors for L, S, and D. */
+export function renderBrandedLogo(colors: LogoColorizers): string {
+  return [
+    '',
+    ...GSD_LOGO_SEGMENTS.map(([l, s, d]) => colors.l(l) + colors.s(s) + colors.d(d)),
+    '',
+  ].join('\n')
+}
 
 /**
  * Render the logo block with a color function applied to each line.

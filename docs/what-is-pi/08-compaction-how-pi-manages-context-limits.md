@@ -4,7 +4,7 @@ LLMs have finite context windows. Pi's compaction system keeps conversations goi
 
 ### When Compaction Triggers
 
-**Automatic:** When `contextTokens > contextWindow - reserveTokens` (default reserve: 16,384 tokens). Also triggers proactively as you approach the limit.
+**Automatic:** When `contextTokens >= contextWindow * 0.85` (default threshold: 85% of the context window). Falls back to `contextWindow - reserveTokens` when the model context window is unknown.
 
 **Manual:** `/compact [custom instructions]`
 
@@ -78,6 +78,7 @@ Compaction is lossy — information is lost in the summary. But the full history
 {
   "compaction": {
     "enabled": true,
+    "thresholdPercent": 85,
     "reserveTokens": 16384,
     "keepRecentTokens": 20000
   }

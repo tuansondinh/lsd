@@ -1,7 +1,7 @@
 import { type Component, truncateToWidth, visibleWidth } from "@gsd/pi-tui";
 import type { AgentSession } from "../../../core/agent-session.js";
 import type { ReadonlyFooterDataProvider } from "../../../core/footer-data-provider.js";
-import type { PermissionMode } from "../../../core/tool-approval.js";
+import { getPermissionMode, type PermissionMode } from "../../../core/tool-approval.js";
 import { theme } from "../theme/theme.js";
 
 /**
@@ -93,6 +93,7 @@ export class FooterComponent implements Component {
 		// Calculate context usage from session (handles compaction correctly).
 		// After compaction, tokens are unknown until the next LLM response.
 		const contextUsage = this.session.getContextUsage();
+		const contextTokens = contextUsage?.tokens ?? null;
 		const contextWindow = contextUsage?.contextWindow ?? displayModel?.contextWindow ?? 0;
 		const contextPercentValue = contextUsage?.percent ?? 0;
 		const contextPercent = contextUsage?.percent !== null ? contextPercentValue.toFixed(1) : "?";
@@ -144,7 +145,9 @@ export class FooterComponent implements Component {
 		const contextPercentDisplay =
 			contextPercent === "?"
 				? `?/${formatTokens(contextWindow)}${autoIndicator}`
-				: `${contextPercent}%/${formatTokens(contextWindow)}${autoIndicator}`;
+				: contextTokens !== null
+					? `${formatTokens(contextTokens)} ${contextPercent}%/${formatTokens(contextWindow)}${autoIndicator}`
+					: `${contextPercent}%/${formatTokens(contextWindow)}${autoIndicator}`;
 		if (contextPercentValue > 90) {
 			contextPercentStr = theme.fg("error", contextPercentDisplay);
 		} else if (contextPercentValue > 70) {
@@ -154,12 +157,15 @@ export class FooterComponent implements Component {
 		}
 		statsParts.push(contextPercentStr);
 
+		const currentPermissionMode = getPermissionMode();
 		const permissionModeLabel =
-			this.permissionMode === "danger-full-access"
+			currentPermissionMode === "danger-full-access"
 				? "⚡ full-access"
-				: this.permissionMode === "accept-on-edit"
+				: currentPermissionMode === "accept-on-edit"
 					? "✓ accept-edit"
-					: "🤖 auto";
+					: currentPermissionMode === "auto"
+						? "🤖 auto"
+						: "📝 plan";
 		statsParts.push(permissionModeLabel);
 
 		let statsLeft = statsParts.join(" ");
