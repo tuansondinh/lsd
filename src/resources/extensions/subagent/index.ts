@@ -24,8 +24,9 @@ import {
 	type ExtensionAPI,
 	getAgentDir,
 	getMarkdownTheme,
+	requestClassifierDecision,
+	requestFileChangeApproval,
 } from "@gsd/pi-coding-agent";
-import { requestClassifierDecision, requestFileChangeApproval } from "../../../../packages/pi-coding-agent/src/core/tool-approval.js";
 import { Container, Markdown, Spacer, Text } from "@gsd/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { formatTokenCount } from "../shared/mod.js";
