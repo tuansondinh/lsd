@@ -451,30 +451,31 @@ export class TelegramLiveRelay {
     this.assistantFlushTimer = null;
 
     const finalText = this.assistantDraftText.trim();
-    if (!finalText) return;
+    if (!finalText) {
+      // Delete the draft message if no content
+      if (this.assistantDraftMessageId) {
+        await this.safeDeleteTelegram(this.assistantDraftMessageId);
+      }
+      this.assistantDraftMessageId = null;
+      this.assistantDraftCreation = null;
+      this.assistantDraftText = "";
+      return;
+    }
+
+    // Delete the draft message and send final response as new messages at the end
+    if (this.assistantDraftMessageId) {
+      await this.safeDeleteTelegram(this.assistantDraftMessageId);
+      this.assistantDraftMessageId = null;
+    }
+    this.assistantDraftCreation = null;
 
     const chunks = chunkText(finalText, TELEGRAM_MESSAGE_LIMIT);
     if (chunks.length <= 1) {
-      await this.ensureAssistantDraftMessage();
-      if (this.assistantDraftMessageId) {
-        await this.safeEditTelegram(this.assistantDraftMessageId, chunks[0] ?? finalText);
-      } else {
-        await this.safeSendTelegram(chunks[0] ?? finalText);
-      }
+      await this.safeSendTelegram(chunks[0] ?? finalText);
     } else {
-      await this.ensureAssistantDraftMessage();
-      if (this.assistantDraftMessageId) {
-        await this.safeEditTelegram(this.assistantDraftMessageId, `(1/${chunks.length})\n${chunks[0]}`);
-        for (let i = 1; i < chunks.length; i++) {
-          await this.safeSendTelegram(`(${i + 1}/${chunks.length})\n${chunks[i]}`);
-        }
-      } else {
-        await this.safeSendTelegramChunks(finalText);
-      }
+      await this.safeSendTelegramChunks(finalText);
     }
 
-    this.assistantDraftMessageId = null;
-    this.assistantDraftCreation = null;
     this.assistantDraftText = "";
   }
 
@@ -555,6 +556,19 @@ export class TelegramLiveRelay {
       const message = err instanceof Error ? err.message : String(err);
       if (message.includes("message is not modified")) return;
       await this.safeSendTelegram(text);
+    }
+  }
+
+  private async safeDeleteTelegram(messageId: number): Promise<void> {
+    const config = resolveRemoteConfig();
+    if (!config || config.channel !== "telegram" || !this.state?.connected) return;
+    try {
+      await this.telegramApi(config.token, "deleteMessage", {
+        chat_id: this.state.chatId,
+        message_id: messageId,
+      });
+    } catch {
+      // ignore delete failures (message may not exist)
     }
   }
 
