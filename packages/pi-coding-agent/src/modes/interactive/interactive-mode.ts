@@ -1183,6 +1183,7 @@ export class InteractiveMode {
 						await this.handleReloadCommand();
 					},
 				},
+				executeSlashCommand: async (text) => dispatchSlashCommand(text, this.getSlashCommandContext()),
 				shutdownHandler: () => {
 					this.shutdownRequested = true;
 					if (!this.session.isStreaming) {

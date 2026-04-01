@@ -178,6 +178,7 @@ export interface AgentSessionConfig {
 export interface ExtensionBindings {
 	uiContext?: ExtensionUIContext;
 	commandContextActions?: ExtensionCommandContextActions;
+	executeSlashCommand?: (text: string, options?: { deliverAs?: "steer" | "followUp" }) => Promise<boolean>;
 	shutdownHandler?: ShutdownHandler;
 	onError?: ExtensionErrorListener;
 }
@@ -285,6 +286,7 @@ export class AgentSession {
 	private _baseToolsOverride?: Record<string, AgentTool>;
 	private _extensionUIContext?: ExtensionUIContext;
 	private _extensionCommandContextActions?: ExtensionCommandContextActions;
+	private _extensionExecuteSlashCommand?: (text: string, options?: { deliverAs?: "steer" | "followUp" }) => Promise<boolean>;
 	private _extensionShutdownHandler?: ShutdownHandler;
 	private _extensionErrorListener?: ExtensionErrorListener;
 	private _extensionErrorUnsubscriber?: () => void;
@@ -1919,6 +1921,9 @@ export class AgentSession {
 		if (bindings.commandContextActions !== undefined) {
 			this._extensionCommandContextActions = bindings.commandContextActions;
 		}
+		if (bindings.executeSlashCommand !== undefined) {
+			this._extensionExecuteSlashCommand = bindings.executeSlashCommand;
+		}
 		if (bindings.shutdownHandler !== undefined) {
 			this._extensionShutdownHandler = bindings.shutdownHandler;
 		}
@@ -2059,6 +2064,33 @@ export class AgentSession {
 							error: getErrorMessage(err),
 						});
 					});
+				},
+				executeSlashCommand: async (text, options) => {
+					try {
+						if (!text.startsWith("/")) return false;
+						const extensionHandled = await this._tryExecuteExtensionCommand(text);
+						if (extensionHandled) return true;
+						if (this._extensionExecuteSlashCommand) {
+							const handled = await this._extensionExecuteSlashCommand(text, options);
+							if (handled) return true;
+						}
+						const commandName = text.slice(1).split(/\s+/, 1)[0] ?? "";
+						const knownCommandNames = new Set(getCommands().map((command) => command.name));
+						if (!knownCommandNames.has(commandName)) return false;
+						await this.prompt(text, {
+							expandPromptTemplates: true,
+							streamingBehavior: options?.deliverAs,
+							source: "extension",
+						});
+						return true;
+					} catch (err) {
+						runner.emitError({
+							extensionPath: "<runtime>",
+							event: "execute_slash_command",
+							error: getErrorMessage(err),
+						});
+						return true;
+					}
 				},
 				retryLastTurn: () => {
 					const messages = this.agent.state.messages;

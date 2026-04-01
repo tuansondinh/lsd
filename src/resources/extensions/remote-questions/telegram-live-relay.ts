@@ -12,7 +12,16 @@ import { telegramPullUpdates, telegramSyncLatestUpdateId, telegramMarkConsumerSe
 
 const TELEGRAM_API = "https://api.telegram.org";
 const TOOL_FLUSH_MS = 2000;
+const ASSISTANT_FLUSH_MS = 1200;
 const TELEGRAM_MESSAGE_LIMIT = 4000;
+const RELAY_OWNER_STALE_MS = 2 * 60 * 1000;
+
+interface RelayOwnerRecord {
+  ownerId: string;
+  sessionKey: string;
+  chatId: string;
+  updatedAt: number;
+}
 
 interface RelayState {
   connected: boolean;
@@ -46,11 +55,19 @@ export class TelegramLiveRelay {
   private toolBuffer: string[] = [];
   private toolFlushTimer: NodeJS.Timeout | null = null;
   private readonly consumerId: string;
+  private readonly ownerId: string;
   private readonly recentInboundFingerprints = new Map<string, number>();
+  private readonly toolArgsByCallId = new Map<string, Record<string, unknown> | undefined>();
+  private assistantDraftMessageId: number | null = null;
+  private assistantDraftCreation: Promise<number | null> | null = null;
+  private assistantDraftText = "";
+  private assistantFlushTimer: NodeJS.Timeout | null = null;
+  private lastAssistantFlushAt = 0;
 
   constructor(pi: ExtensionAPI) {
     this.pi = pi;
     this.consumerId = `telegram-live:${randomUUID()}`;
+    this.ownerId = randomUUID();
     this.state = this.readState();
   }
 
@@ -83,6 +100,13 @@ export class TelegramLiveRelay {
         sessionKey: sessionKey(),
       };
       this.writeState();
+      if (!this.claimOwnership()) {
+        ctx.ui.notify(`Another LSD session already owns Telegram relay for chat ${config.channelId}. Disconnect it first.`, "warning");
+        this.state = null;
+        this.writeState();
+        this.setStatus();
+        return;
+      }
       this.startPollingLoop();
       ctx.ui.notify(`Telegram relay handshake started for chat ${config.channelId}. Confirm in Telegram with /bind ${nonce}.`, "success");
       await this.safeSendTelegram([
@@ -102,6 +126,7 @@ export class TelegramLiveRelay {
     const wasConnected = !!this.state?.connected;
     this.stopPollingLoop();
     this.flushToolBuffer();
+    this.releaseOwnership();
     if (wasConnected) {
       const message = reason ? `Telegram live relay disconnected: ${reason}` : "Telegram live relay disconnected.";
       ctx?.ui.notify(message, "info");
@@ -162,24 +187,44 @@ export class TelegramLiveRelay {
     return true;
   }
 
+  onMessageStart(event: { message?: { role?: string } }): void {
+    if (!this.state?.connected) return;
+    if (event.message?.role !== "assistant") return;
+    this.assistantDraftText = "";
+    this.lastAssistantFlushAt = 0;
+    void this.ensureAssistantDraftMessage();
+  }
+
+  onMessageUpdate(event: { message?: { role?: string; content?: unknown } }): void {
+    if (!this.state?.connected) return;
+    if (event.message?.role !== "assistant") return;
+    const text = extractText(event.message.content).trim();
+    if (!text) return;
+    this.assistantDraftText = text;
+    this.scheduleAssistantFlush();
+  }
+
   onMessageEnd(event: { message?: { role?: string; content?: unknown } }): void {
     if (!this.state?.connected) return;
     if (event.message?.role !== "assistant") return;
     const text = extractText(event.message.content);
     if (!text.trim()) return;
     if (this.wasRecentlyReceivedFromTelegram(text)) return;
-    void this.safeSendTelegramChunks(text);
+    this.assistantDraftText = text;
+    void this.finalizeAssistantDraft();
   }
 
-  onToolExecutionStart(event: { toolName: string }): void {
+  onToolExecutionStart(event: { toolCallId?: string; toolName: string; args?: Record<string, unknown> }): void {
     if (!this.state?.connected) return;
-    this.bufferToolEvent(`🔧 ${event.toolName} started`);
+    if (event.toolCallId) this.toolArgsByCallId.set(event.toolCallId, event.args);
+    this.bufferToolEvent(formatToolStart(event.toolName, event.args));
   }
 
-  onToolExecutionEnd(event: { toolName: string; isError: boolean }): void {
+  onToolExecutionEnd(event: { toolCallId?: string; toolName: string; isError: boolean; result?: unknown; args?: Record<string, unknown> }): void {
     if (!this.state?.connected) return;
-    const status = event.isError ? "❌" : "✅";
-    this.bufferToolEvent(`${status} ${event.toolName} finished`);
+    const args = event.args ?? (event.toolCallId ? this.toolArgsByCallId.get(event.toolCallId) : undefined);
+    if (event.toolCallId) this.toolArgsByCallId.delete(event.toolCallId);
+    this.bufferToolEvent(formatToolEnd(event.toolName, args, event.result, event.isError));
   }
 
   async onSessionSwitch(_event: unknown): Promise<void> {
@@ -229,6 +274,10 @@ export class TelegramLiveRelay {
     this.stopPollingLoop();
     const tick = async () => {
       if (this.isPolling || !this.state) return;
+      if (!this.claimOwnership()) {
+        this.stopPollingLoop();
+        return;
+      }
       this.isPolling = true;
       try {
         await this.pollOnce();
@@ -248,6 +297,7 @@ export class TelegramLiveRelay {
   private async pollOnce(): Promise<void> {
     const config = resolveRemoteConfig();
     if (!config || config.channel !== "telegram" || !this.state) return;
+    if (!this.claimOwnership()) return;
 
     try {
       const updates = await telegramPullUpdates(config.token, this.consumerId, ["message"]);
@@ -299,13 +349,133 @@ export class TelegramLiveRelay {
       return;
     }
     if (text === "/help") {
-      await this.safeSendTelegram("Commands: /status, /disconnect. Any other text is forwarded to LSD.", true);
+      await this.safeSendTelegram([
+        "Commands:",
+        "  /status",
+        "  /disconnect",
+        "  /help",
+        "  /clear, /reload, /compact, /lsd ...",
+        "  Any other non-slash text is forwarded to LSD.",
+      ].join("\n"), true);
       return;
     }
 
     this.rememberInboundText(text);
+
+    if (text.startsWith("/")) {
+      const handled = await this.pi.executeSlashCommand(text, { deliverAs: "followUp" });
+      if (!handled) {
+        await this.safeSendTelegram(`⚠️ Unknown slash command: ${text}`, true);
+        return;
+      }
+      await this.safeSendTelegram(`⚡ Executed slash command: ${text}`, true);
+      return;
+    }
+
     await this.safeSendTelegram("📨 Message queued for LSD.", true);
     this.pi.sendUserMessage(text, { deliverAs: "followUp" });
+  }
+
+  private claimOwnership(): boolean {
+    if (!this.state?.chatId) return false;
+    const current = readRelayOwner(this.state.chatId);
+    const now = Date.now();
+    if (current && current.ownerId !== this.ownerId && now - current.updatedAt < RELAY_OWNER_STALE_MS) {
+      return false;
+    }
+    writeRelayOwner({
+      ownerId: this.ownerId,
+      sessionKey: this.state.sessionKey,
+      chatId: this.state.chatId,
+      updatedAt: now,
+    });
+    return true;
+  }
+
+  private releaseOwnership(): void {
+    if (!this.state?.chatId) return;
+    const current = readRelayOwner(this.state.chatId);
+    if (current?.ownerId === this.ownerId) {
+      removeRelayOwner(this.state.chatId);
+    }
+  }
+
+  private scheduleAssistantFlush(): void {
+    const now = Date.now();
+    if (now - this.lastAssistantFlushAt >= ASSISTANT_FLUSH_MS) {
+      void this.flushAssistantDraft();
+      return;
+    }
+    if (this.assistantFlushTimer) return;
+    this.assistantFlushTimer = setTimeout(() => {
+      this.assistantFlushTimer = null;
+      void this.flushAssistantDraft();
+    }, ASSISTANT_FLUSH_MS);
+  }
+
+  private async ensureAssistantDraftMessage(): Promise<void> {
+    if (this.assistantDraftMessageId) return;
+    if (this.assistantDraftCreation) {
+      const existingId = await this.assistantDraftCreation;
+      if (typeof existingId === "number") this.assistantDraftMessageId = existingId;
+      return;
+    }
+
+    this.assistantDraftCreation = (async () => {
+      const result = await this.safeSendTelegram("🤖 Thinking…");
+      const messageId = result?.result?.message_id;
+      return typeof messageId === "number" ? messageId : null;
+    })();
+
+    try {
+      const messageId = await this.assistantDraftCreation;
+      if (typeof messageId === "number") {
+        this.assistantDraftMessageId = messageId;
+      }
+    } finally {
+      this.assistantDraftCreation = null;
+    }
+  }
+
+  private async flushAssistantDraft(): Promise<void> {
+    if (!this.assistantDraftText.trim()) return;
+    await this.ensureAssistantDraftMessage();
+    if (!this.assistantDraftMessageId) return;
+    const text = chunkText(this.assistantDraftText, TELEGRAM_MESSAGE_LIMIT)[0] ?? this.assistantDraftText;
+    this.lastAssistantFlushAt = Date.now();
+    await this.safeEditTelegram(this.assistantDraftMessageId, text);
+  }
+
+  private async finalizeAssistantDraft(): Promise<void> {
+    if (this.assistantFlushTimer) clearTimeout(this.assistantFlushTimer);
+    this.assistantFlushTimer = null;
+
+    const finalText = this.assistantDraftText.trim();
+    if (!finalText) return;
+
+    const chunks = chunkText(finalText, TELEGRAM_MESSAGE_LIMIT);
+    if (chunks.length <= 1) {
+      await this.ensureAssistantDraftMessage();
+      if (this.assistantDraftMessageId) {
+        await this.safeEditTelegram(this.assistantDraftMessageId, chunks[0] ?? finalText);
+      } else {
+        await this.safeSendTelegram(chunks[0] ?? finalText);
+      }
+    } else {
+      await this.ensureAssistantDraftMessage();
+      if (this.assistantDraftMessageId) {
+        await this.safeEditTelegram(this.assistantDraftMessageId, `(1/${chunks.length})\n${chunks[0]}`);
+        for (let i = 1; i < chunks.length; i++) {
+          await this.safeSendTelegram(`(${i + 1}/${chunks.length})\n${chunks[i]}`);
+        }
+      } else {
+        await this.safeSendTelegramChunks(finalText);
+      }
+    }
+
+    this.assistantDraftMessageId = null;
+    this.assistantDraftCreation = null;
+    this.assistantDraftText = "";
   }
 
   private bufferToolEvent(line: string): void {
@@ -358,17 +528,33 @@ export class TelegramLiveRelay {
     }
   }
 
-  private async safeSendTelegram(text: string, allowDuringHandshake = false): Promise<void> {
+  private async safeSendTelegram(text: string, allowDuringHandshake = false): Promise<any> {
     const config = resolveRemoteConfig();
-    if (!config || config.channel !== "telegram" || !this.state) return;
-    if (!allowDuringHandshake && !this.state.connected) return;
+    if (!config || config.channel !== "telegram" || !this.state) return null;
+    if (!allowDuringHandshake && !this.state.connected) return null;
     try {
-      await this.telegramApi(config.token, "sendMessage", {
+      return await this.telegramApi(config.token, "sendMessage", {
         chat_id: this.state.chatId,
         text,
       });
     } catch {
-      // best effort
+      return null;
+    }
+  }
+
+  private async safeEditTelegram(messageId: number, text: string): Promise<void> {
+    const config = resolveRemoteConfig();
+    if (!config || config.channel !== "telegram" || !this.state?.connected) return;
+    try {
+      await this.telegramApi(config.token, "editMessageText", {
+        chat_id: this.state.chatId,
+        message_id: messageId,
+        text,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.includes("message is not modified")) return;
+      await this.safeSendTelegram(text);
     }
   }
 
@@ -436,6 +622,38 @@ function relayStatePath(): string {
   return join(process.env.LSD_HOME || join(homedir(), ".lsd"), "runtime", "relay", sessionKey(), "telegram-live.json");
 }
 
+function relayOwnerPath(chatId: string): string {
+  const safeChatId = chatId.replace(/[^\d-]/g, "_");
+  return join(process.env.LSD_HOME || join(homedir(), ".lsd"), "runtime", "relay", "owners", `telegram-${safeChatId}.json`);
+}
+
+function readRelayOwner(chatId: string): RelayOwnerRecord | null {
+  const path = relayOwnerPath(chatId);
+  if (!existsSync(path)) return null;
+  try {
+    return JSON.parse(readFileSync(path, "utf-8")) as RelayOwnerRecord;
+  } catch {
+    return null;
+  }
+}
+
+function writeRelayOwner(owner: RelayOwnerRecord): void {
+  const path = relayOwnerPath(owner.chatId);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, JSON.stringify(owner, null, 2) + "\n", "utf-8");
+}
+
+function removeRelayOwner(chatId: string): void {
+  const path = relayOwnerPath(chatId);
+  try {
+    if (existsSync(path)) {
+      writeFileSync(path, "null\n", "utf-8");
+    }
+  } catch {
+    // ignore
+  }
+}
+
 function sessionKey(): string {
   return createHash("sha256").update(process.cwd()).digest("hex").slice(0, 12);
 }
@@ -468,4 +686,64 @@ function chunkText(text: string, limit: number): string[] {
   }
   if (remaining) chunks.push(remaining);
   return chunks.filter(Boolean);
+}
+
+function formatToolStart(toolName: string, args?: Record<string, unknown>): string {
+  const detail = formatToolDetail(toolName, args);
+  return detail ? `🔧 ${toolName} started\n${detail}` : `🔧 ${toolName} started`;
+}
+
+function formatToolEnd(
+  toolName: string,
+  args: Record<string, unknown> | undefined,
+  result: unknown,
+  isError: boolean,
+): string {
+  const status = isError ? "❌" : "✅";
+  const suffix = formatToolEndSuffix(toolName, result);
+  const detail = formatToolDetail(toolName, args);
+  const header = `${status} ${toolName} finished${suffix}`;
+  return detail ? `${header}\n${detail}` : header;
+}
+
+function formatToolEndSuffix(toolName: string, result: unknown): string {
+  if (toolName !== "bash" || !result || typeof result !== "object") return "";
+  const code = (result as { details?: { exitCode?: unknown } }).details?.exitCode;
+  return typeof code === "number" ? ` (exit ${code})` : "";
+}
+
+function formatToolDetail(toolName: string, args?: Record<string, unknown>): string {
+  if (!args) return "";
+
+  if (toolName === "bash") {
+    const command = typeof args.command === "string" ? args.command.trim() : "";
+    return command ? `$ ${truncateLine(command, 500)}` : "";
+  }
+
+  if (toolName === "read" || toolName === "edit" || toolName === "write") {
+    const path = typeof args.path === "string" ? args.path.trim() : "";
+    return path ? truncateLine(path, 500) : "";
+  }
+
+  if (toolName === "lsp") {
+    const action = typeof args.action === "string" ? args.action : "";
+    const file = typeof args.file === "string" ? args.file : "";
+    const query = typeof args.query === "string" ? args.query : "";
+    const parts = [action, file, query].filter(Boolean);
+    return parts.length > 0 ? truncateLine(parts.join(" · "), 500) : "";
+  }
+
+  if (toolName.startsWith("browser_")) {
+    const selector = typeof args.selector === "string" ? args.selector : "";
+    const url = typeof args.url === "string" ? args.url : "";
+    const text = typeof args.text === "string" ? args.text : "";
+    const parts = [url, selector, text ? `text=${text}` : ""].filter(Boolean);
+    return parts.length > 0 ? truncateLine(parts.join(" · "), 500) : "";
+  }
+
+  return "";
+}
+
+function truncateLine(text: string, max = 500): string {
+  return text.length > max ? `${text.slice(0, max)}…` : text;
 }

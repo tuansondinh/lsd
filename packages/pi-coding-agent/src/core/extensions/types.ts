@@ -1127,6 +1127,9 @@ export interface ExtensionAPI {
 		options?: { deliverAs?: "steer" | "followUp" },
 	): void;
 
+	/** Execute a slash command through the host's real command dispatcher. */
+	executeSlashCommand(text: string, options?: { deliverAs?: "steer" | "followUp" }): Promise<boolean>;
+
 	/**
 	 * Retry the last turn by removing the failed assistant response and
 	 * re-running the agent from the last user message. No-op if the last
@@ -1382,6 +1385,7 @@ export interface ExtensionActions {
 		content: string | (TextContent | ImageContent)[],
 		options?: { deliverAs?: "steer" | "followUp" },
 	) => void;
+	executeSlashCommand: (text: string, options?: { deliverAs?: "steer" | "followUp" }) => Promise<boolean>;
 	retryLastTurn: () => void;
 	appendEntry: <T = unknown>(customType: string, data?: T) => void;
 	setSessionName: (name: string) => void;

@@ -404,6 +404,7 @@ export function createExtensionRuntime(): ExtensionRuntime {
 	const runtime: ExtensionRuntime = {
 		sendMessage: notInitialized,
 		sendUserMessage: notInitialized,
+		executeSlashCommand: () => Promise.reject(new Error("Extension runtime not initialized")),
 		retryLastTurn: notInitialized,
 		appendEntry: notInitialized,
 		setSessionName: notInitialized,
@@ -517,6 +518,10 @@ function createExtensionAPI(
 
 		sendUserMessage(content, options): void {
 			runtime.sendUserMessage(content, options);
+		},
+
+		executeSlashCommand(text, options) {
+			return runtime.executeSlashCommand(text, options);
 		},
 
 		retryLastTurn(): void {

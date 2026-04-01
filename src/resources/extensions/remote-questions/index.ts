@@ -25,9 +25,11 @@ function showLsdUsage(ctx: ExtensionCommandContext): void {
 export default function RemoteQuestionsExtension(pi: ExtensionAPI): void {
   const relay = new TelegramLiveRelay(pi);
 
+  pi.on("message_start", (event) => relay.onMessageStart(event));
+  pi.on("message_update", (event) => relay.onMessageUpdate(event));
   pi.on("message_end", (event) => relay.onMessageEnd(event));
-  pi.on("tool_execution_start", (event) => relay.onToolExecutionStart(event));
-  pi.on("tool_execution_end", (event) => relay.onToolExecutionEnd(event));
+  pi.on("tool_execution_start", (event) => relay.onToolExecutionStart({ toolCallId: event.toolCallId, toolName: event.toolName, args: event.args }));
+  pi.on("tool_execution_end", (event) => relay.onToolExecutionEnd({ toolCallId: event.toolCallId, toolName: event.toolName, isError: event.isError, result: event.result }));
   pi.on("session_switch", async (event) => relay.onSessionSwitch(event));
   pi.on("session_fork", async (event) => relay.onSessionFork(event));
   pi.on("session_shutdown", async (event) => relay.onSessionShutdown(event));
