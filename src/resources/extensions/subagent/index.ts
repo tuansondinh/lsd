@@ -20,7 +20,7 @@ import * as path from "node:path";
 import type { AgentToolResult } from "@gsd/pi-agent-core";
 import type { Message } from "@gsd/pi-ai";
 import { StringEnum } from "@gsd/pi-ai";
-import { type ExtensionAPI, getMarkdownTheme } from "@gsd/pi-coding-agent";
+import { type ExtensionAPI, SettingsManager, getMarkdownTheme } from "@gsd/pi-coding-agent";
 import { Container, Markdown, Spacer, Text } from "@gsd/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { formatTokenCount } from "../shared/mod.js";
@@ -34,6 +34,7 @@ import {
 	readIsolationMode,
 } from "./isolation.js";
 import { registerWorker, updateWorker } from "./worker-registry.js";
+import { resolveSubagentModel } from "./model-resolution.js";
 import { loadEffectivePreferences } from "../shared/preferences.js";
 import { CmuxClient, shellEscape } from "../cmux/index.js";
 
@@ -259,13 +260,27 @@ function writePromptToTempFile(agentName: string, prompt: string): { dir: string
 	return { dir: tmpDir, filePath };
 }
 
+export function resolveConfiguredSubagentModel(
+	agent: AgentConfig,
+	preferences = loadEffectivePreferences()?.preferences,
+	settingsBudgetModel = SettingsManager.create().getBudgetSubagentModel(),
+): string | undefined {
+	const configuredModel = agent.model?.trim();
+	if (!configuredModel) return undefined;
+	if (configuredModel === "$budget_model") {
+		return settingsBudgetModel?.trim() || preferences?.subagent?.budget_model?.trim() || undefined;
+	}
+	return configuredModel;
+}
+
 function buildSubagentProcessArgs(
 	agent: AgentConfig,
 	task: string,
 	tmpPromptPath: string | null,
+	model: string | undefined,
 ): string[] {
 	const args: string[] = ["--mode", "json", "-p", "--no-session"];
-	if (agent.model) args.push("--model", agent.model);
+	if (model) args.push("--model", model);
 	if (agent.tools && agent.tools.length > 0) args.push("--tools", agent.tools.join(","));
 	if (tmpPromptPath) args.push("--append-system-prompt", tmpPromptPath);
 	args.push(`Task: ${task}`);
@@ -300,7 +315,7 @@ function processSubagentEventLine(
 				currentResult.usage.cost += usage.cost?.total || 0;
 				currentResult.usage.contextTokens = usage.totalTokens || 0;
 			}
-			if (!currentResult.model && msg.model) currentResult.model = msg.model;
+			if (msg.model) currentResult.model = msg.model;
 			if (msg.stopReason) currentResult.stopReason = msg.stopReason;
 			if (msg.errorMessage) currentResult.errorMessage = msg.errorMessage;
 		}
@@ -332,6 +347,8 @@ async function runSingleAgent(
 	task: string,
 	cwd: string | undefined,
 	step: number | undefined,
+	modelOverride: string | undefined,
+	parentModel: { provider: string; id: string } | undefined,
 	signal: AbortSignal | undefined,
 	onUpdate: OnUpdateCallback | undefined,
 	makeDetails: (results: SingleResult[]) => SubagentDetails,
@@ -355,6 +372,12 @@ async function runSingleAgent(
 	let tmpPromptDir: string | null = null;
 	let tmpPromptPath: string | null = null;
 
+	const resolvedModel = resolveConfiguredSubagentModel(agent);
+	const inferredModel = resolveSubagentModel(
+		{ name: agent.name, model: resolvedModel },
+		{ overrideModel: modelOverride, parentModel },
+	);
+
 	const currentResult: SingleResult = {
 		agent: agentName,
 		agentSource: agent.source,
@@ -363,7 +386,7 @@ async function runSingleAgent(
 		messages: [],
 		stderr: "",
 		usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
-		model: agent.model,
+		model: inferredModel,
 		step,
 	};
 
@@ -382,7 +405,7 @@ async function runSingleAgent(
 			tmpPromptDir = tmp.dir;
 			tmpPromptPath = tmp.filePath;
 		}
-		const args = buildSubagentProcessArgs(agent, task, tmpPromptPath);
+		const args = buildSubagentProcessArgs(agent, task, tmpPromptPath, inferredModel);
 		let wasAborted = false;
 
 		const exitCode = await new Promise<number>((resolve) => {
@@ -454,12 +477,24 @@ const TaskItem = Type.Object({
 	agent: Type.String({ description: "Name of the agent to invoke" }),
 	task: Type.String({ description: "Task to delegate to the agent" }),
 	cwd: Type.Optional(Type.String({ description: "Working directory for the agent process" })),
+	model: Type.Optional(
+		Type.String({
+			description:
+				"Optional model override. If omitted, the launcher infers one from the agent config, delegated-task preferences, or the current session model.",
+		}),
+	),
 });
 
 const ChainItem = Type.Object({
 	agent: Type.String({ description: "Name of the agent to invoke" }),
 	task: Type.String({ description: "Task with optional {previous} placeholder for prior output" }),
 	cwd: Type.Optional(Type.String({ description: "Working directory for the agent process" })),
+	model: Type.Optional(
+		Type.String({
+			description:
+				"Optional model override. If omitted, the launcher infers one from the agent config, delegated-task preferences, or the current session model.",
+		}),
+	),
 });
 
 const AgentScopeSchema = StringEnum(["user", "project", "both"] as const, {
@@ -477,6 +512,12 @@ const SubagentParams = Type.Object({
 		Type.Boolean({ description: "Prompt before running project-local agents. Default: false.", default: false }),
 	),
 	cwd: Type.Optional(Type.String({ description: "Working directory for the agent process (single mode)" })),
+	model: Type.Optional(
+		Type.String({
+			description:
+				"Optional model override for single mode. If omitted, the launcher infers one from the agent config, delegated-task preferences, or the current session model.",
+		}),
+	),
 	isolated: Type.Optional(
 		Type.Boolean({
 			description:
@@ -515,6 +556,7 @@ export default function (pi: ExtensionAPI) {
 		description: [
 			"Delegate tasks to specialized subagents with isolated context windows.",
 			"Each subagent is a separate pi process with its own tools, model, and system prompt.",
+			"Model selection can be overridden per call, otherwise it is inferred from the agent config, delegated-task preferences, or the current session model.",
 			"Modes: single ({ agent, task }), parallel ({ tasks: [{agent, task},...] }), chain ({ chain: [{agent, task},...] } with {previous} placeholder).",
 			"Agents are defined as .md files in ~/.gsd/agent/agents/ (user) or .gsd/agents/ (project).",
 			"Use the /subagent command to list available agents and their descriptions.",
@@ -623,6 +665,8 @@ export default function (pi: ExtensionAPI) {
 						taskWithContext,
 						step.cwd,
 						i + 1,
+						step.model,
+						ctx.model ? { provider: ctx.model.provider, id: ctx.model.id } : undefined,
 						signal,
 						chainUpdate,
 						makeDetails("chain"),
@@ -704,6 +748,8 @@ export default function (pi: ExtensionAPI) {
 							t.task,
 							t.cwd,
 							undefined,
+							t.model,
+							ctx.model ? { provider: ctx.model.provider, id: ctx.model.id } : undefined,
 							signal,
 							(partial) => {
 								if (partial.details?.results[0]) {
@@ -764,6 +810,8 @@ export default function (pi: ExtensionAPI) {
 						params.task,
 						isolation ? isolation.workDir : params.cwd,
 						undefined,
+						params.model,
+						ctx.model ? { provider: ctx.model.provider, id: ctx.model.id } : undefined,
 						signal,
 						onUpdate,
 						makeDetails("single"),
