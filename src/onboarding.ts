@@ -17,6 +17,7 @@ import type { AuthStorage, SettingsManager } from '@gsd/pi-coding-agent'
 import { renderLogo } from './logo.js'
 import { agentDir } from './app-paths.js'
 import { accentAnsi } from './cli-theme.js'
+import { detectMissingServers, detectInstalledServers, installServer } from './lsp-install.js'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -278,6 +279,19 @@ export async function runOnboarding(authStorage: AuthStorage, settingsManager: S
     p.log.warn(`Budget model setup failed: ${err instanceof Error ? err.message : String(err)}`)
   }
 
+  // ── Language Server Setup ────────────────────────────────────────────────
+  // null = skipped, [] = none missing / all installed, string[] = newly installed
+  let lspInstalled: string[] | null = null
+  try {
+    lspInstalled = await runLspStep(p, pc, settingsManager)
+  } catch (err) {
+    if (isCancelError(p, err)) {
+      p.cancel('Setup cancelled.')
+      return
+    }
+    p.log.warn(`Language server setup failed: ${err instanceof Error ? err.message : String(err)}`)
+  }
+
   // ── Summary ───────────────────────────────────────────────────────────────
   const summaryLines: string[] = []
   if (llmConfigured) {
@@ -321,6 +335,14 @@ export async function runOnboarding(authStorage: AuthStorage, settingsManager: S
     summaryLines.push(`${pc.green('✓')} Budget subagent model: ${budgetModel}`)
   } else {
     summaryLines.push(`${pc.dim('↷')} Budget subagent model: app default/current model`)
+  }
+
+  if (lspInstalled === null) {
+    summaryLines.push(`${pc.dim('↷')} Language servers: skipped — run /setup to install later`)
+  } else if (lspInstalled.length === 0) {
+    summaryLines.push(`${pc.green('✓')} Language servers: all detected servers already installed`)
+  } else {
+    summaryLines.push(`${pc.green('✓')} Language servers: ${lspInstalled.join(', ')} (${lspInstalled.length} installed)`)
   }
 
   p.note(summaryLines.join('\n'), 'Setup complete')
@@ -409,6 +431,88 @@ async function runBudgetModelStep(
   settingsManager.setBudgetSubagentModel(selected)
   p.log.success(`Budget subagent model: ${pc.green(selected)}`)
   return selected
+}
+
+// ─── Language Server Setup Step ───────────────────────────────────────────────
+
+/**
+ * Detect missing language servers for the current project and offer to install them.
+ * Returns:
+ *   - null  → user skipped the step
+ *   - []    → no servers were missing (all already installed), or none in LSP_INSTALL_MAP matched
+ *   - string[] → names of servers successfully installed during this run
+ */
+async function runLspStep(
+  p: ClackModule,
+  pc: PicoModule,
+  settingsManager: SettingsManager,
+): Promise<string[] | null> {
+  const cwd = process.cwd()
+
+  // Detect missing servers relevant to this project
+  const missing = detectMissingServers(cwd)
+  const alreadyInstalled = detectInstalledServers(cwd)
+
+  if (missing.length === 0) {
+    if (alreadyInstalled.length > 0) {
+      p.log.success(
+        `Language servers: ${pc.green(alreadyInstalled.map((s) => s.label).join(', '))} already installed ✓`,
+      )
+    }
+    return []
+  }
+
+  // Show prompt — user can pick which servers to install
+  const options = missing.map((server) => ({
+    value: server.name,
+    label: server.label,
+    hint: server.installCommand,
+  }))
+
+  // Pre-select typescript-language-server if present
+  const initialValues = missing
+    .filter((s) => s.name === 'typescript-language-server')
+    .map((s) => s.name)
+
+  const selected = await p.multiselect({
+    message: 'Install language servers? (provides ~100x token savings for code navigation)',
+    options,
+    initialValues,
+    required: false,
+  })
+
+  if (p.isCancel(selected)) return null
+
+  const selectedNames = selected as string[]
+  if (selectedNames.length === 0) return null
+
+  // Install each selected server
+  const installed: string[] = []
+  for (const name of selectedNames) {
+    const entry = missing.find((s) => s.name === name)
+    if (!entry) continue
+
+    const s = p.spinner()
+    s.start(`Installing ${entry.label}...`)
+    const result = await installServer(name)
+    if (result.success) {
+      s.stop(`${entry.label} installed ${pc.green('✓')}`)
+      installed.push(name)
+    } else {
+      s.stop(`${entry.label} failed ${pc.red('✗')}`)
+      p.log.warn(`  ${result.error ?? 'Unknown error'}`)
+      p.log.info(`  Install manually: ${pc.dim(entry.installCommand)}`)
+    }
+  }
+
+  // Persist installed list to settings
+  if (installed.length > 0) {
+    const existing = settingsManager.getLspInstalledServers()
+    const merged = Array.from(new Set([...existing, ...installed]))
+    settingsManager.setLspInstalledServers(merged)
+  }
+
+  return installed
 }
 
 // ─── LLM Authentication Step ──────────────────────────────────────────────────
