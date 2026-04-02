@@ -478,7 +478,7 @@ async function runLspStep(
     .map((s) => s.name)
 
   const selected = await p.multiselect({
-    message: 'Install language servers? (provides ~100x token savings for code navigation)',
+    message: 'Install language servers? (saves tokens during AI-assisted coding)',
     options,
     initialValues,
     required: false,
