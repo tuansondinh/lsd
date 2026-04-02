@@ -1,4 +1,5 @@
 import type { AuthStorage } from '@gsd/pi-coding-agent'
+import { BEDROCK_PROVIDER_ID, applyBedrockCredentialToEnv, decodeBedrockCredential } from './bedrock-auth.js'
 
 // ─── Env hydration ────────────────────────────────────────────────────────────
 
@@ -8,6 +9,20 @@ import type { AuthStorage } from '@gsd/pi-coding-agent'
  * wizard on prior launches.
  */
 export function loadStoredEnvKeys(authStorage: AuthStorage): void {
+  const hasExplicitBedrockAuth = Boolean(
+    process.env.AWS_PROFILE ||
+    process.env.AWS_ACCESS_KEY_ID ||
+    process.env.AWS_SECRET_ACCESS_KEY,
+  )
+  const bedrockCred = authStorage.getCredentialsForProvider(BEDROCK_PROVIDER_ID)
+    .find((cred: any) => cred.type === 'api_key' && typeof cred.key === 'string' && cred.key)
+  if (!hasExplicitBedrockAuth && bedrockCred?.type === 'api_key') {
+    const parsed = decodeBedrockCredential(bedrockCred.key)
+    if (parsed) {
+      applyBedrockCredentialToEnv(parsed)
+    }
+  }
+
   const providers: Array<[string, string]> = [
     ['brave',         'BRAVE_API_KEY'],
     ['brave_answers', 'BRAVE_ANSWERS_KEY'],

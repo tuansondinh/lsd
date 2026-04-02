@@ -24,6 +24,7 @@ const LLM_PROVIDER_IDS = [
   'xai',
   'openrouter',
   'mistral',
+  'amazon-bedrock',
 ]
 
 /**

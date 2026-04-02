@@ -127,6 +127,24 @@ test("validateConfiguredModel picks a fallback when nothing is configured", () =
   assert.equal(settings.currentModel, "gpt-5.4");
 });
 
+test("validateConfiguredModel prefers gpt-5.4-mini before generic OpenAI fallback", () => {
+  const settings = fakeSettingsManager({
+    provider: "openai",
+    model: "removed-model",
+  });
+
+  const registry = fakeModelRegistry([
+    { provider: "openai", id: "gpt-4.1-mini" },
+    { provider: "openai", id: "gpt-5.4-mini" },
+    { provider: "anthropic", id: "claude-opus-4-6" },
+  ]);
+
+  validateConfiguredModel(registry as any, settings as any);
+
+  assert.equal(settings.currentProvider, "openai");
+  assert.equal(settings.currentModel, "gpt-5.4-mini");
+});
+
 // ──────────────────────────────────────────────────────────────────────
 // Test: thinking level reset when model doesn't exist
 // ──────────────────────────────────────────────────────────────────────

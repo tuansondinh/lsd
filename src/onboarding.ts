@@ -10,10 +10,14 @@
  * All steps are skippable. All errors are recoverable. Never crashes boot.
  */
 
-import { execFile } from 'node:child_process'
+import { execFile, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { AuthStorage, SettingsManager } from '@gsd/pi-coding-agent'
+import { BEDROCK_PROVIDER_ID, saveBedrockCredential } from './bedrock-auth.js'
+export { BEDROCK_PROVIDER_ID, saveBedrockCredential } from './bedrock-auth.js'
+import { BUDGET_MODEL_OPTIONS, getLlmProviderOptions, getOtherLlmProviders, LLM_PROVIDER_IDS } from './onboarding-llm.js'
+export { BUDGET_MODEL_OPTIONS, getLlmProviderOptions, LLM_PROVIDER_IDS, shouldRunOnboarding } from './onboarding-llm.js'
 import { renderLogo } from './logo.js'
 import { agentDir } from './app-paths.js'
 import { accentAnsi } from './cli-theme.js'
@@ -62,39 +66,11 @@ const TOOL_KEYS: ToolKeyConfig[] = [
   },
 ]
 
-/** Known LLM provider IDs that, if authed, mean the user doesn't need onboarding */
-const LLM_PROVIDER_IDS = [
-  'anthropic',
-  'anthropic-vertex',
-  'openai',
-  'github-copilot',
-  'openai-codex',
-  'google-gemini-cli',
-  'google-antigravity',
-  'google',
-  'groq',
-  'xai',
-  'openrouter',
-  'mistral',
-  'ollama-cloud',
-  'custom-openai',
-]
-
 /** API key prefix validation — loose checks to catch obvious mistakes */
 const API_KEY_PREFIXES: Record<string, string[]> = {
   anthropic: ['sk-ant-'],
   openai: ['sk-'],
 }
-
-const OTHER_PROVIDERS = [
-  { value: 'google', label: 'Google (Gemini)' },
-  { value: 'groq', label: 'Groq' },
-  { value: 'xai', label: 'xAI (Grok)' },
-  { value: 'openrouter', label: 'OpenRouter' },
-  { value: 'mistral', label: 'Mistral' },
-  { value: 'ollama-cloud', label: 'Ollama Cloud' },
-  { value: 'custom-openai', label: 'Custom (OpenAI-compatible)' },
-]
 
 const CLASSIFIER_MODEL_OPTIONS = [
   { value: 'anthropic/claude-haiku-4-5', label: 'Claude Haiku 4.5', hint: 'fast default' },
@@ -103,13 +79,6 @@ const CLASSIFIER_MODEL_OPTIONS = [
   { value: 'google/gemini-2.5-pro', label: 'Gemini 2.5 Pro', hint: 'stronger reasoning' },
   { value: 'google/gemini-3-flash-preview', label: 'Gemini 3 Flash Preview', hint: 'newer flash option' },
   { value: 'google/gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro Preview', hint: 'newer pro option' },
-]
-
-const BUDGET_MODEL_OPTIONS = [
-  { value: 'anthropic/claude-haiku-4-5', label: 'Claude Haiku 4.5', hint: 'recommended for scout/subagents' },
-  { value: 'google/gemini-2.5-flash', label: 'Gemini 2.5 Flash', hint: 'fast and cheap' },
-  { value: 'google/gemini-3-flash-preview', label: 'Gemini 3 Flash Preview', hint: 'newer flash option' },
-  { value: 'openai/gpt-4.1-mini', label: 'GPT-4.1 mini', hint: 'small general-purpose option' },
 ]
 
 // ─── Dynamic imports ──────────────────────────────────────────────────────────
@@ -155,28 +124,51 @@ function isCancelError(p: ClackModule, err: unknown): boolean {
   return p.isCancel(err)
 }
 
-// ─── Public API ───────────────────────────────────────────────────────────────
-
-/**
- * Determine if the onboarding wizard should run.
- *
- * Returns true when:
- * - No LLM provider auth is available
- * - We're on a TTY (interactive terminal)
- *
- * Returns false (skip wizard) when:
- * - Any LLM provider is already available via auth.json, env vars, runtime overrides, or fallback auth
- * - A default provider is already configured in settings (covers extension-based providers
- *   that may not require credentials in auth.json)
- * - Not a TTY (piped input, subagent, CI)
- */
-export function shouldRunOnboarding(authStorage: AuthStorage, settingsDefaultProvider?: string): boolean {
-  if (!process.stdin.isTTY) return false
-  if (settingsDefaultProvider) return false
-  // Check if any LLM provider has credentials
-  const hasLlmAuth = LLM_PROVIDER_IDS.some(id => authStorage.hasAuth(id))
-  return !hasLlmAuth
+function getAwsCliInstallInstructions(): string {
+  if (process.platform === 'darwin') {
+    return 'Install the AWS CLI with `brew install awscli` or from https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html'
+  }
+  if (process.platform === 'win32') {
+    return 'Install the AWS CLI MSI from https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html'
+  }
+  return 'Install the AWS CLI from https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html'
 }
+
+function ensureAwsCliInstalled(): string | null {
+  const result = spawnSync('aws', ['--version'], { encoding: 'utf-8' })
+  if (result.error && 'code' in result.error && result.error.code === 'ENOENT') {
+    return `AWS CLI not found. ${getAwsCliInstallInstructions()}`
+  }
+  return null
+}
+
+function saveAwsAuthRefreshCommand(profile: string): void {
+  const settingsPath = join(agentDir, 'settings.json')
+  let settings: Record<string, unknown> = {}
+
+  if (existsSync(settingsPath)) {
+    try {
+      settings = JSON.parse(readFileSync(settingsPath, 'utf-8'))
+    } catch {
+      settings = {}
+    }
+  }
+
+  settings.awsAuthRefresh = `aws sso login --profile ${profile}`
+  mkdirSync(dirname(settingsPath), { recursive: true })
+  writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n', 'utf-8')
+}
+
+function validateAwsRegion(region: string | undefined): string | undefined {
+  const trimmed = region?.trim()
+  if (!trimmed) return 'AWS region is required'
+  if (!/^[a-z]{2}(?:-gov)?-[a-z0-9-]+-\d+$/.test(trimmed)) {
+    return 'Use a valid AWS region like us-east-1'
+  }
+  return undefined
+}
+
+// ─── Public API ───────────────────────────────────────────────────────────────
 
 /**
  * Run the unified onboarding wizard.
@@ -521,7 +513,11 @@ async function runLspStep(
 
 // ─── LLM Authentication Step ──────────────────────────────────────────────────
 
-async function runLlmStep(p: ClackModule, pc: PicoModule, authStorage: AuthStorage): Promise<boolean> {
+async function runLlmStep(
+  p: ClackModule,
+  pc: PicoModule,
+  authStorage: AuthStorage,
+): Promise<boolean> {
   // Build the OAuth provider list dynamically from what's registered
   const oauthProviders = authStorage.getOAuthProviders()
   const oauthMap = new Map(oauthProviders.map(op => [op.id, op]))
@@ -555,34 +551,31 @@ async function runLlmStep(p: ClackModule, pc: PicoModule, authStorage: AuthStora
   if (method === 'browser') {
     const provider = await p.select({
       message: 'Choose provider',
-      options: [
-        { value: 'anthropic', label: 'Anthropic (Claude)', hint: 'recommended' },
-        { value: 'github-copilot', label: 'GitHub Copilot' },
-        { value: 'openai-codex', label: 'ChatGPT Plus/Pro (Codex)' },
-        { value: 'google-gemini-cli', label: 'Google Gemini CLI' },
-        { value: 'google-antigravity', label: 'Antigravity (Gemini 3, Claude, GPT-OSS)' },
-      ],
+      options: getLlmProviderOptions('browser'),
     })
     if (p.isCancel(provider)) return false
+    if (provider === BEDROCK_PROVIDER_ID) {
+      return await runBedrockSsoFlow(p, pc, authStorage)
+    }
     return await runOAuthFlow(p, pc, authStorage, provider as string, oauthMap)
   }
 
   if (method === 'api-key') {
     const provider = await p.select({
       message: 'Choose provider',
-      options: [
-        { value: 'anthropic', label: 'Anthropic (Claude)' },
-        { value: 'openai', label: 'OpenAI' },
-        ...OTHER_PROVIDERS.map(op => ({ value: op.value, label: op.label })),
-      ],
+      options: getLlmProviderOptions('api-key'),
     })
     if (p.isCancel(provider)) return false
     if (provider === 'custom-openai') {
       return await runCustomOpenAIFlow(p, pc, authStorage)
     }
+    if (provider === BEDROCK_PROVIDER_ID) {
+      return await runBedrockApiKeyFlow(p, pc, authStorage)
+    }
+    const otherProviders = getOtherLlmProviders()
     const label = provider === 'anthropic' ? 'Anthropic'
       : provider === 'openai' ? 'OpenAI'
-      : OTHER_PROVIDERS.find(op => op.value === provider)?.label ?? String(provider)
+      : otherProviders.find(op => op.value === provider)?.label ?? String(provider)
     return await runApiKeyFlow(p, pc, authStorage, provider as string, label)
   }
 
@@ -661,6 +654,105 @@ async function runOAuthFlow(
 }
 
 // ─── API Key Flow ─────────────────────────────────────────────────────────────
+
+async function runBedrockSsoFlow(
+  p: ClackModule,
+  pc: PicoModule,
+  authStorage: AuthStorage,
+): Promise<boolean> {
+  const missingAwsCli = ensureAwsCliInstalled()
+  if (missingAwsCli) {
+    p.log.warn(missingAwsCli)
+    return false
+  }
+
+  const profile = await p.text({
+    message: 'AWS profile for SSO login:',
+    placeholder: 'default',
+    initialValue: 'default',
+    validate: (value) => value?.trim() ? undefined : 'AWS profile is required',
+  })
+  if (p.isCancel(profile) || !profile) return false
+  const trimmedProfile = String(profile).trim()
+
+  const region = await p.text({
+    message: 'AWS region for Bedrock:',
+    placeholder: 'us-east-1',
+    initialValue: process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION ?? 'us-east-1',
+    validate: validateAwsRegion,
+  })
+  if (p.isCancel(region) || !region) return false
+  const trimmedRegion = String(region).trim()
+
+  const s = p.spinner()
+  s.start(`Running aws sso login for profile ${trimmedProfile}...`)
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      execFile('aws', ['sso', 'login', '--profile', trimmedProfile], { timeout: 120_000 }, (error, stdout, stderr) => {
+        if (error) {
+          reject(new Error((stderr || stdout || error.message).trim() || error.message))
+          return
+        }
+        resolve()
+      })
+    })
+
+    saveBedrockCredential(authStorage, {
+      authType: 'sso',
+      profile: trimmedProfile,
+      region: trimmedRegion,
+    })
+    saveAwsAuthRefreshCommand(trimmedProfile)
+    s.stop('AWS SSO login complete')
+    p.log.success(`Bedrock configured with ${pc.green(`profile ${trimmedProfile}`)} in ${pc.green(trimmedRegion)}`)
+    return true
+  } catch (err) {
+    s.stop('AWS SSO login failed')
+    const message = err instanceof Error ? err.message : String(err)
+    p.log.warn(message)
+    p.log.info(getAwsCliInstallInstructions())
+    return false
+  }
+}
+
+async function runBedrockApiKeyFlow(
+  p: ClackModule,
+  pc: PicoModule,
+  authStorage: AuthStorage,
+): Promise<boolean> {
+  const accessKeyId = await p.text({
+    message: 'AWS Access Key ID:',
+    placeholder: 'AKIA...',
+    validate: (value) => value?.trim() ? undefined : 'AWS Access Key ID is required',
+  })
+  if (p.isCancel(accessKeyId) || !accessKeyId) return false
+
+  const secretAccessKey = await p.password({
+    message: 'AWS Secret Access Key:',
+    mask: '●',
+  })
+  if (p.isCancel(secretAccessKey) || !secretAccessKey) return false
+  const trimmedSecret = String(secretAccessKey).trim()
+  if (!trimmedSecret) return false
+
+  const region = await p.text({
+    message: 'AWS region for Bedrock:',
+    placeholder: 'us-east-1',
+    initialValue: process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION ?? 'us-east-1',
+    validate: validateAwsRegion,
+  })
+  if (p.isCancel(region) || !region) return false
+
+  saveBedrockCredential(authStorage, {
+    authType: 'access-key',
+    accessKeyId: String(accessKeyId).trim(),
+    secretAccessKey: trimmedSecret,
+    region: String(region).trim(),
+  })
+  p.log.success(`Bedrock credentials saved for ${pc.green('Amazon Bedrock')}`)
+  return true
+}
 
 async function runApiKeyFlow(
   p: ClackModule,
