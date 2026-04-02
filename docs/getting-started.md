@@ -39,9 +39,7 @@ GSD is also available as a VS Code extension. Install from the marketplace (publ
 
 The CLI (`gsd-pi`) must be installed first — the extension connects to it via RPC.
 
-### Web Interface
 
-GSD also has a browser-based interface. Run `gsd --web` to start a local web server with a visual dashboard, real-time progress, and multi-project support. See [Web Interface](./web-interface.md) for details.
 
 ## First Launch
 

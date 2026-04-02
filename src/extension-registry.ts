@@ -2,8 +2,10 @@
  * Extension Registry — manages manifest reading, registry persistence, and enable/disable state.
  *
  * Extensions without manifests always load (backwards compatible).
- * A fresh install has an empty registry — all extensions enabled by default.
- * The only way an extension stops loading is an explicit `gsd extensions disable <id>`.
+ * A fresh install has an empty registry — extensions follow manifest defaults
+ * when present, otherwise they load enabled by default.
+ * The only way an extension stops loading is an explicit `gsd extensions disable <id>`
+ * unless a feature-specific opt-in gate overrides the default at load time.
  */
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
@@ -29,6 +31,7 @@ export interface ExtensionManifest {
     extensions?: string[];
     runtime?: string[];
   };
+  defaultEnabled?: boolean;
 }
 
 export interface ExtensionRegistryEntry {
@@ -101,10 +104,10 @@ export function saveRegistry(registry: ExtensionRegistry): void {
 
 // ─── Query ──────────────────────────────────────────────────────────────────
 
-/** Returns true if the extension is enabled (missing entries default to enabled). */
-export function isExtensionEnabled(registry: ExtensionRegistry, id: string): boolean {
+/** Returns true if the extension is enabled (missing entries use the manifest default). */
+export function isExtensionEnabled(registry: ExtensionRegistry, id: string, defaultEnabled: boolean = true): boolean {
   const entry = registry.entries[id];
-  if (!entry) return true;
+  if (!entry) return defaultEnabled;
   return entry.enabled;
 }
 
@@ -206,7 +209,7 @@ export function ensureRegistryEntries(extensionsDir: string): void {
     if (!registry.entries[id]) {
       registry.entries[id] = {
         id,
-        enabled: true,
+        enabled: manifest.defaultEnabled ?? true,
         source: "bundled",
       };
       changed = true;

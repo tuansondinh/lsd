@@ -636,7 +636,6 @@ if (!process.stdin.isTTY || !process.stdout.isTTY) {
   process.stderr.write('[lsd] Non-interactive alternatives:\n')
   process.stderr.write('[lsd]   gsd auto                       Auto-mode (pipeable, no TUI)\n')
   process.stderr.write('[lsd]   gsd --print "your message"     Single-shot prompt\n')
-  process.stderr.write('[lsd]   gsd --web [path]               Browser-only web mode\n')
   process.stderr.write('[lsd]   gsd --mode rpc                 JSON-RPC over stdin/stdout\n')
   process.stderr.write('[lsd]   gsd --mode mcp                 MCP server over stdin/stdout\n')
   process.stderr.write('[lsd]   gsd --mode text "message"      Text output mode\n')

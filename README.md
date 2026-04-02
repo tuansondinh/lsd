@@ -145,10 +145,8 @@ lsd -c
 lsd --print "summarize this repository"
 ```
 
-### Start the web UI
 
 ```bash
-lsd --web
 ```
 
 ### Start in a git worktree
@@ -235,7 +233,6 @@ lsd headless --json status
 Run LSD with a browser interface:
 
 ```bash
-lsd --web
 ```
 
 This is useful for local dashboards, session monitoring, and browser-based interaction.
@@ -357,7 +354,6 @@ Depending on your workflow, this may contain plan files, state files, generated 
 lsd                      # start interactive session
 lsd -c                   # resume last session
 lsd --print "..."        # one-shot mode
-lsd --web                # start web UI
 lsd --list-models        # list available models
 lsd --mode mcp           # run as MCP server
 ```
@@ -424,7 +420,6 @@ Recommended starting points:
 - [Auto Mode](./docs/auto-mode.md)
 - [Architecture](./docs/architecture.md)
 - [Troubleshooting](./docs/troubleshooting.md)
-- [Web Interface](./docs/web-interface.md)
 - [Skills](./docs/skills.md)
 - [Custom Models](./docs/custom-models.md)
 

@@ -1,8 +1,5 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { AuthStorage } from "./auth-storage.js";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
@@ -356,33 +353,6 @@ describe("AuthStorage — oauth credential for non-OAuth provider (#2083)", () =
 
 		const key = await storage.getApiKey("openrouter");
 		assert.equal(key, "sk-or-v1-fallback");
-	});
-});
-
-describe("AuthStorage — ~/.codex fallback for openai-codex", () => {
-	it("hasAuth returns true when ~/.codex/auth.json contains an access token", async (t) => {
-		const tempHome = join(tmpdir(), `auth-storage-codex-${Date.now()}`);
-		mkdirSync(join(tempHome, ".codex"), { recursive: true });
-		writeFileSync(
-			join(tempHome, ".codex", "auth.json"),
-			JSON.stringify({ tokens: { access_token: "codex-access-token" } }, null, 2),
-			"utf8",
-		);
-
-		const originalHome = process.env.HOME;
-		process.env.HOME = tempHome;
-		t.after(() => {
-			if (originalHome === undefined) {
-				delete process.env.HOME;
-			} else {
-				process.env.HOME = originalHome;
-			}
-		});
-
-		const storage = inMemory({});
-		assert.equal(storage.hasAuth("openai-codex"), true);
-		const key = await storage.getApiKey("openai-codex");
-		assert.equal(key, "codex-access-token");
 	});
 });
 

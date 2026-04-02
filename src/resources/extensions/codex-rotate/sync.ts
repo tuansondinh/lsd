@@ -2,35 +2,23 @@
  * Sync codex accounts to LSD's auth.json as api_key credentials
  */
 
-import { existsSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import { join } from "path";
+import { FileAuthStorageBackend, getAgentDir } from "@gsd/pi-coding-agent";
 import type { CodexAccount } from "./types.js";
 import { PROVIDER_NAME } from "./config.js";
 
-/**
- * FileAuthStorageBackend interface (matching pi-coding-agent's implementation)
- */
-interface FileAuthStorageBackend {
-	authPath: string;
-	withLockAsync<T>(fn: (current: string | undefined) => Promise<{ result: T; next?: string }>): Promise<T>;
-}
+type LockResult<T> = {
+	result: T;
+	next?: string;
+};
 
-/**
- * Get the FileAuthStorageBackend implementation
- */
-function getFileAuthStorageBackend(): FileAuthStorageBackend {
-	// Import dynamically to avoid top-level Node.js dependencies
-	const { getAgentDir } = require("@gsd/pi-coding-agent/dist/config.js");
+type FileAuthStorageBackendLike = {
+	withLockAsync<T>(fn: (current: string | undefined) => Promise<LockResult<T>>): Promise<T>;
+};
 
-	class FileAuthStorageBackendImpl implements FileAuthStorageBackend {
-		public authPath: string;
-
-		constructor() {
-			this.authPath = join(getAgentDir(), "auth.json");
-		}
-	}
-
-	return new FileAuthStorageBackendImpl();
+async function getFileAuthStorageBackend(): Promise<FileAuthStorageBackendLike> {
+	return new FileAuthStorageBackend();
 }
 
 /**
@@ -48,10 +36,9 @@ type AuthStorageData = Record<string, AuthCredential | AuthCredential[]>;
  */
 export async function syncAccountsToAuth(accounts: CodexAccount[]): Promise<boolean> {
 	try {
-		const storage = getFileAuthStorageBackend();
+		const storage = await getFileAuthStorageBackend();
 
 		await storage.withLockAsync(async (current) => {
-			// Parse existing auth data
 			let authData: AuthStorageData = {};
 			if (current) {
 				try {
@@ -61,7 +48,6 @@ export async function syncAccountsToAuth(accounts: CodexAccount[]): Promise<bool
 				}
 			}
 
-			// Build new credential array for openai-codex
 			const credentials: ApiKeyCredential[] = accounts
 				.filter((acc) => !acc.disabled)
 				.map((acc) => ({
@@ -69,15 +55,12 @@ export async function syncAccountsToAuth(accounts: CodexAccount[]): Promise<bool
 					key: acc.accessToken,
 				}));
 
-			// Update auth data
 			if (credentials.length > 0) {
 				authData[PROVIDER_NAME] = credentials;
 			} else {
-				// Remove provider if no credentials
 				delete authData[PROVIDER_NAME];
 			}
 
-			// Return updated auth data
 			return {
 				result: true,
 				next: JSON.stringify(authData, null, 2),
@@ -96,7 +79,7 @@ export async function syncAccountsToAuth(accounts: CodexAccount[]): Promise<bool
  */
 export async function removeCodexFromAuth(): Promise<boolean> {
 	try {
-		const storage = getFileAuthStorageBackend();
+		const storage = await getFileAuthStorageBackend();
 
 		await storage.withLockAsync(async (current) => {
 			let authData: AuthStorageData = {};
@@ -108,7 +91,6 @@ export async function removeCodexFromAuth(): Promise<boolean> {
 				}
 			}
 
-			// Remove provider from auth data
 			delete authData[PROVIDER_NAME];
 
 			return {
@@ -129,14 +111,12 @@ export async function removeCodexFromAuth(): Promise<boolean> {
  */
 export function hasCodexInAuth(): boolean {
 	try {
-		const { getAgentDir } = require("@gsd/pi-coding-agent/dist/config.js");
 		const authPath = join(getAgentDir(), "auth.json");
 
 		if (!existsSync(authPath)) {
 			return false;
 		}
 
-		const { readFileSync } = require("fs");
 		const content = readFileSync(authPath, "utf-8");
 		const authData = JSON.parse(content) as AuthStorageData;
 		return PROVIDER_NAME in authData;

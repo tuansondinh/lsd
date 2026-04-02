@@ -17,7 +17,6 @@ import {
 } from "@gsd/pi-ai";
 import { getOAuthApiKey, getOAuthProvider, getOAuthProviders } from "@gsd/pi-ai/oauth";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
-import { homedir } from "os";
 import { dirname, join } from "path";
 import { getAgentDir } from "../config.js";
 import { AUTH_LOCK_STALE_MS } from "./constants.js";
@@ -296,6 +295,39 @@ export class AuthStorage {
 		return JSON.parse(content) as AuthStorageData;
 	}
 
+	private markCodexAccountUsedByApiKey(apiKey: string): void {
+		try {
+			const accountsPath = join(getAgentDir(), "codex-accounts.json");
+			if (!existsSync(accountsPath)) return;
+
+			const raw = readFileSync(accountsPath, "utf-8");
+			const parsed = JSON.parse(raw) as {
+				version?: number;
+				accounts?: Array<Record<string, unknown> & { accessToken?: string; lastUsed?: number }>;
+			};
+			if (!Array.isArray(parsed.accounts)) return;
+
+			let changed = false;
+			const now = Date.now();
+			const accounts = parsed.accounts.map((account) => {
+				if (account.accessToken !== apiKey) return account;
+				changed = true;
+				return { ...account, lastUsed: now };
+			});
+
+			if (!changed) return;
+
+			writeFileSync(
+				accountsPath,
+				JSON.stringify({ version: parsed.version ?? 1, accounts }, null, 2),
+				"utf-8",
+			);
+			chmodSync(accountsPath, 0o600);
+		} catch {
+			// Best-effort only — usage tracking must not break auth resolution.
+		}
+	}
+
 	/**
 	 * Normalize a storage entry to an array of credentials.
 	 * Handles both single credential (backward compat) and array formats.
@@ -420,21 +452,6 @@ export class AuthStorage {
 		if (this.data[provider]) return true;
 		if (getEnvApiKey(provider)) return true;
 		if (this.fallbackResolver?.(provider)) return true;
-		// Mirror getApiKey()'s ~/.codex/auth.json fallback for openai-codex
-		if (provider === 'openai-codex') {
-			try {
-				const codexAuthPath = join(homedir(), '.codex', 'auth.json');
-				if (existsSync(codexAuthPath)) {
-					const raw = readFileSync(codexAuthPath, 'utf-8');
-					const data = JSON.parse(raw) as {
-						tokens?: { access_token?: string };
-					};
-					if (data.tokens?.access_token) return true;
-				}
-			} catch {
-				// Silently ignore
-			}
-		}
 		return false;
 	}
 
@@ -787,7 +804,12 @@ export class AuthStorage {
 			const index = this.selectCredentialIndex(providerId, credentials, sessionId);
 			if (index >= 0) {
 				const resolved = await this.resolveCredentialApiKey(providerId, credentials[index]);
-				if (resolved) return resolved;
+				if (resolved) {
+					if (providerId === "openai-codex") {
+						this.markCodexAccountUsedByApiKey(resolved);
+					}
+					return resolved;
+				}
 				// Credential unresolvable (e.g. type:"oauth" for a non-OAuth provider) —
 				// fall through to env / fallback instead of returning undefined (#2083)
 			}
@@ -797,26 +819,6 @@ export class AuthStorage {
 		// Fall back to environment variable
 		const envKey = getEnvApiKey(providerId);
 		if (envKey) return envKey;
-
-		// External CLI auth fallback: openai-codex can use ~/.codex/auth.json credentials
-		if (providerId === 'openai-codex') {
-			try {
-				const { existsSync: fsExists, readFileSync: fsRead } = await import('fs');
-				const { join: pathJoin } = await import('path');
-				const { homedir } = await import('os');
-				const codexAuthPath = pathJoin(homedir(), '.codex', 'auth.json');
-				if (fsExists(codexAuthPath)) {
-					const raw = fsRead(codexAuthPath, 'utf-8');
-					const data = JSON.parse(raw) as {
-						tokens?: { access_token?: string; refresh_token?: string; account_id?: string };
-					};
-					const token = data.tokens?.access_token;
-					if (token) return token;
-				}
-			} catch {
-				// Silently ignore — file may not exist or be malformed
-			}
-		}
 
 		// Fall back to custom resolver (e.g., models.json custom providers)
 		return this.fallbackResolver?.(providerId) ?? undefined;

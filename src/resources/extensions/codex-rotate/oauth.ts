@@ -6,6 +6,26 @@ import type { OAuthCredentials } from "@gsd/pi-ai";
 import { loginOpenAICodex, refreshOpenAICodexToken } from "@gsd/pi-ai/oauth";
 import type { CodexAccount } from "./types.js";
 
+function getAccountId(credentials: OAuthCredentials): string {
+	if (typeof credentials.accountId !== "string" || credentials.accountId.length === 0) {
+		throw new Error("Missing Codex accountId in OAuth credentials");
+	}
+	return credentials.accountId;
+}
+
+function asObject(value: unknown): Record<string, unknown> | null {
+	return value !== null && typeof value === "object" ? (value as Record<string, unknown>) : null;
+}
+
+function getOptionalString(value: unknown): string | undefined {
+	return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function getRequiredRefreshToken(data: Record<string, unknown>): string | null {
+	const refreshToken = data.refreshToken ?? data.refresh_token;
+	return typeof refreshToken === "string" && refreshToken.length > 0 ? refreshToken : null;
+}
+
 /**
  * Perform OAuth login and return a new Codex account
  */
@@ -20,8 +40,7 @@ export async function performOAuthLogin(
 				console.log(`[codex-rotate] ${info.instructions}`);
 			}
 		},
-		onPrompt: async (prompt) => {
-			// This will be called if browser callback fails
+		onPrompt: async () => {
 			throw new Error("OAuth browser flow failed. Please try again.");
 		},
 		onProgress: (message) => {
@@ -31,7 +50,7 @@ export async function performOAuthLogin(
 
 	return {
 		email,
-		accountId: credentials.accountId,
+		accountId: getAccountId(credentials),
 		refreshToken: credentials.refresh,
 		accessToken: credentials.access,
 		expiresAt: credentials.expires,
@@ -41,13 +60,15 @@ export async function performOAuthLogin(
 /**
  * Refresh an account's access token
  */
-export async function refreshAccountToken(account: CodexAccount): Promise<Omit<CodexAccount, "id" | "addedAt" | "lastUsed" | "disabled">> {
+export async function refreshAccountToken(
+	account: CodexAccount,
+): Promise<Omit<CodexAccount, "id" | "addedAt" | "lastUsed" | "disabled">> {
 	try {
 		const credentials = await refreshOpenAICodexToken(account.refreshToken);
 
 		return {
 			email: account.email,
-			accountId: credentials.accountId,
+			accountId: getAccountId(credentials),
 			refreshToken: credentials.refresh,
 			accessToken: credentials.access,
 			expiresAt: credentials.expires,
@@ -75,21 +96,23 @@ export async function importFromExistingCodexAuth(): Promise<CodexAccount | null
 		}
 
 		const content = readFileSync(codexAuthPath, "utf-8");
-		const data = JSON.parse(content);
+		const data = asObject(JSON.parse(content));
+		if (!data) {
+			console.log("[codex-rotate] ~/.codex/auth.json did not contain an object payload");
+			return null;
+		}
 
-		// The file format varies, but typically contains refreshToken
-		const refreshToken = data.refreshToken || data.refresh_token;
+		const refreshToken = getRequiredRefreshToken(data);
 		if (!refreshToken) {
 			console.log("[codex-rotate] No refresh token found in ~/.codex/auth.json");
 			return null;
 		}
 
-		// Refresh to get fresh credentials
 		const credentials = await refreshOpenAICodexToken(refreshToken);
 
 		return {
-			email: data.email,
-			accountId: credentials.accountId,
+			email: getOptionalString(data.email),
+			accountId: getAccountId(credentials),
 			refreshToken: credentials.refresh,
 			accessToken: credentials.access,
 			expiresAt: credentials.expires,
@@ -126,16 +149,17 @@ export async function importFromCockpit(): Promise<CodexAccount[]> {
 		for (const file of files) {
 			try {
 				const content = readFileSync(join(cockpitDir, file), "utf-8");
-				const data = JSON.parse(content);
+				const data = asObject(JSON.parse(content));
+				if (!data) continue;
 
-				const refreshToken = data.refreshToken || data.refresh_token;
+				const refreshToken = getRequiredRefreshToken(data);
 				if (!refreshToken) continue;
 
 				const credentials = await refreshOpenAICodexToken(refreshToken);
 
 				accounts.push({
-					email: data.email,
-					accountId: credentials.accountId,
+					email: getOptionalString(data.email),
+					accountId: getAccountId(credentials),
 					refreshToken: credentials.refresh,
 					accessToken: credentials.access,
 					expiresAt: credentials.expires,

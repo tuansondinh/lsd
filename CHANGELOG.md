@@ -531,7 +531,6 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **ci**: PR risk checker — classify changed files by system and surface risk level (#1930)
 - ADR attribution — distinguish human vs agent vs collaborative decisions (#1830)
 - add /gsd fast command and gate service tier icon to supported models (#1848) (#1862)
-- add --host, --port, --allowed-origins flags for web mode (#1847) (#1873)
 
 ### Fixed
 - **tests**: wrap rmSync cleanup in try/catch for Windows EPERM
@@ -566,7 +565,6 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 - **doctor**: worktree lifecycle checks, cleanup consolidation, enhanced /worktree list (#1814)
-- **web**: browser-based web interface (#1717)
 - **ci**: skip build/test for docs-only PRs and add prompt injection scan (#1699)
 - **docs**: add Custom Models guide and update related documentation (#1670)
 - surface doctor issue details in progress score widget and health views (#1667)

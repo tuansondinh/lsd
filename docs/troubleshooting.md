@@ -153,7 +153,6 @@ rm -rf "$(dirname .gsd)/.gsd.lock"
 
 ### Node v24 web boot failure
 
-**Symptoms:** `gsd --web` fails with `ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING` on Node v24.
 
 **Cause:** Node v24 changed type-stripping behavior for `node_modules`, breaking the Next.js web build.
 
@@ -161,7 +160,6 @@ rm -rf "$(dirname .gsd)/.gsd.lock"
 
 ### Orphan web server process
 
-**Symptoms:** `gsd --web` fails because port 3000 is already in use, even though no GSD session is running.
 
 **Cause:** A previous web server process was not cleaned up on exit.
 

@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "description": "Manage multiple ChatGPT/Codex OAuth accounts with automatic rotation and token refresh",
   "tier": "bundled",
+  "defaultEnabled": false,
   "requires": { "platform": ">=2.29.0" },
   "provides": {
     "commands": ["codex"],

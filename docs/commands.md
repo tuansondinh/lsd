@@ -161,7 +161,6 @@ See [Parallel Orchestration](./parallel-orchestration.md) for full documentation
 | `gsd --print "msg"` (`-p`) | Single-shot prompt mode (no TUI) |
 | `gsd --mode <text\|json\|rpc\|mcp>` | Output mode for non-interactive use |
 | `gsd --list-models [search]` | List available models and exit |
-| `gsd --web [path]` | Start browser-based web interface (optional project path) |
 | `gsd --worktree` (`-w`) [name] | Start session in a git worktree (auto-generates name if omitted) |
 | `gsd --no-session` | Disable session persistence |
 | `gsd --extension <path>` | Load an additional extension (can be repeated) |

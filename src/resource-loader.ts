@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { compareSemver } from './update-check.js'
 import { discoverExtensionEntryPaths } from './extension-discovery.js'
 import { loadRegistry, readManifestFromEntryPath, isExtensionEnabled, ensureRegistryEntries } from './extension-registry.js'
+import { loadEffectivePreferences } from './shared-preferences.js'
 
 // Resolve resources directory — prefer dist/resources/ (stable, set at build time)
 // over src/resources/ (live working tree, changes with git branch).
@@ -577,6 +578,7 @@ function getBundledExtensionKeys(): Set<string> {
 
 export function buildResourceLoader(agentDir: string): DefaultResourceLoader {
   const registry = loadRegistry()
+  const preferences = loadEffectivePreferences()?.preferences
   const piAgentDir = join(homedir(), '.pi', 'agent')
   const piExtensionsDir = join(piAgentDir, 'extensions')
   const bundledKeys = getBundledExtensionKeys()
@@ -585,7 +587,8 @@ export function buildResourceLoader(agentDir: string): DefaultResourceLoader {
     .filter((entryPath) => {
       const manifest = readManifestFromEntryPath(entryPath)
       if (!manifest) return true
-      return isExtensionEnabled(registry, manifest.id)
+      if (manifest.id === 'codex-rotate' && preferences?.experimental?.codex_rotate === true) return true
+      return isExtensionEnabled(registry, manifest.id, manifest.defaultEnabled ?? true)
     })
 
   return new DefaultResourceLoader({
@@ -597,7 +600,8 @@ export function buildResourceLoader(agentDir: string): DefaultResourceLoader {
       const filteredPaths = paths.filter((entryPath) => {
         const manifest = readManifestFromEntryPath(entryPath)
         if (!manifest) return true // no manifest = always load
-        return isExtensionEnabled(registry, manifest.id)
+        if (manifest.id === 'codex-rotate' && preferences?.experimental?.codex_rotate === true) return true
+        return isExtensionEnabled(registry, manifest.id, manifest.defaultEnabled ?? true)
       })
 
       // 2. Sort in topological dependency order

@@ -5,11 +5,11 @@
  * and background token refresh.
  */
 
-import type { ExtensionAPI, ExtensionContext } from "@gsd/pi-coding-agent";
+import type { ExtensionAPI } from "@gsd/pi-coding-agent";
 import { getAllAccounts, updateAccount, getAccountsNeedingRefresh } from "./accounts.js";
-import { syncAccountsToAuth, removeCodexFromAuth } from "./sync.js";
+import { syncAccountsToAuth } from "./sync.js";
 import { registerCodexCommand } from "./commands.js";
-import { markCredentialBackoff, extractErrorFromResponse, shouldBackoffCredential } from "./quota.js";
+import { classifyError, markCredentialBackoff, shouldBackoffCredential } from "./quota.js";
 import { REFRESH_INTERVAL_MS, PROVIDER_NAME } from "./config.js";
 
 let refreshTimer: NodeJS.Timeout | null = null;
@@ -130,23 +130,18 @@ export default function CodexRotateExtension(pi: ExtensionAPI) {
 	// Agent end hook - detect quota/auth errors and backoff credentials
 	pi.on("agent_end", async (event, ctx) => {
 		try {
-			const response = event.response;
-			if (!response) return;
+			const messages = event.messages;
+			const lastAssistant = [...messages].reverse().find((message) => message.role === "assistant");
+			if (!lastAssistant || !("errorMessage" in lastAssistant) || !lastAssistant.errorMessage) return;
 
-			// Extract error from response
-			const errorMessage = extractErrorFromResponse(response);
-			if (!errorMessage) return;
-
-			// Check if we should backoff
+			const errorMessage = lastAssistant.errorMessage;
 			if (!shouldBackoffCredential(errorMessage)) return;
 
-			console.log(`[codex-rotate] Detected credential error: ${errorMessage}`);
+			const errorType = classifyError(errorMessage);
+			console.log(`[codex-rotate] Detected credential error (${errorType}): ${errorMessage}`);
 
-			// Get session ID if available
-			const sessionId = ctx.sessionId;
-
-			// Mark credential as backed off
-			const anotherAvailable = markCredentialBackoff(PROVIDER_NAME, sessionId, "rate_limit");
+			const sessionId = ctx.sessionManager.getSessionId();
+			const anotherAvailable = markCredentialBackoff(PROVIDER_NAME, sessionId, errorType);
 
 			if (anotherAvailable) {
 				ctx.ui.notify("Codex credential backed off, rotating to next account", "info");

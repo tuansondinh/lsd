@@ -90,10 +90,7 @@ async function main() {
     packageFiles.push(...await collectFiles(pkgSrc));
   }
 
-  // Also compile web/lib/ — some tests import from ../../web/lib/
-  const webLibFiles = await collectFiles(join(ROOT, 'web', 'lib'));
-
-  const entryPoints = [...srcFiles, ...packageFiles, ...webLibFiles];
+  const entryPoints = [...srcFiles, ...packageFiles];
   console.log(`Compiling ${entryPoints.length} files to dist-test/...`);
 
   // bundle:false transforms TypeScript but keeps import specifiers verbatim.
@@ -126,12 +123,6 @@ async function main() {
     const pkgDistSrc = join(ROOT, 'dist-test', 'packages', entry.name, 'src');
     await copyAssets(pkgSrc, pkgDistSrc);
   }
-
-  // Copy web/lib/ assets (tests import from ../../web/lib/ relative to dist-test/src/tests/)
-  await copyAssets(join(ROOT, 'web', 'lib'), join(ROOT, 'dist-test', 'web', 'lib'));
-
-  // Copy web/components/ assets (xterm-theme test reads shell-terminal.tsx via import.meta.dirname)
-  await copyAssets(join(ROOT, 'web', 'components'), join(ROOT, 'dist-test', 'web', 'components'));
 
   // Copy scripts/ non-TS files (.cjs etc) — some tests require() scripts directly
   await copyAssets(join(ROOT, 'scripts'), join(ROOT, 'dist-test', 'scripts'));

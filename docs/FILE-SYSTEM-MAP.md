@@ -61,8 +61,6 @@
 | **Universal Config** | Multi-tool configuration file discovery |
 | **Voice** | Voice input extension (Swift/Python) |
 | **VS Code Extension** | VS Code sidebar, chat participant, RPC client |
-| **Web Mode** | Web server service layer and RPC bridge |
-| **Web UI** | Next.js frontend components, pages, hooks |
 | **Worktree** | Git worktree lifecycle, sync, name generation |
 
 ---
@@ -76,7 +74,6 @@
 | src/bundled-extension-paths.ts | Extension Registry | Serializes/parses bundled extension directory paths |
 | src/bundled-resource-path.ts | Loader/Bootstrap, Extension Registry | Resolves bundled raw resource files from package root |
 | src/cli.ts | CLI | Main CLI entry point — arg parsing, mode detection, plugin init |
-| src/cli-web-branch.ts | CLI, Web Mode | Web CLI branch; session dir resolution, legacy migration |
 | src/extension-discovery.ts | Extension Registry | Discovers extension entry points from FS and package.json |
 | src/extension-registry.ts | Extension Registry | Extension manifests, registry persistence, enable/disable |
 | src/headless-answers.ts | Headless Mode | Pre-supply answers to extension UI requests in headless |
@@ -98,38 +95,10 @@
 | src/tool-bootstrap.ts | Loader/Bootstrap | Manages fd/rg availability, falls back to built-in |
 | src/update-check.ts | CLI | Checks npm registry for new versions (cached) |
 | src/update-cmd.ts | CLI | Executes npm install to update gsd-pi package |
-| src/web-mode.ts | Web Mode | Launches/manages web server process (PID tracking, browser) |
 | src/welcome-screen.ts | CLI | Welcome panel — logo, version, model info |
 | src/wizard.ts | Onboarding, Config | Loads env keys from auth.json → hydrates process.env |
 | src/worktree-cli.ts | Worktree, CLI | Worktree lifecycle: create, list, merge, clean, remove |
 | src/worktree-name-gen.ts | Worktree | Generates random worktree names (adjective-verbing-noun) |
-
-### src/web/ — Web Service Layer
-
-| File | System Label(s) | Description |
-|------|-----------------|-------------|
-| src/web/auto-dashboard-service.ts | Web Mode, Auto Engine | Loads auto-mode dashboard state (active, paused, costs) |
-| src/web/bridge-service.ts | Web Mode, State Machine | Central hub spawning RPC sessions, managing session state |
-| src/web/captures-service.ts | Web Mode | Loads knowledge capture entries via child process bridge |
-| src/web/cleanup-service.ts | Web Mode | Collects GSD branches and snapshot refs for cleanup |
-| src/web/cli-entry.ts | Web Mode, CLI | Builds/resolves GSD CLI entry points for RPC/interactive |
-| src/web/doctor-service.ts | Web Mode, Doctor/Diagnostics | Runs diagnostics, returns fixer operations |
-| src/web/export-service.ts | Web Mode | Generates exported project reports (markdown/JSON) |
-| src/web/forensics-service.ts | Web Mode, Doctor/Diagnostics | Loads forensic report data (traces, metrics, issues) |
-| src/web/git-summary-service.ts | Web Mode | Provides git branch, commit history, diff summary |
-| src/web/history-service.ts | Web Mode | Loads metrics ledger, aggregates history views |
-| src/web/hooks-service.ts | Web Mode | Manages git hook registration and shell integration |
-| src/web/inspect-service.ts | Web Mode | Detailed inspection of project state and traces |
-| src/web/knowledge-service.ts | Web Mode | Reads and parses KNOWLEDGE.md |
-| src/web/onboarding-service.ts | Web Mode, Onboarding, Auth/OAuth | Manages onboarding state, auth refresh, lock reasons |
-| src/web/project-discovery-service.ts | Web Mode | Discovers and catalogs projects in filesystem |
-| src/web/recovery-diagnostics-service.ts | Web Mode | Recovery suggestions for error states/blockers |
-| src/web/settings-service.ts | Web Mode, Config | Loads preferences, routing config, budget, totals |
-| src/web/skill-health-service.ts | Web Mode, Doctor/Diagnostics | Loads skill health report with capability assessments |
-| src/web/undo-service.ts | Web Mode | Manages undo/snapshot and restoration |
-| src/web/update-service.ts | Web Mode | Checks for and executes application updates |
-| src/web/visualizer-service.ts | Web Mode | Generates visual representations of project state |
-| src/web/web-auth-storage.ts | Web Mode, Auth/OAuth | OAuth and API key credential storage for web mode |
 
 ---
 
@@ -675,152 +644,6 @@
 
 ---
 
-## web/ — Web Frontend (Next.js)
-
-### App Shell & Navigation
-
-| File | System Label(s) | Description |
-|------|-----------------|-------------|
-| web/app/layout.tsx | Web UI | Root Next.js layout with theme provider and font |
-| web/app/page.tsx | Web UI | Entry page loading GSDAppShell |
-| web/components/gsd/app-shell.tsx | Web UI | Main app shell — sidebar, panels, terminal, commands |
-| web/components/gsd/sidebar.tsx | Web UI | Multi-panel sidebar with milestone explorer |
-| web/components/gsd/status-bar.tsx | Web UI | Status bar with workspace state and metrics |
-
-### Main Views
-
-| File | System Label(s) | Description |
-|------|-----------------|-------------|
-| web/components/gsd/dashboard.tsx | Web UI | Dashboard with workflow actions and metrics |
-| web/components/gsd/chat-mode.tsx | Web UI | Chat interface for agent interaction |
-| web/components/gsd/projects-view.tsx | Web UI | Project browser and selector |
-| web/components/gsd/files-view.tsx | Web UI | File browser and explorer |
-| web/components/gsd/activity-view.tsx | Web UI | Activity log and history view |
-| web/components/gsd/roadmap.tsx | Web UI, GSD Workflow | Milestone roadmap visualization |
-| web/components/gsd/visualizer-view.tsx | Web UI, Doctor/Diagnostics | Workflow visualization |
-| web/components/gsd/project-welcome.tsx | Web UI | Welcome screen for new projects |
-| web/components/gsd/knowledge-captures-panel.tsx | Web UI | Knowledge and capture management |
-
-### Terminal
-
-| File | System Label(s) | Description |
-|------|-----------------|-------------|
-| web/components/gsd/terminal.tsx | Web UI | Terminal widget with input mode handling |
-| web/components/gsd/shell-terminal.tsx | Web UI | Shell terminal with PTY integration |
-| web/components/gsd/main-session-terminal.tsx | Web UI | Main session terminal display |
-| web/components/gsd/dual-terminal.tsx | Web UI | Side-by-side terminal layout |
-
-### Commands & Dialogs
-
-| File | System Label(s) | Description |
-|------|-----------------|-------------|
-| web/components/gsd/command-surface.tsx | Web UI, Commands | Command palette and slash command dispatcher |
-| web/components/gsd/remaining-command-panels.tsx | Web UI, Commands | History, undo, export, cleanup panels |
-| web/components/gsd/diagnostics-panels.tsx | Web UI, Doctor/Diagnostics | Doctor, forensics, skill health panels |
-| web/components/gsd/settings-panels.tsx | Web UI, Config | Settings and preferences panels |
-| web/components/gsd/guided-dialog.tsx | Web UI | Generic guided dialog component |
-| web/components/gsd/update-banner.tsx | Web UI | Update notification banner |
-| web/components/gsd/scope-badge.tsx | Web UI | Scope badge indicator |
-| web/components/gsd/loading-skeletons.tsx | Web UI | Loading skeleton placeholders |
-| web/components/gsd/code-editor.tsx | Web UI | Code editor display component |
-| web/components/gsd/file-content-viewer.tsx | Web UI | File content viewer and previewer |
-| web/components/gsd/focused-panel.tsx | Web UI | Focused panel layout component |
-
-### Onboarding
-
-| File | System Label(s) | Description |
-|------|-----------------|-------------|
-| web/components/gsd/onboarding-gate.tsx | Web UI, Onboarding | Gate and orchestration for onboarding flow |
-| web/components/gsd/onboarding/step-welcome.tsx | Web UI, Onboarding | Welcome step |
-| web/components/gsd/onboarding/step-mode.tsx | Web UI, Onboarding | User mode selection step |
-| web/components/gsd/onboarding/step-provider.tsx | Web UI, Onboarding | LLM provider selection step |
-| web/components/gsd/onboarding/step-authenticate.tsx | Web UI, Onboarding, Auth/OAuth | Authentication step |
-| web/components/gsd/onboarding/step-dev-root.tsx | Web UI, Onboarding | Dev root directory selection step |
-| web/components/gsd/onboarding/step-project.tsx | Web UI, Onboarding | Project selection step |
-| web/components/gsd/onboarding/step-remote.tsx | Web UI, Onboarding | Remote configuration step |
-| web/components/gsd/onboarding/step-optional.tsx | Web UI, Onboarding | Optional settings step |
-| web/components/gsd/onboarding/step-ready.tsx | Web UI, Onboarding | Ready confirmation step |
-| web/components/gsd/onboarding/wizard-stepper.tsx | Web UI, Onboarding | Stepper progress indicator |
-
-### API Routes
-
-| File | System Label(s) | Description |
-|------|-----------------|-------------|
-| web/app/api/boot/route.ts | API Routes, State Machine | Initial boot payload with project/workspace state |
-| web/app/api/session/manage/route.ts | API Routes, Session Management | Session rename and management |
-| web/app/api/session/browser/route.ts | API Routes, Session Management | Session browser listing |
-| web/app/api/session/command/route.ts | API Routes, Session Management | Session command execution |
-| web/app/api/session/events/route.ts | API Routes, Session Management | Session event streaming (SSE) |
-| web/app/api/terminal/stream/route.ts | API Routes | PTY output streaming via SSE |
-| web/app/api/terminal/input/route.ts | API Routes | Terminal input submission |
-| web/app/api/terminal/resize/route.ts | API Routes | Terminal resize |
-| web/app/api/terminal/sessions/route.ts | API Routes | Terminal session management |
-| web/app/api/terminal/upload/route.ts | API Routes | File upload for terminal |
-| web/app/api/bridge-terminal/stream/route.ts | API Routes, Web Mode | Bridge terminal output streaming |
-| web/app/api/bridge-terminal/input/route.ts | API Routes, Web Mode | Bridge terminal input |
-| web/app/api/bridge-terminal/resize/route.ts | API Routes, Web Mode | Bridge terminal resize |
-| web/app/api/projects/route.ts | API Routes | Project discovery and listing |
-| web/app/api/live-state/route.ts | API Routes, State Machine | Live workspace state updates |
-| web/app/api/steer/route.ts | API Routes, Commands | Steering endpoint for agent direction |
-| web/app/api/history/route.ts | API Routes, State Machine | History and metrics |
-| web/app/api/undo/route.ts | API Routes, Commands | Undo operation |
-| web/app/api/cleanup/route.ts | API Routes, Commands | Cleanup operation |
-| web/app/api/export-data/route.ts | API Routes, Commands | Data export |
-| web/app/api/knowledge/route.ts | API Routes, GSD Workflow | Knowledge base |
-| web/app/api/hooks/route.ts | API Routes, GSD Workflow | Git hooks management |
-| web/app/api/inspect/route.ts | API Routes, Doctor/Diagnostics | Inspection and analysis |
-| web/app/api/doctor/route.ts | API Routes, Doctor/Diagnostics | Doctor diagnostic tool |
-| web/app/api/forensics/route.ts | API Routes, Doctor/Diagnostics | Forensics analysis |
-| web/app/api/skill-health/route.ts | API Routes, Doctor/Diagnostics | Skill health check |
-| web/app/api/visualizer/route.ts | API Routes, Doctor/Diagnostics | Workflow visualization |
-| web/app/api/preferences/route.ts | API Routes, Config | User preferences |
-| web/app/api/settings-data/route.ts | API Routes, Config | Settings data |
-| web/app/api/dev-mode/route.ts | API Routes, Config | Development mode toggle |
-| web/app/api/captures/route.ts | API Routes, GSD Workflow | Knowledge captures |
-| web/app/api/browse-directories/route.ts | API Routes | Directory browsing |
-| web/app/api/files/route.ts | API Routes, Tool System | File system access |
-| web/app/api/git/route.ts | API Routes, Tool System | Git operations |
-| web/app/api/onboarding/route.ts | API Routes, Onboarding | Onboarding data |
-| web/app/api/recovery/route.ts | API Routes, Doctor/Diagnostics | Recovery operations |
-| web/app/api/remote-questions/route.ts | API Routes, Remote Questions | Remote question handling |
-| web/app/api/shutdown/route.ts | API Routes | Graceful shutdown |
-| web/app/api/update/route.ts | API Routes, CLI | Update check |
-
-### Library & State
-
-| File | System Label(s) | Description |
-|------|-----------------|-------------|
-| web/lib/auth.ts | Auth/OAuth | Client-side auth token management from URL fragment |
-| web/lib/gsd-workspace-store.tsx | State Machine | Global workspace state store with external store |
-| web/lib/project-store-manager.tsx | State Machine | Multi-project store manager with SSE lifecycle |
-| web/lib/shutdown-gate.ts | State Machine | Graceful shutdown coordination |
-| web/lib/browser-slash-command-dispatch.ts | Commands | Slash command dispatch |
-| web/lib/workflow-actions.ts | GSD Workflow | Primary workflow action derivation logic |
-| web/lib/workflow-action-execution.ts | GSD Workflow | Workflow action execution handler |
-| web/lib/command-surface-contract.ts | Commands | Command surface request/response contract types |
-| web/lib/pty-manager.ts | Web UI | Server-side PTY spawning and session management |
-| web/lib/pty-chat-parser.ts | Web UI | PTY output parsing for chat display |
-| web/lib/remaining-command-types.ts | Web UI | Browser-safe types for command surfaces |
-| web/lib/knowledge-captures-types.ts | GSD Workflow | Knowledge entry and captures types |
-| web/lib/diagnostics-types.ts | Doctor/Diagnostics | Diagnostics panel types |
-| web/lib/settings-types.ts | Config | Settings and preferences types |
-| web/lib/visualizer-types.ts | Doctor/Diagnostics | Workflow visualizer types |
-| web/lib/session-browser-contract.ts | Session Management | Session browser contract types |
-| web/lib/git-summary-contract.ts | Tool System | Git summary contract types |
-| web/lib/utils.ts | Web UI | Common utility functions |
-| web/lib/project-url.ts | Web UI | Project URL parsing and construction |
-| web/lib/workspace-status.ts | Web UI, State Machine | Workspace status derivation |
-| web/lib/image-utils.ts | Image Processing | Image handling and processing utilities |
-| web/lib/use-editor-font-size.ts | Web UI | Editor font size preference hook |
-| web/lib/use-terminal-font-size.ts | Web UI | Terminal font size preference hook |
-| web/lib/use-user-mode.ts | Web UI | User mode hook |
-| web/hooks/use-mobile.ts | Web UI | Mobile viewport detection hook |
-| web/hooks/use-toast.ts | Web UI | Toast notification hook |
-| web/components/theme-provider.tsx | Web UI | Theme provider for dark/light modes |
-| web/components/ui/* (50+ files) | Web UI | Shadcn/ui base component library |
-
----
-
 ## vscode-extension/ — VS Code Extension
 
 | File | System Label(s) | Description |
@@ -962,21 +785,17 @@ Quick lookup: which files are part of each system?
 |--------|------------------------|
 | **Agent Core** | pi-agent-core/src/*, pi-coding-agent/src/core/agent-session.ts, agent-loop.ts, agent.ts, event-bus.ts, sdk.ts |
 | **AI Providers** | pi-ai/src/providers/*, pi-ai/src/stream.ts, pi-ai/src/models*.ts |
-| **API Routes** | web/app/api/**/*.ts |
 | **AST** | native/crates/ast/*, packages/native/src/ast/ |
 | **Async Jobs** | src/resources/extensions/async-jobs/* |
-| **Auth / OAuth** | pi-ai/src/utils/oauth/*, src/web/web-auth-storage.ts, core/auth-storage.ts, src/pi-migration.ts, aws-auth/index.ts, web/lib/auth.ts |
 | **Auto Engine** | Removed with the legacy bundled GSD extension |
 | **Bg Shell** | src/resources/extensions/bg-shell/* |
 | **Browser Tools** | src/resources/extensions/browser-tools/* |
 | **Build System** | scripts/*, native/crates/engine/build.rs |
-| **CLI** | src/cli.ts, src/cli-web-branch.ts, src/help-text.ts, src/update*.ts, pi-coding-agent/src/cli.ts, src/worktree-cli.ts |
 | **CMux** | src/resources/extensions/cmux/index.ts |
 | **Commands** | gsd/commands*.ts, gsd/exit-command.ts, gsd/undo.ts, gsd/kill.ts, pi-coding-agent/src/core/slash-commands.ts |
 | **Compaction** | pi-coding-agent/src/core/compaction*.ts, core/compaction/* |
 | **Config** | src/app-paths.ts, src/models-resolver.ts, src/remote-questions-config.ts, src/wizard.ts, core/defaults.ts, core/constants.ts, config.ts |
 | **Context7** | src/resources/extensions/context7/index.ts |
-| **Doctor / Diagnostics** | gsd/doctor*.ts, gsd/collision-diagnostics.ts, core/diagnostics.ts, web/lib/diagnostics-types.ts, web/app/api/doctor/*, forensics/* |
 | **Event System** | pi-coding-agent/src/core/event-bus.ts, gsd/auto-observability.ts |
 | **Extension Registry** | src/extension-discovery.ts, src/extension-registry.ts, src/bundled-extension-paths.ts |
 | **Extensions** | pi-coding-agent/src/core/extensions/*, src/resource-loader.ts |
@@ -984,7 +803,6 @@ Quick lookup: which files are part of each system?
 | **GSD Workflow** | Removed with the legacy bundled GSD extension |
 | **Google Search** | src/resources/extensions/google-search/index.ts |
 | **Headless Mode** | src/headless*.ts |
-| **Image Processing** | native/crates/engine/src/image.rs, packages/native/src/image/*, utils/image-*.ts, web/lib/image-utils.ts |
 | **Integration Tests** | tests/**/* |
 | **Loader / Bootstrap** | src/loader.ts, src/resource-loader.ts, src/tool-bootstrap.ts, src/bundled-resource-path.ts, gsd/bootstrap/* |
 | **LSP** | pi-coding-agent/src/core/lsp/* |
@@ -996,14 +814,11 @@ Quick lookup: which files are part of each system?
 | **Model System** | pi-coding-agent/src/core/model-*.ts, pi-ai/src/models*.ts, pi-ai/src/api-registry.ts, gsd/model-router.ts |
 | **Native / Rust Tools** | native/crates/engine/src/* |
 | **Node.js Bindings** | packages/native/src/* |
-| **Onboarding** | src/onboarding.ts, src/wizard.ts, web/components/gsd/onboarding/*, web/app/api/onboarding/* |
 | **Permissions** | core/extensions/project-trust.ts, core/auth-storage.ts |
 | **Remote Questions** | src/resources/extensions/remote-questions/* |
 | **Search the Web** | src/resources/extensions/search-the-web/* |
-| **Session Management** | pi-coding-agent/src/core/session-manager.ts, core/settings-manager.ts, web/app/api/session/* |
 | **Skills** | src/resources/skills/*, gsd/skill-telemetry.ts, gsd/preferences-skills.ts, core/skills.ts |
 | **Slash Commands** | src/resources/extensions/slash-commands/* |
-| **State Machine** | gsd/state.ts, gsd/history.ts, gsd/json-persistence.ts, gsd/memory-store.ts, gsd/reactive-graph.ts, core/agent-session.ts, web/lib/gsd-workspace-store.tsx |
 | **Studio App** | studio/* |
 | **Subagent** | src/resources/extensions/subagent/*, src/resources/agents/* |
 | **Syntax Highlighting** | native/crates/engine/src/highlight.rs, packages/native/src/highlight/* |
@@ -1014,6 +829,4 @@ Quick lookup: which files are part of each system?
 | **Universal Config** | src/resources/extensions/universal-config/* |
 | **Voice** | src/resources/extensions/voice/* |
 | **VS Code Extension** | vscode-extension/src/* |
-| **Web Mode** | src/web/*.ts, src/web-mode.ts |
-| **Web UI** | web/app/*.tsx, web/components/*, web/hooks/*, web/lib/* |
 | **Worktree** | src/worktree-cli.ts, src/worktree-name-gen.ts, gsd/worktree*.ts, tests/repro-worktree-bug/* |

@@ -28,6 +28,7 @@ export interface SubagentPreferences {
 export interface SharedPreferences {
   experimental?: {
     rtk?: boolean
+    codex_rotate?: boolean
   }
   remote_questions?: RemoteQuestionsConfig
   search_provider?: SearchProviderPreference
