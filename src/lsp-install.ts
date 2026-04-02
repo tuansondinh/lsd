@@ -8,10 +8,17 @@
 
 import { spawn } from 'node:child_process'
 import { createRequire } from 'node:module'
+import { fileURLToPath } from 'node:url'
+import { dirname, resolve } from 'node:path'
 import { hasRootMarkers, resolveCommand } from '@gsd/pi-coding-agent'
 
-const require = createRequire(import.meta.url)
-const DEFAULTS = require('@gsd/pi-coding-agent/dist/core/lsp/defaults.json') as Record<
+// Load defaults.json via a path relative to this file's compiled output location.
+// We use createRequire + a resolved path to avoid touching the package exports map.
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const _require = createRequire(import.meta.url)
+const DEFAULTS = _require(
+  resolve(__dirname, '../packages/pi-coding-agent/dist/core/lsp/defaults.json')
+) as Record<
   string,
   {
     command?: string
