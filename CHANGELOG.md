@@ -6,6 +6,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.1.4] - 2026-04-02
+
+### Changed
+- **repo**: ignore the project-local `.lsd/` folder in Git and stop tracking existing `.lsd` workspace state files
+
 ## [1.1.3] - 2026-04-02
 
 ### Added
