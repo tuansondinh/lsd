@@ -11,6 +11,7 @@ import {
 } from "@gsd/native";
 import { getCustomThemesDir } from "../../../config.js";
 import { builtinThemes } from "./themes.js";
+import { editorLink, detectEditorScheme } from "../utils/editor-link.js";
 
 // Issue #453: native preview highlighting can wedge the entire interactive
 // session after a successful file tool. Keep the safer plain-text path as the
@@ -1168,6 +1169,28 @@ export function getLanguageFromPath(filePath: string): string | undefined {
 	return extToLang[ext];
 }
 
+// File path detection regex — matches strings that look like file paths:
+// - Contains a `/` or `\` separator, OR
+// - Ends with a known file extension
+const FILE_PATH_PATTERN = /^(?:\.{0,2}\/|~\/|[a-zA-Z]:\\)[\w\-./\\]+$|^[\w\-./]+\.(?:ts|tsx|js|jsx|json|md|yaml|yml|toml|css|scss|html|py|rs|go|rb|java|c|cpp|h|hpp|sh|bash|zsh|sql|graphql|proto|xml|svg|txt|env|lock|cfg|ini|conf|log|gitignore|dockerignore|editorconfig|prettierrc|eslintrc)$/;
+
+function linkifyCode(rawText: string, styledText: string): string {
+	// Skip empty strings
+	if (!rawText) return styledText;
+
+	// Check if it looks like a file path
+	if (!FILE_PATH_PATTERN.test(rawText)) return styledText;
+
+	// Verify file actually exists to avoid false positives
+	const cwd = process.cwd();
+	const absPath = path.isAbsolute(rawText) ? rawText : path.resolve(cwd, rawText);
+	if (!fs.existsSync(absPath)) return styledText;
+
+	// Wrap in editor link
+	const scheme = detectEditorScheme();
+	return editorLink(rawText, styledText, { cwd, scheme });
+}
+
 export function getMarkdownTheme(): MarkdownTheme {
 	return {
 		heading: (text: string) => theme.fg("mdHeading", text),
@@ -1184,6 +1207,7 @@ export function getMarkdownTheme(): MarkdownTheme {
 		italic: (text: string) => theme.italic(text),
 		underline: (text: string) => theme.underline(text),
 		strikethrough: (text: string) => chalk.strikethrough(text),
+		linkifyCode,
 		highlightCode: (code: string, lang?: string): string[] => {
 			if (!NATIVE_TUI_HIGHLIGHT_ENABLED) {
 				return code.split("\n").map((line) => theme.fg("mdCodeBlock", line));

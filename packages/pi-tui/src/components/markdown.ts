@@ -44,6 +44,13 @@ export interface MarkdownTheme {
 	highlightCode?: (code: string, lang?: string) => string[];
 	/** Prefix applied to each rendered code block line (default: "  ") */
 	codeBlockIndent?: string;
+	/**
+	 * Optional callback to wrap inline code spans in clickable file links.
+	 * Receives the raw code text and the styled output, returns either
+	 * the styled output wrapped in an OSC 8 hyperlink (if it's a valid file path)
+	 * or the original styled output unchanged.
+	 */
+	linkifyCode?: (rawText: string, styledText: string) => string;
 }
 
 interface InlineStyleContext {
@@ -445,9 +452,14 @@ export class Markdown implements Component {
 					break;
 				}
 
-				case "codespan":
-					result += this.theme.code(token.text) + stylePrefix;
+				case "codespan": {
+					let styledCode = this.theme.code(token.text);
+					if (this.theme.linkifyCode) {
+						styledCode = this.theme.linkifyCode(token.text, styledCode);
+					}
+					result += styledCode + stylePrefix;
 					break;
+				}
 
 				case "link": {
 					const linkText = this.renderInlineTokens(token.tokens || [], resolvedStyleContext);
@@ -456,11 +468,14 @@ export class Markdown implements Component {
 					// For mailto: links, strip the prefix before comparing (autolinked emails have
 					// text="foo@bar.com" but href="mailto:foo@bar.com")
 					const hrefForComparison = token.href.startsWith("mailto:") ? token.href.slice(7) : token.href;
+					// Wrap in OSC 8 hyperlink so Cmd+click opens the URL
+					const osc8Wrap = (display: string) =>
+						`\x1b]8;;${token.href}\x07${display}\x1b]8;;\x07`;
 					if (token.text === token.href || token.text === hrefForComparison) {
-						result += this.theme.link(this.theme.underline(linkText)) + stylePrefix;
+						result += osc8Wrap(this.theme.link(this.theme.underline(linkText))) + stylePrefix;
 					} else {
 						result +=
-							this.theme.link(this.theme.underline(linkText)) +
+							osc8Wrap(this.theme.link(this.theme.underline(linkText))) +
 							this.theme.linkUrl(` (${token.href})`) +
 							stylePrefix;
 					}
