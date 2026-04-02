@@ -139,6 +139,7 @@ export interface Settings {
 	terminal?: TerminalSettings;
 	images?: ImageSettings;
 	enabledModels?: string[]; // Model patterns for cycling (same format as --models CLI flag)
+	codexRotate?: boolean; // Enable the bundled codex-rotate extension (default: false)
 	doubleEscapeAction?: "fork" | "tree" | "none"; // Action for double-escape with empty editor (default: "tree")
 	treeFilterMode?: "default" | "no-tools" | "user-only" | "labeled-only" | "all"; // Default filter when opening /tree
 	thinkingBudgets?: ThinkingBudgetsSettings; // Custom token budgets for thinking levels
@@ -157,6 +158,8 @@ export interface Settings {
 	editMode?: "standard" | "hashline"; // Edit tool mode: "standard" (text match) or "hashline" (LINE#ID anchors). Default: "standard"
 	timestampFormat?: "date-time-iso" | "date-time-us"; // Timestamp display format for messages. Default: "date-time-iso"
 	toolOutputMode?: "minimal" | "normal"; // Collapsed tool rendering mode. "minimal" hides previews until expanded.
+	lspAutoInstall?: boolean; // default: false — whether to auto-install missing language servers during onboarding
+	lspInstalledServers?: string[]; // list of server names installed via the onboarding wizard
 }
 
 /** Deep merge settings: project/overrides take precedence, nested objects merge recursively */
@@ -986,6 +989,14 @@ export class SettingsManager {
 		this.setGlobalSetting("enabledModels", patterns);
 	}
 
+	getCodexRotate(): boolean {
+		return this.settings.codexRotate ?? false;
+	}
+
+	setCodexRotate(enabled: boolean): void {
+		this.setGlobalSetting("codexRotate", enabled);
+	}
+
 	getDoubleEscapeAction(): "fork" | "tree" | "none" {
 		return this.settings.doubleEscapeAction ?? "tree";
 	}
@@ -1153,5 +1164,21 @@ export class SettingsManager {
 
 	setTimestampFormat(format: "date-time-iso" | "date-time-us"): void {
 		this.setGlobalSetting("timestampFormat", format);
+	}
+
+	getLspAutoInstall(): boolean {
+		return this.settings.lspAutoInstall ?? false;
+	}
+
+	setLspAutoInstall(v: boolean): void {
+		this.setGlobalSetting("lspAutoInstall", v);
+	}
+
+	getLspInstalledServers(): string[] {
+		return [...(this.settings.lspInstalledServers ?? [])];
+	}
+
+	setLspInstalledServers(v: string[]): void {
+		this.setGlobalSetting("lspInstalledServers", v);
 	}
 }

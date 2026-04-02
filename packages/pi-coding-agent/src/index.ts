@@ -405,3 +405,5 @@ export { parseFrontmatter, stripFrontmatter } from "./utils/frontmatter.js";
 export { getShellConfig, sanitizeCommand } from "./utils/shell.js";
 // Cross-platform path display
 export { toPosixPath } from "./utils/path-display.js";
+// LSP config utilities
+export { hasRootMarkers, resolveCommand, which } from "./core/lsp/config.js";
