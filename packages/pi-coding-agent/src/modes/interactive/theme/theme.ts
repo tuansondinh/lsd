@@ -41,6 +41,7 @@ const ThemeJsonSchema = Type.Object({
 		success: ColorValueSchema,
 		error: ColorValueSchema,
 		warning: ColorValueSchema,
+		violet: ColorValueSchema,
 		muted: ColorValueSchema,
 		dim: ColorValueSchema,
 		text: ColorValueSchema,
@@ -113,6 +114,7 @@ export type ThemeColor =
 	| "success"
 	| "error"
 	| "warning"
+	| "violet"
 	| "muted"
 	| "dim"
 	| "text"
@@ -161,6 +163,33 @@ export type ThemeBg =
 	| "toolErrorBg";
 
 type ColorMode = "truecolor" | "256color";
+
+export const THEME_ACCENT_PRESETS = ["default", "golden-yellow", "blue", "green", "violet", "red"] as const;
+
+export type ThemeAccentPreset = (typeof THEME_ACCENT_PRESETS)[number];
+
+const THEME_ACCENT_COLORS: Record<Exclude<ThemeAccentPreset, "default">, string> = {
+	"golden-yellow": "#F59E0B",
+	blue: "#60A5FA",
+	green: "#34D399",
+	violet: "#A78BFA",
+	red: "#F87171",
+};
+
+export function getAvailableThemeAccents(): ThemeAccentPreset[] {
+	return [...THEME_ACCENT_PRESETS];
+}
+
+function isThemeAccentPreset(value: string | undefined): value is ThemeAccentPreset {
+	return value !== undefined && THEME_ACCENT_PRESETS.includes(value as ThemeAccentPreset);
+}
+
+function normalizeThemeAccent(accent: string | undefined): ThemeAccentPreset | undefined {
+	if (!isThemeAccentPreset(accent) || accent === "default") {
+		return undefined;
+	}
+	return accent;
+}
 
 // ============================================================================
 // Color Utilities
@@ -572,9 +601,44 @@ function loadThemeJson(name: string): ThemeJson {
 	return parseThemeJsonContent(name, content);
 }
 
-function createTheme(themeJson: ThemeJson, mode?: ColorMode, sourcePath?: string): Theme {
+function applyThemeAccent(themeJson: ThemeJson, accent: ThemeAccentPreset | undefined): ThemeJson {
+	if (!accent || accent === "default") {
+		return themeJson;
+	}
+
+	const accentColor = THEME_ACCENT_COLORS[accent];
+	const vars = { ...(themeJson.vars ?? {}) };
+	const colors = { ...themeJson.colors };
+	const originalAccent = resolveVarRefs(themeJson.colors.accent, themeJson.vars ?? {});
+	const accentDrivenKeys: Array<keyof ThemeJson["colors"]> = ["accent", "borderAccent", "mdCode", "mdListBullet"];
+
+	if ("accent" in vars) {
+		vars.accent = accentColor;
+	}
+
+	for (const key of accentDrivenKeys) {
+		const currentResolved = resolveVarRefs(themeJson.colors[key], themeJson.vars ?? {});
+		if (key === "accent" || key === "borderAccent" || currentResolved === originalAccent) {
+			colors[key] = accentColor;
+		}
+	}
+
+	return {
+		...themeJson,
+		vars,
+		colors,
+	};
+}
+
+function createTheme(
+	themeJson: ThemeJson,
+	mode?: ColorMode,
+	sourcePath?: string,
+	accent?: ThemeAccentPreset,
+): Theme {
 	const colorMode = mode ?? detectColorMode();
-	const resolvedColors = resolveThemeColors(themeJson.colors, themeJson.vars);
+	const resolvedThemeJson = applyThemeAccent(themeJson, accent);
+	const resolvedColors = resolveThemeColors(resolvedThemeJson.colors, resolvedThemeJson.vars);
 	const fgColors: Record<ThemeColor, string | number> = {} as Record<ThemeColor, string | number>;
 	const bgColors: Record<ThemeBg, string | number> = {} as Record<ThemeBg, string | number>;
 	const bgColorKeys: Set<string> = new Set([
@@ -593,29 +657,34 @@ function createTheme(themeJson: ThemeJson, mode?: ColorMode, sourcePath?: string
 		}
 	}
 	return new Theme(fgColors, bgColors, colorMode, {
-		name: themeJson.name,
+		name: resolvedThemeJson.name,
 		sourcePath,
 	});
 }
 
-export function loadThemeFromPath(themePath: string, mode?: ColorMode): Theme {
+export function loadThemeFromPath(themePath: string, mode?: ColorMode, accent?: ThemeAccentPreset): Theme {
 	const content = fs.readFileSync(themePath, "utf-8");
 	const themeJson = parseThemeJsonContent(themePath, content);
-	return createTheme(themeJson, mode, themePath);
+	return createTheme(themeJson, mode, themePath, accent);
 }
 
-function loadTheme(name: string, mode?: ColorMode): Theme {
+function loadTheme(name: string, mode?: ColorMode, accent?: ThemeAccentPreset): Theme {
 	const registeredTheme = registeredThemes.get(name);
 	if (registeredTheme) {
-		return registeredTheme;
+		if (!accent) {
+			return registeredTheme;
+		}
+		if (registeredTheme.sourcePath) {
+			return loadThemeFromPath(registeredTheme.sourcePath, mode, accent);
+		}
 	}
 	const themeJson = loadThemeJson(name);
-	return createTheme(themeJson, mode);
+	return createTheme(themeJson, mode, undefined, accent);
 }
 
-export function getThemeByName(name: string): Theme | undefined {
+export function getThemeByName(name: string, accent?: string): Theme | undefined {
 	try {
-		return loadTheme(name);
+		return loadTheme(name, undefined, normalizeThemeAccent(accent));
 	} catch {
 		return undefined;
 	}
@@ -662,6 +731,7 @@ function setGlobalTheme(t: Theme): void {
 }
 
 let currentThemeName: string | undefined;
+let currentThemeAccent: ThemeAccentPreset | undefined;
 let themeWatcher: fs.FSWatcher | undefined;
 const onThemeChangeCallbacks = new Set<() => void>();
 const registeredThemes = new Map<string, Theme>();
@@ -675,26 +745,30 @@ export function setRegisteredThemes(themes: Theme[]): void {
 	}
 }
 
-export function initTheme(themeName?: string, enableWatcher: boolean = false): void {
+export function initTheme(themeName?: string, enableWatcher: boolean = false, accent?: string): void {
 	const name = themeName ?? getDefaultTheme();
+	const normalizedAccent = normalizeThemeAccent(accent);
 	currentThemeName = name;
+	currentThemeAccent = normalizedAccent;
 	try {
-		setGlobalTheme(loadTheme(name));
+		setGlobalTheme(loadTheme(name, undefined, normalizedAccent));
 		if (enableWatcher) {
 			startThemeWatcher();
 		}
 	} catch (_error) {
 		// Theme is invalid - fall back to dark theme silently
 		currentThemeName = "dark";
-		setGlobalTheme(loadTheme("dark"));
+		setGlobalTheme(loadTheme("dark", undefined, normalizedAccent));
 		// Don't start watcher for fallback theme
 	}
 }
 
-export function setTheme(name: string, enableWatcher: boolean = false): { success: boolean; error?: string } {
+export function setTheme(name: string, enableWatcher: boolean = false, accent?: string): { success: boolean; error?: string } {
+	const normalizedAccent = normalizeThemeAccent(accent);
 	currentThemeName = name;
+	currentThemeAccent = normalizedAccent;
 	try {
-		setGlobalTheme(loadTheme(name));
+		setGlobalTheme(loadTheme(name, undefined, normalizedAccent));
 		if (enableWatcher) {
 			startThemeWatcher();
 		}
@@ -703,7 +777,7 @@ export function setTheme(name: string, enableWatcher: boolean = false): { succes
 	} catch (error) {
 		// Theme is invalid - fall back to dark theme
 		currentThemeName = "dark";
-		setGlobalTheme(loadTheme("dark"));
+		setGlobalTheme(loadTheme("dark", undefined, normalizedAccent));
 		// Don't start watcher for fallback theme
 		return {
 			success: false,
@@ -751,7 +825,7 @@ function startThemeWatcher(): void {
 				setTimeout(() => {
 					try {
 						// Reload the theme
-						setGlobalTheme(loadTheme(currentThemeName!));
+						setGlobalTheme(loadTheme(currentThemeName!, undefined, currentThemeAccent));
 						// Notify callbacks (to invalidate UI)
 						onThemeChangeCallbacks.forEach(cb => cb());
 					} catch (_error) {
@@ -763,7 +837,7 @@ function startThemeWatcher(): void {
 				setTimeout(() => {
 					if (!fs.existsSync(themeFile)) {
 						currentThemeName = "dark";
-						setGlobalTheme(loadTheme("dark"));
+						setGlobalTheme(loadTheme("dark", undefined, currentThemeAccent));
 						if (themeWatcher) {
 							themeWatcher.close();
 							themeWatcher = undefined;
@@ -842,7 +916,7 @@ function ansi256ToHex(index: number): string {
 export function getResolvedThemeColors(themeName?: string): Record<string, string> {
 	const name = themeName ?? currentThemeName ?? getDefaultTheme();
 	const isLight = name === "light";
-	const themeJson = loadThemeJson(name);
+	const themeJson = applyThemeAccent(loadThemeJson(name), currentThemeAccent);
 	const resolved = resolveThemeColors(themeJson.colors, themeJson.vars);
 
 	// Default text color for empty values (terminal uses default fg color)
@@ -873,7 +947,7 @@ export function getThemeExportColors(themeName?: string): {
 } {
 	const name = themeName ?? currentThemeName ?? getDefaultTheme();
 	try {
-		const themeJson = loadThemeJson(name);
+		const themeJson = applyThemeAccent(loadThemeJson(name), currentThemeAccent);
 		const exportSection = themeJson.export;
 		if (!exportSection) return {};
 

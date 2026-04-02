@@ -28,6 +28,7 @@ export interface SettingsConfig {
 	autoCompactThresholdPercent: number;
 	classifierModel: string;
 	budgetSubagentModel: string;
+	planModeReasoningModel: string;
 	showImages: boolean;
 	autoResizeImages: boolean;
 	blockImages: boolean;
@@ -41,6 +42,8 @@ export interface SettingsConfig {
 	availableThinkingLevels: ThinkingLevel[];
 	currentTheme: string;
 	availableThemes: string[];
+	currentThemeAccent: string;
+	availableThemeAccents: string[];
 	hideThinkingBlock: boolean;
 	collapseChangelog: boolean;
 	doubleEscapeAction: "fork" | "tree" | "none";
@@ -56,6 +59,7 @@ export interface SettingsConfig {
 	rtk: boolean;
 	classifierModelSubmenu?: (currentValue: string, done: (selectedValue?: string) => void) => Component;
 	budgetSubagentModelSubmenu?: (currentValue: string, done: (selectedValue?: string) => void) => Component;
+	planModeReasoningModelSubmenu?: (currentValue: string, done: (selectedValue?: string) => void) => Component;
 }
 
 export interface SettingsCallbacks {
@@ -63,6 +67,7 @@ export interface SettingsCallbacks {
 	onAutoCompactThresholdPercentChange: (percent: number) => void;
 	onClassifierModelChange: (modelRef: string) => void;
 	onBudgetSubagentModelChange: (modelRef: string) => void;
+	onPlanModeReasoningModelChange: (modelRef: string) => void;
 	onShowImagesChange: (enabled: boolean) => void;
 	onAutoResizeImagesChange: (enabled: boolean) => void;
 	onBlockImagesChange: (blocked: boolean) => void;
@@ -75,6 +80,7 @@ export interface SettingsCallbacks {
 	onThinkingLevelChange: (level: ThinkingLevel) => void;
 	onThemeChange: (theme: string) => void;
 	onThemePreview?: (theme: string) => void;
+	onThemeAccentChange: (accent: string) => void;
 	onHideThinkingBlockChange: (hidden: boolean) => void;
 	onCollapseChangelogChange: (collapsed: boolean) => void;
 	onDoubleEscapeActionChange: (action: "fork" | "tree" | "none") => void;
@@ -194,6 +200,13 @@ export class SettingsSelectorComponent extends Container {
 				submenu: config.budgetSubagentModelSubmenu,
 			},
 			{
+				id: "plan-mode-reasoning-model",
+				label: "Plan reasoning model",
+				description: "Optional provider/id model to switch to after plan approval",
+				currentValue: config.planModeReasoningModel,
+				submenu: config.planModeReasoningModelSubmenu,
+			},
+			{
 				id: "steering-mode",
 				label: "Steering mode",
 				description:
@@ -307,6 +320,27 @@ export class SettingsSelectorComponent extends Container {
 							// Preview theme on selection change
 							callbacks.onThemePreview?.(value);
 						},
+					),
+			},
+			{
+				id: "theme-accent",
+				label: "Main accent",
+				description: "Primary accent color used by the interface",
+				currentValue: config.currentThemeAccent,
+				submenu: (currentValue, done) =>
+					new SelectSubmenu(
+						"Main Accent",
+						"Select the primary accent color",
+						config.availableThemeAccents.map((accent) => ({
+							value: accent,
+							label: accent,
+						})),
+						currentValue,
+						(value) => {
+							callbacks.onThemeAccentChange(value);
+							done(value);
+						},
+						() => done(),
 					),
 			},
 		];
@@ -462,6 +496,9 @@ export class SettingsSelectorComponent extends Container {
 						break;
 					case "budget-subagent-model":
 						callbacks.onBudgetSubagentModelChange(newValue);
+						break;
+					case "plan-mode-reasoning-model":
+						callbacks.onPlanModeReasoningModelChange(newValue);
 						break;
 					case "show-images":
 						callbacks.onShowImagesChange(newValue === "true");

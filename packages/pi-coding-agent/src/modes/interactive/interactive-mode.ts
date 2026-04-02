@@ -109,6 +109,7 @@ import {
 	updateAvailableProviderCount as updateAvailableProviderCountController,
 } from "./controllers/model-controller.js";
 import {
+	getAvailableThemeAccents,
 	getAvailableThemes,
 	getAvailableThemesWithPaths,
 	getEditorTheme,
@@ -389,23 +390,10 @@ export class InteractiveMode {
 		this.skillCommands.clear();
 		const skillCommandList: SlashCommand[] = [];
 		if (this.settingsManager.getEnableSkillCommands()) {
-			const reservedSkillNames = new Set<string>([
-				...slashCommands.map((command) => command.name),
-				...templateCommands.map((command) => command.name),
-				...extensionCommands.map((command) => command.name),
-			]);
 			for (const skill of this.session.resourceLoader.getSkills().skills) {
 				const commandName = `skill:${skill.name}`;
 				this.skillCommands.set(commandName, skill.filePath);
-				if (skill.userInvocable && !reservedSkillNames.has(skill.name)) {
-					// Register short name in the map and show only the short name in autocomplete
-					// to avoid showing both "teams-plan" and "skill:teams-plan" as duplicates
-					this.skillCommands.set(skill.name, skill.filePath);
-					skillCommandList.push({ name: skill.name, description: skill.description });
-				} else {
-					// Not user-invocable or name is reserved — show only the skill: prefixed version
-					skillCommandList.push({ name: commandName, description: skill.description });
-				}
+				skillCommandList.push({ name: commandName, description: skill.description });
 			}
 		}
 
@@ -2961,6 +2949,7 @@ export class InteractiveMode {
 					autoCompactThresholdPercent: this.settingsManager.getCompactionThresholdPercent(),
 					classifierModel: this.settingsManager.getClassifierModel() ?? "default",
 					budgetSubagentModel: this.settingsManager.getBudgetSubagentModel() ?? "default",
+					planModeReasoningModel: this.settingsManager.getPlanModeReasoningModel() ?? "default",
 					showImages: this.settingsManager.getShowImages(),
 					autoResizeImages: this.settingsManager.getImageAutoResize(),
 					blockImages: this.settingsManager.getBlockImages(),
@@ -2973,7 +2962,9 @@ export class InteractiveMode {
 					thinkingLevel: this.session.thinkingLevel,
 					availableThinkingLevels: this.session.getAvailableThinkingLevels(),
 					currentTheme: this.settingsManager.getTheme() || "dark",
+					currentThemeAccent: this.settingsManager.getThemeAccent() || "default",
 					availableThemes: getAvailableThemes(),
+					availableThemeAccents: getAvailableThemeAccents(),
 					hideThinkingBlock: this.hideThinkingBlock,
 					collapseChangelog: this.settingsManager.getCollapseChangelog(),
 					doubleEscapeAction: this.settingsManager.getDoubleEscapeAction(),
@@ -3007,6 +2998,16 @@ export class InteractiveMode {
 							(model) => submenuDone(`${model.provider}/${model.id}`),
 							() => submenuDone(),
 						),
+					planModeReasoningModelSubmenu: (_currentValue, submenuDone) =>
+						new ModelSelectorComponent(
+							this.ui,
+							undefined,
+							this.settingsManager,
+							this.session.modelRegistry,
+							[],
+							(model) => submenuDone(`${model.provider}/${model.id}`),
+							() => submenuDone(),
+						),
 				},
 				{
 					onAutoCompactChange: (enabled) => {
@@ -3025,6 +3026,12 @@ export class InteractiveMode {
 						this.settingsManager.setBudgetSubagentModel(modelRef === "default" ? undefined : modelRef);
 						this.showStatus(
 							`Budget subagent model: ${modelRef === "default" ? "use current/default model" : modelRef}`,
+						);
+					},
+					onPlanModeReasoningModelChange: (modelRef) => {
+						this.settingsManager.setPlanModeReasoningModel(modelRef === "default" ? undefined : modelRef);
+						this.showStatus(
+							`Plan reasoning model: ${modelRef === "default" ? "use current model" : modelRef}`,
 						);
 					},
 					onShowImagesChange: (enabled) => {
@@ -3073,15 +3080,28 @@ export class InteractiveMode {
 						this.updateEditorBorderColor();
 					},
 					onThemeChange: (themeName) => {
-						const result = setTheme(themeName, true);
+						const result = setTheme(themeName, true, this.settingsManager.getThemeAccent());
 						this.settingsManager.setTheme(themeName);
 						this.ui.invalidate();
 						if (!result.success) {
 							this.showError(`Failed to load theme "${themeName}": ${result.error}\nFell back to dark theme.`);
 						}
 					},
+					onThemeAccentChange: (accent) => {
+						this.settingsManager.setThemeAccent(accent === "default" ? undefined : accent);
+						const result = setTheme(
+							this.settingsManager.getTheme() || "dark",
+							true,
+							this.settingsManager.getThemeAccent(),
+						);
+						this.ui.invalidate();
+						this.ui.requestRender();
+						if (!result.success) {
+							this.showError(`Failed to apply theme accent "${accent}": ${result.error}`);
+						}
+					},
 					onThemePreview: (themeName) => {
-						const result = setTheme(themeName, true);
+						const result = setTheme(themeName, true, this.settingsManager.getThemeAccent());
 						if (result.success) {
 							this.ui.invalidate();
 							this.ui.requestRender();

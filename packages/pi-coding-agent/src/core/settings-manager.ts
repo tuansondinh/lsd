@@ -115,6 +115,7 @@ export interface Settings {
 	defaultProvider?: string;
 	defaultModel?: string;
 	budgetSubagentModel?: string;
+	planModeReasoningModel?: string;
 	permissionMode?: "danger-full-access" | "accept-on-edit" | "auto" | "plan";
 	classifierModel?: string;
 	defaultThinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
@@ -122,6 +123,7 @@ export interface Settings {
 	steeringMode?: "all" | "one-at-a-time";
 	followUpMode?: "all" | "one-at-a-time";
 	theme?: string;
+	themeAccent?: string;
 	compaction?: CompactionSettings;
 	branchSummary?: BranchSummarySettings;
 	retry?: RetrySettings;
@@ -162,6 +164,14 @@ export interface Settings {
 	lspAutoInstall?: boolean; // default: false — whether to auto-install missing language servers during onboarding
 	lspInstalledServers?: string[]; // list of server names installed via the onboarding wizard
 	rtk?: boolean; // default: false — enable RTK shell-command compression (requires restart)
+}
+
+function isQualifiedProviderModelRef(value: unknown): value is string {
+	if (typeof value !== "string") return false;
+	const trimmed = value.trim();
+	if (!trimmed) return false;
+	const parts = trimmed.split("/");
+	return parts.length === 2 && parts.every((part) => part.trim().length > 0);
 }
 
 /** Deep merge settings: project/overrides take precedence, nested objects merge recursively */
@@ -413,6 +423,14 @@ export class SettingsManager {
 			} else {
 				delete settings.skills;
 			}
+		}
+
+		if (
+			"planModeReasoningModel" in settings &&
+			settings.planModeReasoningModel !== undefined &&
+			!isQualifiedProviderModelRef(settings.planModeReasoningModel)
+		) {
+			delete settings.planModeReasoningModel;
 		}
 
 		return settings as Settings;
@@ -670,6 +688,12 @@ export class SettingsManager {
 		return this.settings.budgetSubagentModel;
 	}
 
+	getPlanModeReasoningModel(): string | undefined {
+		return isQualifiedProviderModelRef(this.settings.planModeReasoningModel)
+			? this.settings.planModeReasoningModel.trim()
+			: undefined;
+	}
+
 	getPermissionMode(): "danger-full-access" | "accept-on-edit" | "auto" | "plan" {
 		return this.settings.permissionMode ?? "accept-on-edit";
 	}
@@ -694,6 +718,19 @@ export class SettingsManager {
 			return;
 		}
 		this.setGlobalSetting("budgetSubagentModel", modelRef);
+	}
+
+	setPlanModeReasoningModel(modelRef: string | undefined): void {
+		if (modelRef === undefined) {
+			delete this.globalSettings.planModeReasoningModel;
+			this.markModified("planModeReasoningModel");
+			this.save();
+			return;
+		}
+		if (!isQualifiedProviderModelRef(modelRef)) {
+			throw new Error(`planModeReasoningModel must be in provider/id format. Received: ${modelRef}`);
+		}
+		this.setGlobalSetting("planModeReasoningModel", modelRef.trim());
 	}
 
 	setPermissionMode(mode: "danger-full-access" | "accept-on-edit" | "auto" | "plan"): void {
@@ -748,6 +785,20 @@ export class SettingsManager {
 
 	setTheme(theme: string): void {
 		this.setGlobalSetting("theme", theme);
+	}
+
+	getThemeAccent(): string | undefined {
+		return this.settings.themeAccent;
+	}
+
+	setThemeAccent(accent: string | undefined): void {
+		if (accent === undefined) {
+			delete this.globalSettings.themeAccent;
+			this.markModified("themeAccent");
+			this.save();
+			return;
+		}
+		this.setGlobalSetting("themeAccent", accent);
 	}
 
 	getDefaultThinkingLevel(): "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined {
