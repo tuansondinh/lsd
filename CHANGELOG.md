@@ -6,6 +6,15 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- **lsp**: auto-install language servers via onboarding wizard (`/setup`) — detects missing servers for the current project and offers a multiselect prompt to install them; pre-selects `typescript-language-server` for JS/TS projects
+- **lsp**: `src/lsp-install.ts` utility — `detectMissingServers()`, `detectInstalledServers()`, `installServer()`, `getInstallCommand()` with install map for 9 common servers (TypeScript, Python, Go, Rust, Bash, YAML, JSON, HTML, CSS)
+- **lsp**: file-type-specific install hints when "no language server found" — e.g. `npm i -g typescript-language-server typescript` for `.ts` files
+- **settings**: `lspAutoInstall` and `lspInstalledServers` fields to track user consent and installed servers across sessions
+
+### Fixed
+- **lsp**: "No language server found" messages now include specific install instructions and a `/setup` prompt instead of a bare error
+
 ## [2.58.0] - 2026-03-28
 
 ### Added

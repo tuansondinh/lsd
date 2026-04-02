@@ -260,7 +260,8 @@ LSD includes file and shell tools such as:
 - `bash`
 - `async_bash`
 - `bg_shell`
-- LSP-backed navigation and diagnostics
+- LSP-backed navigation and diagnostics (hover, definition, references, rename, code actions, formatting)
+- Language server auto-detection — run `/setup` to install missing servers for your project (TypeScript, Python, Go, Rust, and more)
 
 ## Browser automation
 
