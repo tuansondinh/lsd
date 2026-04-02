@@ -383,10 +383,19 @@ export class InteractiveMode {
 		this.skillCommands.clear();
 		const skillCommandList: SlashCommand[] = [];
 		if (this.settingsManager.getEnableSkillCommands()) {
+			const reservedSkillNames = new Set<string>([
+				...slashCommands.map((command) => command.name),
+				...templateCommands.map((command) => command.name),
+				...extensionCommands.map((command) => command.name),
+			]);
 			for (const skill of this.session.resourceLoader.getSkills().skills) {
 				const commandName = `skill:${skill.name}`;
 				this.skillCommands.set(commandName, skill.filePath);
 				skillCommandList.push({ name: commandName, description: skill.description });
+				if (skill.userInvocable && !reservedSkillNames.has(skill.name)) {
+					this.skillCommands.set(skill.name, skill.filePath);
+					skillCommandList.push({ name: skill.name, description: skill.description });
+				}
 			}
 		}
 

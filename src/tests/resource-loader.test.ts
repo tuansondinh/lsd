@@ -83,8 +83,9 @@ test("buildResourceLoader excludes duplicate top-level pi extensions when bundle
   writeFileSync(join(piExtensionsDir, "custom-extension.ts"), "export {};\n");
 
   const { buildResourceLoader } = await import("../resource-loader.ts");
-  const loader = buildResourceLoader(fakeAgentDir) as { additionalExtensionPaths?: string[] };
+  const loader = buildResourceLoader(fakeAgentDir) as { additionalExtensionPaths?: string[]; additionalSkillPaths?: string[] };
   const additionalExtensionPaths = loader.additionalExtensionPaths ?? [];
+  const additionalSkillPaths = loader.additionalSkillPaths ?? [];
 
   assert.equal(
     additionalExtensionPaths.some((entryPath) => entryPath.endsWith("ask-user-questions.ts")),
@@ -95,6 +96,11 @@ test("buildResourceLoader excludes duplicate top-level pi extensions when bundle
     additionalExtensionPaths.some((entryPath) => entryPath.endsWith("custom-extension.ts")),
     true,
     "non-duplicate pi extensions should still load",
+  );
+  assert.equal(
+    additionalSkillPaths.some((entryPath) => entryPath.endsWith("/resources/skills") || entryPath.endsWith("\\resources\\skills")),
+    true,
+    "bundled skills directory should be passed to the resource loader",
   );
 });
 

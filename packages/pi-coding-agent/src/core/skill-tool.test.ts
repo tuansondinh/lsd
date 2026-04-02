@@ -14,11 +14,20 @@ import { SettingsManager } from "./settings-manager.js";
 
 let testDir: string;
 
-function writeSkill(cwd: string, name: string, description: string, body = `# ${name}\n`): string {
-	const skillDir = join(cwd, ".pi", "skills", name);
+function writeSkill(
+	cwd: string,
+	name: string,
+	description: string,
+	body = `# ${name}\n`,
+	frontmatterExtras = "",
+): string {
+	const skillDir = join(cwd, ".lsd", "skills", name);
 	mkdirSync(skillDir, { recursive: true });
 	const skillPath = join(skillDir, "SKILL.md");
-	writeFileSync(skillPath, `---\nname: ${name}\ndescription: ${description}\n---\n\n${body}`);
+	writeFileSync(
+		skillPath,
+		`---\nname: ${name}\ndescription: ${description}${frontmatterExtras ? `\n${frontmatterExtras}` : ""}\n---\n\n${body}`,
+	);
 	return skillPath;
 }
 
@@ -40,6 +49,7 @@ describe("Skill tool", () => {
 			cwd: testDir,
 			agentDir,
 			settingsManager,
+			additionalSkillPaths: [join(testDir, ".lsd", "skills")],
 			noExtensions: true,
 			noPromptTemplates: true,
 			noThemes: true,
@@ -71,7 +81,7 @@ describe("Skill tool", () => {
 		const result = await tool.execute("call-1", { skill: "swift-testing" });
 		assert.equal(
 			result.content[0]?.type === "text" ? result.content[0].text : "",
-			`<skill name="swift-testing" location="${skillPath}">\nReferences are relative to ${join(testDir, ".pi", "skills", "swift-testing")}.\n\n# Swift Testing\nUse this skill.\n</skill>`,
+			`<skill name="swift-testing" location="${skillPath}">\nReferences are relative to ${join(testDir, ".lsd", "skills", "swift-testing")}.\n\n# Swift Testing\nUse this skill.\n</skill>`,
 		);
 	});
 
@@ -85,5 +95,32 @@ describe("Skill tool", () => {
 		const message = result.content[0]?.type === "text" ? result.content[0].text : "";
 		assert.match(message, /^Skill "nonexistent" not found\. Available skills: /);
 		assert.match(message, /swift-testing/);
+	});
+
+	it("supports direct slash aliases for user-invocable skills", async () => {
+		writeSkill(
+			testDir,
+			"teams-plan",
+			"Plan and build a feature.",
+			"# Teams Plan\nUse this skill.\n",
+			"user-invocable: true",
+		);
+		const session = await createSession();
+		const loadedSkill = session.resourceLoader.getSkills().skills.find((skill) => skill.name === "teams-plan");
+		assert.equal(loadedSkill?.userInvocable, true);
+		const expanded = (session as unknown as { _expandSkillCommand: (text: string) => string })._expandSkillCommand(
+			"/teams-plan build auth",
+		);
+		assert.match(expanded, /<skill name="teams-plan"/);
+		assert.match(expanded, /build auth/);
+	});
+
+	it("does not treat non-invocable skills as direct slash aliases", async () => {
+		writeSkill(testDir, "internal-skill", "Internal only.", "# Internal\n");
+		const session = await createSession();
+		const expanded = (session as unknown as { _expandSkillCommand: (text: string) => string })._expandSkillCommand(
+			"/internal-skill test",
+		);
+		assert.equal(expanded, "/internal-skill test");
 	});
 });

@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { compareSemver } from './update-check.js'
 import { discoverExtensionEntryPaths } from './extension-discovery.js'
 import { loadRegistry, readManifestFromEntryPath, isExtensionEnabled, ensureRegistryEntries } from './extension-registry.js'
-import { loadEffectivePreferences } from './shared-preferences.js'
+import { isCodexRotateEnabled } from './codex-rotate-settings.js'
 
 // Resolve resources directory — prefer dist/resources/ (stable, set at build time)
 // over src/resources/ (live working tree, changes with git branch).
@@ -27,6 +27,7 @@ const resourcesDir = (existsSync(distResources) && existsSync(join(distResources
   ? distResources
   : srcResources
 const bundledExtensionsDir = join(resourcesDir, 'extensions')
+const bundledSkillsDir = join(resourcesDir, 'skills')
 const resourceVersionManifestName = 'managed-resources.json'
 
 interface ManagedResourceManifest {
@@ -578,7 +579,7 @@ function getBundledExtensionKeys(): Set<string> {
 
 export function buildResourceLoader(agentDir: string): DefaultResourceLoader {
   const registry = loadRegistry()
-  const preferences = loadEffectivePreferences()?.preferences
+  const codexRotateEnabled = isCodexRotateEnabled()
   const piAgentDir = join(homedir(), '.pi', 'agent')
   const piExtensionsDir = join(piAgentDir, 'extensions')
   const bundledKeys = getBundledExtensionKeys()
@@ -587,20 +588,21 @@ export function buildResourceLoader(agentDir: string): DefaultResourceLoader {
     .filter((entryPath) => {
       const manifest = readManifestFromEntryPath(entryPath)
       if (!manifest) return true
-      if (manifest.id === 'codex-rotate' && preferences?.experimental?.codex_rotate === true) return true
+      if (manifest.id === 'codex-rotate' && codexRotateEnabled) return true
       return isExtensionEnabled(registry, manifest.id, manifest.defaultEnabled ?? true)
     })
 
   return new DefaultResourceLoader({
     agentDir,
     additionalExtensionPaths: piExtensionPaths,
+    additionalSkillPaths: existsSync(bundledSkillsDir) ? [bundledSkillsDir] : [],
     bundledExtensionNames: bundledKeys,
     extensionPathsTransform: (paths: string[]) => {
       // 1. Filter community extensions through the GSD registry
       const filteredPaths = paths.filter((entryPath) => {
         const manifest = readManifestFromEntryPath(entryPath)
         if (!manifest) return true // no manifest = always load
-        if (manifest.id === 'codex-rotate' && preferences?.experimental?.codex_rotate === true) return true
+        if (manifest.id === 'codex-rotate' && codexRotateEnabled) return true
         return isExtensionEnabled(registry, manifest.id, manifest.defaultEnabled ?? true)
       })
 
