@@ -312,7 +312,7 @@ export class InteractiveMode {
 
 		// Register themes from resource loader and initialize
 		setRegisteredThemes(this.session.resourceLoader.getThemes().themes);
-		initTheme(this.settingsManager.getTheme(), true);
+		initTheme(this.settingsManager.getTheme(), true, this.settingsManager.getThemeAccent());
 	}
 
 	private setupAutocomplete(): void {
@@ -3082,6 +3082,7 @@ export class InteractiveMode {
 					onThemeChange: (themeName) => {
 						const result = setTheme(themeName, true, this.settingsManager.getThemeAccent());
 						this.settingsManager.setTheme(themeName);
+						this.updateEditorBorderColor();
 						this.ui.invalidate();
 						if (!result.success) {
 							this.showError(`Failed to load theme "${themeName}": ${result.error}\nFell back to dark theme.`);
@@ -3094,6 +3095,7 @@ export class InteractiveMode {
 							true,
 							this.settingsManager.getThemeAccent(),
 						);
+						this.updateEditorBorderColor();
 						this.ui.invalidate();
 						this.ui.requestRender();
 						if (!result.success) {
@@ -3103,6 +3105,7 @@ export class InteractiveMode {
 					onThemePreview: (themeName) => {
 						const result = setTheme(themeName, true, this.settingsManager.getThemeAccent());
 						if (result.success) {
+							this.updateEditorBorderColor();
 							this.ui.invalidate();
 							this.ui.requestRender();
 						}
@@ -3805,7 +3808,10 @@ export class InteractiveMode {
 			setRegisteredThemes(this.session.resourceLoader.getThemes().themes);
 			this.hideThinkingBlock = this.settingsManager.getHideThinkingBlock();
 			const themeName = this.settingsManager.getTheme();
-			const themeResult = themeName ? setTheme(themeName, true) : { success: true };
+			const themeResult = themeName
+				? setTheme(themeName, true, this.settingsManager.getThemeAccent())
+				: { success: true };
+			this.updateEditorBorderColor();
 			if (!themeResult.success) {
 				this.showError(`Failed to load theme "${themeName}": ${themeResult.error}\nFell back to dark theme.`);
 			}

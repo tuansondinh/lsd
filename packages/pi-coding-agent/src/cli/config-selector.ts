@@ -18,7 +18,7 @@ export interface ConfigSelectorOptions {
 /** Show TUI config selector and return when closed */
 export async function selectConfig(options: ConfigSelectorOptions): Promise<void> {
 	// Initialize theme before showing TUI
-	initTheme(options.settingsManager.getTheme(), true);
+	initTheme(options.settingsManager.getTheme(), true, options.settingsManager.getThemeAccent());
 
 	return new Promise((resolve) => {
 		const ui = new TUI(new ProcessTerminal());

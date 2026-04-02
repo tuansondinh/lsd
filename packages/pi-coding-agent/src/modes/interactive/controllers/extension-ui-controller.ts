@@ -43,7 +43,7 @@ export function createExtensionUIContext(host: any): ExtensionUIContext {
 				host.ui.requestRender();
 				return { success: true };
 			}
-			const result = setTheme(themeOrName, true);
+			const result = setTheme(themeOrName, true, host.settingsManager.getThemeAccent());
 			if (result.success) {
 				if (host.settingsManager.getTheme() !== themeOrName) {
 					host.settingsManager.setTheme(themeOrName);

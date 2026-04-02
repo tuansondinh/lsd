@@ -523,7 +523,7 @@ export async function main(args: string[]) {
 	const { initialMessage, initialImages } = await prepareInitialMessage(parsed, settingsManager.getImageAutoResize());
 	const isInteractive = !parsed.print && parsed.mode === undefined;
 	const mode = parsed.mode || "text";
-	initTheme(settingsManager.getTheme(), isInteractive);
+	initTheme(settingsManager.getTheme(), isInteractive, settingsManager.getThemeAccent());
 
 	// Show deprecation warnings in interactive mode
 	if (isInteractive && deprecationWarnings.length > 0) {

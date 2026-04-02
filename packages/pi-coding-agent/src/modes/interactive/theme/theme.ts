@@ -168,13 +168,61 @@ export const THEME_ACCENT_PRESETS = ["default", "golden-yellow", "blue", "green"
 
 export type ThemeAccentPreset = (typeof THEME_ACCENT_PRESETS)[number];
 
-const THEME_ACCENT_COLORS: Record<Exclude<ThemeAccentPreset, "default">, string> = {
-	"golden-yellow": "#F59E0B",
-	blue: "#60A5FA",
-	green: "#34D399",
-	violet: "#A78BFA",
-	red: "#F87171",
+export interface ThemeAccentInfo {
+	label: string;
+	description: string;
+	accent: string | undefined;
+	thinking: readonly string[] | undefined;
+}
+
+type ResolvedThemeAccentPreset = Exclude<ThemeAccentPreset, "default">;
+
+const THEME_ACCENT_INFO: Record<ThemeAccentPreset, ThemeAccentInfo> = {
+	default: {
+		label: "Default",
+		description: "Use the active theme’s native accent colors.",
+		accent: undefined,
+		thinking: undefined,
+	},
+	"golden-yellow": {
+		label: "Golden yellow",
+		description: "Warm amber accent (#F59E0B).",
+		accent: "#F59E0B",
+		thinking: ["#92400E", "#B45309", "#D97706", "#F59E0B", "#FBBF24", "#FCD34D"],
+	},
+	blue: {
+		label: "Blue",
+		description: "Bright blue accent (#60A5FA).",
+		accent: "#60A5FA",
+		thinking: ["#1D4ED8", "#2563EB", "#3B82F6", "#60A5FA", "#93C5FD", "#BFDBFE"],
+	},
+	green: {
+		label: "Green",
+		description: "Emerald accent (#34D399).",
+		accent: "#34D399",
+		thinking: ["#047857", "#059669", "#10B981", "#34D399", "#6EE7B7", "#A7F3D0"],
+	},
+	violet: {
+		label: "Violet",
+		description: "Soft violet accent (#A78BFA).",
+		accent: "#A78BFA",
+		thinking: ["#6D28D9", "#7C3AED", "#8B5CF6", "#A78BFA", "#C4B5FD", "#DDD6FE"],
+	},
+	red: {
+		label: "Red",
+		description: "Coral red accent (#F87171).",
+		accent: "#F87171",
+		thinking: ["#B91C1C", "#DC2626", "#EF4444", "#F87171", "#FCA5A5", "#FECACA"],
+	},
 };
+
+export function getThemeAccentInfo(accent: ThemeAccentPreset): ThemeAccentInfo {
+	return THEME_ACCENT_INFO[accent];
+}
+
+export function getThemeAccentLabel(accent: ThemeAccentPreset): string {
+	return THEME_ACCENT_INFO[accent].label;
+}
 
 export function getAvailableThemeAccents(): ThemeAccentPreset[] {
 	return [...THEME_ACCENT_PRESETS];
@@ -184,11 +232,11 @@ function isThemeAccentPreset(value: string | undefined): value is ThemeAccentPre
 	return value !== undefined && THEME_ACCENT_PRESETS.includes(value as ThemeAccentPreset);
 }
 
-function normalizeThemeAccent(accent: string | undefined): ThemeAccentPreset | undefined {
-	if (!isThemeAccentPreset(accent) || accent === "default") {
+function normalizeThemeAccent(accent: string | undefined): ResolvedThemeAccentPreset | undefined {
+	if (accent === undefined || accent === "default" || !isThemeAccentPreset(accent)) {
 		return undefined;
 	}
-	return accent;
+	return accent as ResolvedThemeAccentPreset;
 }
 
 // ============================================================================
@@ -601,22 +649,51 @@ function loadThemeJson(name: string): ThemeJson {
 	return parseThemeJsonContent(name, content);
 }
 
-function applyThemeAccent(themeJson: ThemeJson, accent: ThemeAccentPreset | undefined): ThemeJson {
-	if (!accent || accent === "default") {
+function applyThemeAccent(themeJson: ThemeJson, accent: ResolvedThemeAccentPreset | undefined): ThemeJson {
+	if (!accent) {
 		return themeJson;
 	}
 
-	const accentColor = THEME_ACCENT_COLORS[accent];
+	const accentColor = THEME_ACCENT_INFO[accent].accent!;
+	const thinkingPalette = THEME_ACCENT_INFO[accent].thinking!;
 	const vars = { ...(themeJson.vars ?? {}) };
 	const colors = { ...themeJson.colors };
 	const originalAccent = resolveVarRefs(themeJson.colors.accent, themeJson.vars ?? {});
-	const accentDrivenKeys: Array<keyof ThemeJson["colors"]> = ["accent", "borderAccent", "mdCode", "mdListBullet"];
+	const accentDrivenKeys: Array<keyof ThemeJson["colors"]> = [
+		"accent",
+		"borderAccent",
+		"mdCode",
+		"mdListBullet",
+		"thinkingOff",
+		"thinkingMinimal",
+		"thinkingLow",
+		"thinkingMedium",
+		"thinkingHigh",
+		"thinkingXhigh",
+	];
 
 	if ("accent" in vars) {
 		vars.accent = accentColor;
 	}
 
+	colors.thinkingOff = thinkingPalette[0];
+	colors.thinkingMinimal = thinkingPalette[1];
+	colors.thinkingLow = thinkingPalette[2];
+	colors.thinkingMedium = thinkingPalette[3];
+	colors.thinkingHigh = thinkingPalette[4];
+	colors.thinkingXhigh = thinkingPalette[5];
+
 	for (const key of accentDrivenKeys) {
+		if (
+			key === "thinkingOff" ||
+			key === "thinkingMinimal" ||
+			key === "thinkingLow" ||
+			key === "thinkingMedium" ||
+			key === "thinkingHigh" ||
+			key === "thinkingXhigh"
+		) {
+			continue;
+		}
 		const currentResolved = resolveVarRefs(themeJson.colors[key], themeJson.vars ?? {});
 		if (key === "accent" || key === "borderAccent" || currentResolved === originalAccent) {
 			colors[key] = accentColor;
@@ -634,7 +711,7 @@ function createTheme(
 	themeJson: ThemeJson,
 	mode?: ColorMode,
 	sourcePath?: string,
-	accent?: ThemeAccentPreset,
+	accent?: ResolvedThemeAccentPreset,
 ): Theme {
 	const colorMode = mode ?? detectColorMode();
 	const resolvedThemeJson = applyThemeAccent(themeJson, accent);
@@ -662,13 +739,13 @@ function createTheme(
 	});
 }
 
-export function loadThemeFromPath(themePath: string, mode?: ColorMode, accent?: ThemeAccentPreset): Theme {
+export function loadThemeFromPath(themePath: string, mode?: ColorMode, accent?: ResolvedThemeAccentPreset): Theme {
 	const content = fs.readFileSync(themePath, "utf-8");
 	const themeJson = parseThemeJsonContent(themePath, content);
 	return createTheme(themeJson, mode, themePath, accent);
 }
 
-function loadTheme(name: string, mode?: ColorMode, accent?: ThemeAccentPreset): Theme {
+function loadTheme(name: string, mode?: ColorMode, accent?: ResolvedThemeAccentPreset): Theme {
 	const registeredTheme = registeredThemes.get(name);
 	if (registeredTheme) {
 		if (!accent) {
@@ -731,7 +808,7 @@ function setGlobalTheme(t: Theme): void {
 }
 
 let currentThemeName: string | undefined;
-let currentThemeAccent: ThemeAccentPreset | undefined;
+let currentThemeAccent: ResolvedThemeAccentPreset | undefined;
 let themeWatcher: fs.FSWatcher | undefined;
 const onThemeChangeCallbacks = new Set<() => void>();
 const registeredThemes = new Map<string, Theme>();

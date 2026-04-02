@@ -11,7 +11,7 @@ import {
 	Spacer,
 	Text,
 } from "@gsd/pi-tui";
-import { getSelectListTheme, getSettingsListTheme, theme } from "../theme/theme.js";
+import { getSelectListTheme, getSettingsListTheme, getThemeAccentInfo, getThemeAccentLabel, theme } from "../theme/theme.js";
 import { DynamicBorder } from "./dynamic-border.js";
 
 export const THINKING_DESCRIPTIONS: Record<ThinkingLevel, string> = {
@@ -333,7 +333,8 @@ export class SettingsSelectorComponent extends Container {
 						"Select the primary accent color",
 						config.availableThemeAccents.map((accent) => ({
 							value: accent,
-							label: accent,
+							label: getThemeAccentLabel(accent as Parameters<typeof getThemeAccentInfo>[0]),
+							description: getThemeAccentInfo(accent as Parameters<typeof getThemeAccentInfo>[0]).description,
 						})),
 						currentValue,
 						(value) => {

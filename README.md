@@ -242,7 +242,8 @@ A few quality-of-life touches in the TUI:
 
 - the footer can show a live cache timer for the current prompt-cache window
 - `/hotkeys` gives you a full shortcut reference on demand
-- `/settings` now includes toggles for Codex rotate, the cache timer, and RTK shell-command compression
+- `/settings` now includes toggles for Codex rotate, the cache timer, RTK shell-command compression, and a configurable **Main accent** preset
+- changing the main accent also updates accent-driven UI elements and the text input border across thinking levels
 
 Some workflow/automation commands still use the legacy namespace:
 
