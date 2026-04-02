@@ -210,7 +210,7 @@ export function installServer(name: string): Promise<{ success: boolean; error?:
 
     const child = spawn(cmd, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
-      shell: false,
+      shell: process.platform === 'win32',
     })
 
     const stderrChunks: Buffer[] = []

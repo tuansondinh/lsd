@@ -510,6 +510,7 @@ async function runLspStep(
     const existing = settingsManager.getLspInstalledServers()
     const merged = Array.from(new Set([...existing, ...installed]))
     settingsManager.setLspInstalledServers(merged)
+    settingsManager.setLspAutoInstall(true)
   }
 
   return installed
