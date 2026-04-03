@@ -113,29 +113,7 @@ export default function CodexRotateExtension(pi: ExtensionAPI) {
 		stopRefreshTimer();
 	});
 
-	// Agent end hook - detect quota/auth errors and backoff credentials
-	pi.on("agent_end", async (event, ctx) => {
-		try {
-			const messages = event.messages;
-			const lastAssistant = [...messages].reverse().find((message) => message.role === "assistant");
-			if (!lastAssistant || !("errorMessage" in lastAssistant) || !lastAssistant.errorMessage) return;
-
-			const errorMessage = lastAssistant.errorMessage;
-			if (!shouldBackoffCredential(errorMessage)) return;
-
-			const errorType = classifyError(errorMessage);
-			const sessionId = ctx.sessionManager.getSessionId();
-			const anotherAvailable = await markCredentialBackoff(PROVIDER_NAME, sessionId, errorType);
-
-			if (anotherAvailable) {
-				logCodexRotateSwitch(`Auto-switched account after ${errorType} error`);
-				ctx.ui.notify("Codex credential backed off, rotating to next account", "info");
-			} else {
-				logCodexRotateError(`All accounts backed off after ${errorType} error`);
-				ctx.ui.notify("All Codex credentials are backed off. Please wait before retrying.", "warning");
-			}
-		} catch (error) {
-			logCodexRotateError("Error in agent_end handler:", error);
-		}
-	});
+	// Agent end hook intentionally omitted.
+	// Credential backoff + same-turn retry now lives in the core RetryHandler,
+	// which knows the actual credential index used for the current session.
 }
