@@ -97,14 +97,20 @@ Codex access tokens work identically to API keys:
 - Background timer runs every 10 minutes
 - Tokens are refreshed when expiring within 5 minutes
 - Refreshed tokens are atomically synced to auth.json
+- After every successful sync, the extension reloads live `AuthStorage` so retries and rotation see the latest credentials immediately
 - Failed refreshes disable the account with a reason
 
 ### Error Handling
 
-The extension hooks into `agent_end` events to detect:
+The extension now relies on LSD core retry/backoff handling rather than its own `agent_end` hook:
+- The Codex provider surfaces friendly usage-limit / rate-limit / auth errors
+- Core `RetryHandler` classifies those failures and calls `markUsageLimitReached(...)`
+- If another `openai-codex` credential is available, LSD automatically rotates and retries the same prompt
 - Rate limit errors (429) → 30s backoff
-- Quota exhausted errors → 30min backoff
-- Auth errors (401) → treated as rate limits for immediate rotation
+- Quota exhausted / usage limit errors → 30min backoff
+- Auth errors (401) → treated as immediate credential-rotation failures
+
+To make that work reliably, the extension reloads the live auth state after every successful sync so the retry handler sees the current credential pool immediately.
 
 ## Security
 

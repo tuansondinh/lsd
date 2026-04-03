@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process'
+import { execFileSync } from 'node:child_process'
 import { compareSemver } from './update-check.js'
 
 const NPM_PACKAGE = 'lsd-pi'
@@ -17,7 +17,7 @@ export async function runUpdate(): Promise<void> {
   // Fetch latest version
   let latest: string
   try {
-    latest = execSync(`npm view ${NPM_PACKAGE} version`, {
+    latest = execFileSync('npm', ['view', NPM_PACKAGE, 'version'], {
       encoding: 'utf-8',
       stdio: ['ignore', 'pipe', 'ignore'],
     }).trim()
@@ -34,7 +34,7 @@ export async function runUpdate(): Promise<void> {
   process.stdout.write(`${dim}Updating:${reset} v${current} → ${bold}v${latest}${reset}\n`)
 
   try {
-    execSync(`npm install -g ${NPM_PACKAGE}@latest`, {
+    execFileSync('npm', ['install', '-g', `${NPM_PACKAGE}@latest`], {
       stdio: 'inherit',
     })
     process.stdout.write(`\n${green}${bold}Updated to v${latest}${reset}\n`)

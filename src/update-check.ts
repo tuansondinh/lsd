@@ -2,7 +2,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'node
 import { dirname, join } from 'node:path'
 import chalk from 'chalk'
 import { appRoot } from './app-paths.js'
-import { execSync } from 'node:child_process'
+import { execFileSync, execSync } from 'node:child_process'
 
 const CACHE_FILE = join(appRoot, '.update-check')
 const NPM_PACKAGE_NAME = 'lsd-pi'
@@ -219,7 +219,7 @@ export async function checkAndPromptForUpdates(options: UpdateCheckOptions = {})
   if (choice === '1') {
     process.stderr.write(`\n  ${chalk.dim('Running:')} npm install -g ${NPM_PACKAGE_NAME}@latest\n\n`)
     try {
-      execSync(`npm install -g ${NPM_PACKAGE_NAME}@latest`, { stdio: 'inherit' })
+      execFileSync('npm', ['install', '-g', `${NPM_PACKAGE_NAME}@latest`], { stdio: 'inherit' })
       process.stderr.write(`\n  ${chalk.green.bold(`✓ Updated to v${latestVersion}`)}\n\n`)
       return true
     } catch {

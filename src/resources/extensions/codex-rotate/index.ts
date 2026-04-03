@@ -5,7 +5,7 @@
  * and background token refresh.
  */
 
-import type { ExtensionAPI } from "@gsd/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@gsd/pi-coding-agent";
 import { getAllAccounts, updateAccount, getAccountsNeedingRefresh } from "./accounts.js";
 import { syncAccountsToAuth } from "./sync.js";
 import { registerCodexCommand } from "./commands.js";
@@ -14,72 +14,79 @@ import { logCodexRotateError } from "./logger.js";
 
 let refreshTimer: NodeJS.Timeout | null = null;
 
+async function reloadLiveAuthState(ctx: ExtensionContext): Promise<void> {
+    ctx.modelRegistry.authStorage.reload();
+}
+
 /**
  * Refresh all accounts that need it
  */
-async function refreshExpiringAccounts(): Promise<void> {
-	try {
-		const accountsNeedingRefresh = getAccountsNeedingRefresh();
+async function refreshExpiringAccounts(ctx: ExtensionContext): Promise<void> {
+    try {
+        const accountsNeedingRefresh = getAccountsNeedingRefresh();
 
-		if (accountsNeedingRefresh.length === 0) {
-			return;
-		}
+        if (accountsNeedingRefresh.length === 0) {
+            return;
+        }
 
-		const { refreshAccountToken } = await import("./oauth.js");
-		let successCount = 0;
-		let failCount = 0;
+        const { refreshAccountToken } = await import("./oauth.js");
+        let successCount = 0;
+        let failCount = 0;
 
-		for (const account of accountsNeedingRefresh) {
-			try {
-				const refreshed = await refreshAccountToken(account);
-				updateAccount(account.id, refreshed);
-				successCount++;
-			} catch (error) {
-				failCount++;
-				logCodexRotateError(`Failed to refresh account ${account.id}:`, error);
-				// Disable the account if refresh fails
-				updateAccount(account.id, {
-					disabled: true,
-					disabledReason: `Token refresh failed: ${error instanceof Error ? error.message : String(error)}`,
-				});
-			}
-		}
+        for (const account of accountsNeedingRefresh) {
+            try {
+                const refreshed = await refreshAccountToken(account);
+                updateAccount(account.id, refreshed);
+                successCount++;
+            } catch (error) {
+                failCount++;
+                logCodexRotateError(`Failed to refresh account ${account.id}:`, error);
+                // Disable the account if refresh fails
+                updateAccount(account.id, {
+                    disabled: true,
+                    disabledReason: `Token refresh failed: ${error instanceof Error ? error.message : String(error)}`,
+                });
+            }
+        }
 
-		if (successCount > 0) {
-			// Sync refreshed accounts to auth.json
-			const allAccounts = getAllAccounts();
-			await syncAccountsToAuth(allAccounts);
-		}
+        if (successCount > 0) {
+            // Sync refreshed accounts to auth.json
+            const allAccounts = getAllAccounts();
+            const synced = await syncAccountsToAuth(allAccounts);
+            if (synced) {
+                await reloadLiveAuthState(ctx);
+            }
+        }
 
-		if (failCount > 0 && successCount === 0) {
-			logCodexRotateError(`Failed to refresh ${failCount} account(s)`);
-		}
-	} catch (error) {
-		logCodexRotateError("Error in refresh task:", error);
-	}
+        if (failCount > 0 && successCount === 0) {
+            logCodexRotateError(`Failed to refresh ${failCount} account(s)`);
+        }
+    } catch (error) {
+        logCodexRotateError("Error in refresh task:", error);
+    }
 }
 
 /**
  * Start the background refresh timer
  */
-function startRefreshTimer(): void {
-	if (refreshTimer) {
-		clearInterval(refreshTimer);
-	}
+function startRefreshTimer(ctx: ExtensionContext): void {
+    if (refreshTimer) {
+        clearInterval(refreshTimer);
+    }
 
-	refreshTimer = setInterval(() => {
-		void refreshExpiringAccounts();
-	}, REFRESH_INTERVAL_MS);
+    refreshTimer = setInterval(() => {
+        void refreshExpiringAccounts(ctx);
+    }, REFRESH_INTERVAL_MS);
 }
 
 /**
  * Stop the background refresh timer
  */
 function stopRefreshTimer(): void {
-	if (refreshTimer) {
-		clearInterval(refreshTimer);
-		refreshTimer = null;
-	}
+    if (refreshTimer) {
+        clearInterval(refreshTimer);
+        refreshTimer = null;
+    }
 }
 
 /**
@@ -87,33 +94,36 @@ function stopRefreshTimer(): void {
  */
 export default function CodexRotateExtension(pi: ExtensionAPI) {
 
-	// Register commands
-	registerCodexCommand(pi);
+    // Register commands
+    registerCodexCommand(pi);
 
-	// Session start hook
-	pi.on("session_start", async (_event) => {
-		const accounts = getAllAccounts();
+    // Session start hook
+    pi.on("session_start", async (_event, ctx) => {
+        const accounts = getAllAccounts();
 
-		if (accounts.length === 0) {
-			return;
-		}
+        if (accounts.length === 0) {
+            return;
+        }
 
-		// Refresh any expiring accounts immediately
-		await refreshExpiringAccounts();
+        // Refresh any expiring accounts immediately
+        await refreshExpiringAccounts(ctx);
 
-		// Sync to auth.json
-		await syncAccountsToAuth(getAllAccounts());
+        // Sync to auth.json
+        const synced = await syncAccountsToAuth(getAllAccounts());
+        if (synced) {
+            await reloadLiveAuthState(ctx);
+        }
 
-		// Start background refresh timer
-		startRefreshTimer();
-	});
+        // Start background refresh timer
+        startRefreshTimer(ctx);
+    });
 
-	// Session shutdown hook
-	pi.on("session_shutdown", () => {
-		stopRefreshTimer();
-	});
+    // Session shutdown hook
+    pi.on("session_shutdown", () => {
+        stopRefreshTimer();
+    });
 
-	// Agent end hook intentionally omitted.
-	// Credential backoff + same-turn retry now lives in the core RetryHandler,
-	// which knows the actual credential index used for the current session.
+    // Agent end hook intentionally omitted.
+    // Credential backoff + same-turn retry now lives in the core RetryHandler,
+    // which knows the actual credential index used for the current session.
 }

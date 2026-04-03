@@ -1,34 +1,34 @@
 # Architecture Overview
 
-GSD is a TypeScript application built on the [Pi SDK](https://github.com/badlogic/pi-mono). It embeds the Pi coding agent and extends it with the GSD workflow engine, auto mode state machine, and project management primitives.
+LSD is a TypeScript application built on the [Pi SDK](https://github.com/badlogic/pi-mono). It embeds the Pi coding agent and extends it with an optional workflow engine, auto mode state machine, and project management primitives. LSD is a fork of GSD 2, repositioned as a general-purpose coding agent CLI rather than a workflow-centric tool.
 
 ## System Structure
 
 ```
-gsd (CLI binary)
-  └─ loader.ts          Sets PI_PACKAGE_DIR, GSD env vars, dynamic-imports cli.ts
+lsd (CLI binary, package: lsd-pi)
+  └─ loader.ts          Sets PI_PACKAGE_DIR, env vars, dynamic-imports cli.ts
       └─ cli.ts         Wires SDK managers, loads extensions, starts InteractiveMode
           ├─ onboarding.ts   First-run setup wizard (LLM provider + tool keys)
           ├─ wizard.ts       Env hydration from stored auth.json credentials
-          ├─ app-paths.ts    ~/.gsd/agent/, ~/.gsd/sessions/, auth.json
-          ├─ resource-loader.ts  Syncs bundled extensions + agents to ~/.gsd/agent/
+          ├─ app-paths.ts    ~/.lsd/agent/, ~/.lsd/sessions/, auth.json
+          ├─ resource-loader.ts  Syncs bundled extensions + agents to ~/.lsd/agent/
           └─ src/resources/
               ├─ extensions/       Bundled tool and command extensions
               ├─ agents/           scout, researcher, worker
-              ├─ AGENTS.md          Agent routing instructions
-              └─ skills/            bundled skill content
+              ├─ AGENTS.md         Agent routing instructions
+              └─ skills/           bundled skill content
 
-gsd headless              Headless mode — CI/cron orchestration via RPC child process
-gsd --mode mcp            MCP server mode — exposes tools over stdin/stdout
+lsd headless              Headless mode — CI/cron orchestration via RPC child process
+lsd --mode mcp            MCP server mode — exposes tools over stdin/stdout
 
-vscode-extension/         VS Code extension — chat participant (@gsd), sidebar dashboard, RPC integration
+vscode-extension/         VS Code extension — chat participant, sidebar dashboard, RPC integration
 ```
 
 ## Key Design Decisions
 
 ### State Lives on Disk
 
-`.gsd/` is the sole source of truth. Auto mode reads it, writes it, and advances based on what it finds. No in-memory state survives across sessions. This enables crash recovery, multi-terminal steering, and session resumption.
+`.lsd/` is the sole source of truth for project state. Auto mode reads it, writes it, and advances based on what it finds. No in-memory state survives across sessions. This enables crash recovery, multi-terminal steering, and session resumption.
 
 ### Two-File Loader Pattern
 
@@ -36,11 +36,11 @@ vscode-extension/         VS Code extension — chat participant (@gsd), sidebar
 
 ### `pkg/` Shim Directory
 
-`PI_PACKAGE_DIR` points to `pkg/` (not project root) to avoid Pi's theme resolution colliding with GSD's `src/` directory. Contains only `piConfig` and theme assets.
+`PI_PACKAGE_DIR` points to `pkg/` (not project root) to avoid Pi's theme resolution colliding with LSD's `src/` directory. Contains only `piConfig` and theme assets.
 
 ### Always-Overwrite Sync
 
-Bundled extensions and agents are synced to `~/.gsd/agent/` on every launch, not just first run. This means `npm update -g` takes effect immediately.
+Bundled extensions and agents are synced to `~/.lsd/agent/` on every launch, not just first run. This means `npm update -g` takes effect immediately.
 
 ### Lazy Provider Loading
 
@@ -52,7 +52,7 @@ Every dispatch creates a new agent session. The LLM starts with a clean context 
 
 ## Bundled Extensions
 
-LSD now ships focused bundled extensions rather than a single monolithic `gsd` extension.
+LSD ships focused bundled extensions:
 
 | Extension | What It Provides |
 |-----------|-----------------|
@@ -73,6 +73,9 @@ LSD now ships focused bundled extensions rather than a single monolithic `gsd` e
 | **Remote Questions** | Discord, Slack, and Telegram integration for headless question routing |
 | **TTSR** | Tool-triggered system rules — conditional context injection based on tool usage |
 | **Universal Config** | Discovery of existing AI tool configurations (Claude Code, Cursor, Windsurf, etc.) |
+| **Memory** | Persistent per-project memory — auto-extract, recall, and explicit save/forget |
+| **Usage** | Session-based token and cost reporting via `/usage` |
+| **GSD Workflow** | Auto mode state machine, milestone orchestration, and workflow commands |
 
 ## Bundled Agents
 
@@ -97,8 +100,8 @@ Performance-critical operations use a Rust N-API engine:
 - **image** — decode, encode, resize images
 - **fd** — fuzzy file path discovery
 - **clipboard** — native clipboard access
-- **git** — libgit2-backed git read operations (v2.16+)
-- **parser** — GSD file parsing and frontmatter extraction
+- **git** — libgit2-backed git read operations
+- **parser** — LSD file parsing and frontmatter extraction
 
 ## Dispatch Pipeline
 
@@ -120,43 +123,64 @@ The auto mode dispatch pipeline:
 13. Loop to step 1
 ```
 
-Phase skipping (from token profile) gates steps 2-3: if a phase is skipped, the corresponding unit type is never dispatched.
+## Configuration Paths
 
-## Key Modules (v2.33)
+### User-level
+
+LSD stores global state under:
+
+```
+~/.lsd/
+  agent/
+    auth.json         — API keys and OAuth tokens
+    settings.json
+    extensions/       — installed extensions
+    agents/           — bundled and user agents
+  sessions/           — saved session history
+  projects/
+    <project-hash>/
+      memory/         — persistent project memories
+```
+
+### Project-level
+
+Per-project state lives in:
+
+```
+.lsd/
+  PREFERENCES.md      — project preferences
+  PROJECT.md          — living project description (workflow mode)
+  DECISIONS.md        — architectural decisions
+  KNOWLEDGE.md        — cross-session lessons
+  STATE.md            — quick-glance status
+  milestones/         — milestone/slice/task hierarchy
+  reports/            — HTML milestone reports
+  activity/           — JSONL session logs
+```
+
+Legacy `.gsd/` directories from GSD 2 are also supported.
+
+## Key Modules
 
 | Module | Purpose |
 |--------|---------|
 | `auto.ts` | Auto-mode state machine and orchestration |
-| `auto/session.ts` | `AutoSession` class — all mutable auto-mode state in one encapsulated instance |
+| `auto/session.ts` | `AutoSession` class — all mutable auto-mode state |
 | `auto-dispatch.ts` | Declarative dispatch table (phase → unit mapping) |
-| `auto-idempotency.ts` | Completed-key checks, skip loop detection, key eviction |
+| `auto-idempotency.ts` | Completed-key checks, skip loop detection |
 | `auto-stuck-detection.ts` | Stuck loop recovery and unit retry escalation |
-| `auto-start.ts` | Fresh-start bootstrap — git/state init, crash lock detection, worktree setup |
+| `auto-start.ts` | Fresh-start bootstrap — git/state init, crash lock detection |
 | `auto-post-unit.ts` | Post-unit processing — commit, doctor, state rebuild, hooks |
 | `auto-verification.ts` | Post-unit verification gate (lint/test/typecheck with auto-fix retries) |
-| `auto-prompts.ts` | Prompt builders with inline level compression |
-| `auto-worktree.ts` | Worktree lifecycle (create, enter, merge, teardown) |
-| `auto-recovery.ts` | Expected artifact resolution, completed-key persistence, self-healing |
-| `auto-timeout-recovery.ts` | Timed-out unit recovery and continuation |
-| `auto-timers.ts` | Unit supervision — soft/idle/hard timeouts, continue-here monitor |
 | `complexity-classifier.ts` | Unit complexity classification (light/standard/heavy) |
 | `model-router.ts` | Dynamic model routing with cost-aware selection |
-| `model-cost-table.ts` | Built-in per-model cost data for cross-provider comparison |
 | `routing-history.ts` | Adaptive learning from routing outcomes |
 | `captures.ts` | Fire-and-forget thought capture and triage classification |
-| `triage-resolution.ts` | Capture resolution (inject, defer, replan, quick-task) |
 | `visualizer-overlay.ts` | Workflow visualizer TUI overlay |
-| `visualizer-data.ts` | Data loading for visualizer tabs |
-| `visualizer-views.ts` | Tab renderers (progress, deps, metrics, timeline, discussion status) |
 | `metrics.ts` | Token and cost tracking ledger |
 | `state.ts` | State derivation from disk |
-| `session-lock.ts` | OS-level exclusive session locking (proper-lockfile) |
-| `crash-recovery.ts` | Lock file management for crash detection and recovery |
+| `session-lock.ts` | OS-level exclusive session locking |
 | `preferences.ts` | Preference loading, merging, validation |
-| `git-service.ts` | Git operations — commit, merge, worktree sync, completed-units cross-boundary sync |
-| `unit-id.ts` | Centralized `parseUnitId()` — milestone/slice/task extraction from unit IDs |
-| `error-utils.ts` | `getErrorMessage()` — unified error-to-string conversion |
-| `roadmap-slices.ts` | Roadmap parser with prose fallback for LLM-generated variants |
+| `git-service.ts` | Git operations — commit, merge, worktree sync |
 | `memory-extractor.ts` | Extract reusable knowledge from session transcripts |
 | `memory-store.ts` | Persistent memory store for cross-session knowledge |
-| `queue-order.ts` | Milestone queue ordering |

@@ -1,7 +1,7 @@
 export type PermissionMode = "danger-full-access" | "accept-on-edit" | "auto" | "plan";
 
-export const READ_ONLY_TOOLS = new Set(["read", "grep", "find", "ls", "lsp", "hashline_read"]);
-export const MUTATING_TOOLS = new Set(["bash", "edit", "write", "hashline_edit"]);
+export const READ_ONLY_TOOLS = new Set(["read", "grep", "find", "ls", "lsp", "hashline_read", "pty_read", "pty_wait"]);
+export const MUTATING_TOOLS = new Set(["bash", "edit", "write", "hashline_edit", "pty_start", "pty_send", "pty_resize", "pty_kill"]);
 
 export interface FileChangeApprovalRequest {
 	action: "write" | "edit" | "delete" | "move";

@@ -6,6 +6,20 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.1.5] - 2026-04-03
+
+### Added
+- **pty**: add `pty_start`, `pty_send`, `pty_read`, `pty_wait`, `pty_resize`, and `pty_kill` so agents can drive interactive terminal programs with a real PTY session
+- **tui**: add a `Pin last prompt` setting that keeps the most recent non-command prompt visible above the editor
+
+### Changed
+- **docs**: refresh the main README and core docs to consistently present the product as LSD, update migration guidance, and modernize command/configuration references
+- **terminal**: improve embedded terminal and bash output rendering with carriage-return aware screen snapshots, cleaner previews, and dedicated agent-controlled terminal panels in the chat view
+
+### Fixed
+- **auth**: pass the current session id into provider key lookup so transient credential refreshes can resolve against the active session more reliably
+- **release**: sync published package metadata and startup/update version checks to the LSD 1.1.5 release
+
 ## [1.1.4] - 2026-04-02
 
 ### Changed

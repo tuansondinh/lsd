@@ -16,25 +16,19 @@ import { allTools } from "../../../core/tools/index.js";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize } from "../../../core/tools/truncate.js";
 import { convertToPng } from "../../../utils/image-convert.js";
 import { sanitizeBinaryOutput } from "../../../utils/shell.js";
+import { renderTerminalText } from "../../../utils/terminal-serializer.js";
 import { getLanguageFromPath, highlightCode, theme } from "../theme/theme.js";
 import { type EditorScheme, editorLink } from "../utils/editor-link.js";
 import { shortenPath } from "../utils/shorten-path.js";
 import { renderDiff } from "./diff.js";
+import { DynamicBorder } from "./dynamic-border.js";
 import { keyHint } from "./keybinding-hints.js";
 import { truncateToVisualLines } from "./visual-truncate.js";
 
 // Preview line limit for bash when not expanded
 const BASH_PREVIEW_LINES = 5;
-// Flash interval for RTK badge animation (ms)
-const RTK_FLASH_INTERVAL_MS = 400;
 // Flash interval for tool status spinner (ms)
 const SPINNER_INTERVAL_MS = 150;
-
-/** Returns true when RTK is active in this process. */
-function isRtkEnabled(): boolean {
-	const v = (process.env["GSD_RTK_DISABLED"] ?? "").trim().toLowerCase();
-	return v !== "1" && v !== "true" && v !== "yes";
-}
 
 // Spinner animation frames
 const SPINNER_FRAMES = ["◯", "◔", "◑", "◕", "●"];
@@ -112,9 +106,7 @@ export class ToolExecutionComponent extends Container {
 	private writeHighlightCache?: WriteHighlightCache;
 	// When true, this component intentionally renders no lines
 	private hideComponent = false;
-	// RTK badge flash state
-	private rtkFlashOn = true;
-	private rtkFlashTimer: NodeJS.Timeout | null = null;
+
 	// Tool status spinner state
 	private spinnerTimer: NodeJS.Timeout | null = null;
 	private spinnerFrame = 0;
@@ -138,8 +130,8 @@ export class ToolExecutionComponent extends Container {
 		this.cwd = cwd;
 
 		// Always create both - contentBox for custom tools/bash, contentText for other built-ins
-		this.contentBox = new Box(1, 1, (text: string) => theme.bg("toolPendingBg", text));
-		this.contentText = new Text("", 1, 1, (text: string) => theme.bg("toolPendingBg", text));
+		this.contentBox = new Box(1, 0, (text: string) => theme.bg("toolPendingBg", text));
+		this.contentText = new Text("", 1, 0, (text: string) => theme.bg("toolPendingBg", text));
 
 		// Use contentBox for bash (visual truncation) or custom tools with custom renderers
 		// Use contentText for built-in tools (including overrides without custom renderers)
@@ -321,12 +313,7 @@ export class ToolExecutionComponent extends Container {
 	): void {
 		this.result = result;
 		this.isPartial = isPartial;
-		// Stop RTK flash when result arrives — settle to dim
-		if (!isPartial && this.rtkFlashTimer) {
-			clearInterval(this.rtkFlashTimer);
-			this.rtkFlashTimer = null;
-			this.rtkFlashOn = false;
-		}
+
 		if (this.toolName === "write" && !isPartial) {
 			const rawPath = str(this.args?.file_path ?? this.args?.path);
 			const fileContent = str(this.args?.content);
@@ -393,10 +380,6 @@ export class ToolExecutionComponent extends Container {
 	}
 
 	dispose(): void {
-		if (this.rtkFlashTimer) {
-			clearInterval(this.rtkFlashTimer);
-			this.rtkFlashTimer = null;
-		}
 		if (this.spinnerTimer) {
 			clearInterval(this.spinnerTimer);
 			this.spinnerTimer = null;
@@ -471,7 +454,7 @@ export class ToolExecutionComponent extends Container {
 			// Render call component
 			if (this.toolDefinition.renderCall) {
 				try {
-					const callComponent = this.toolDefinition.renderCall(this.args, theme);
+					const callComponent = this.toolDefinition.renderCall(this.args, theme, { statusIndicator });
 					if (callComponent !== undefined) {
 						this.contentBox.addChild(callComponent);
 						customRendererHasContent = true;
@@ -591,65 +574,51 @@ export class ToolExecutionComponent extends Container {
 	private renderBashContent(statusIndicator: string): void {
 		const command = str(this.args?.command);
 		const timeout = this.args?.timeout as number | undefined;
-		const rtkActive = isRtkEnabled();
+		const borderColor = (str: string) => theme.fg("bashMode", str);
+		const body = new Container();
 
-		// Start RTK flash timer on first partial render
-		if (rtkActive && this.isPartial && !this.result && !this.rtkFlashTimer) {
-			this.rtkFlashTimer = setInterval(() => {
-				this.rtkFlashOn = !this.rtkFlashOn;
-				this.updateDisplay();
-				this.ui.requestRender();
-			}, RTK_FLASH_INTERVAL_MS);
-		}
+		this.contentBox.addChild(new DynamicBorder(borderColor));
+		this.contentBox.addChild(body);
+		this.contentBox.addChild(new DynamicBorder(borderColor));
 
-		// Header with status indicator
 		const timeoutSuffix = timeout ? theme.fg("muted", ` (timeout ${timeout}s)`) : "";
 		const commandDisplay =
 			command === null ? theme.fg("error", "[invalid arg]") : command ? command : theme.fg("toolOutput", "...");
 		const sandboxBadge = this.result?.details?.sandboxed ? `  ${theme.fg("success", "[sandboxed]")}` : "";
-		const rtkBadge = rtkActive
-			? "  " + (this.rtkFlashOn ? theme.fg("accent", "$ RTK") : theme.fg("dim", "$ RTK"))
-			: "";
-		this.contentBox.addChild(
-			new Text(`${statusIndicator} ${theme.fg("toolTitle", theme.bold(`$ ${commandDisplay}`))}${timeoutSuffix}${sandboxBadge}${rtkBadge}`, 0, 0),
+		body.addChild(
+			new Text(`${statusIndicator} ${theme.fg("toolTitle", theme.bold(`$ ${commandDisplay}`))}${timeoutSuffix}${sandboxBadge}`, 1, 0),
 		);
 
 		if (this.result) {
 			const output = this.getTextOutput().trim();
 
 			if (output) {
-				// Style each line for the output
 				const styledOutput = output
 					.split("\n")
 					.map((line) => theme.fg("toolOutput", line))
 					.join("\n");
 
 				if (this.expanded) {
-					// Show all lines when expanded
-					this.contentBox.addChild(new Text(`\n${styledOutput}`, 0, 0));
+					body.addChild(new Text(`\n${styledOutput}`, 1, 0));
 				} else if (this.renderMode === "minimal") {
-					this.contentBox.addChild(new Text(`\n${this.collapsedExpandHint()}`, 0, 0));
+					body.addChild(new Text(`\n${this.collapsedExpandHint()}`, 1, 0));
 				} else {
-					// Use visual line truncation when collapsed with width-aware caching
 					let cachedWidth: number | undefined;
 					let cachedLines: string[] | undefined;
 					let cachedSkipped: number | undefined;
 
-					this.contentBox.addChild({
+					body.addChild({
 						render: (width: number) => {
 							if (cachedLines === undefined || cachedWidth !== width) {
-								const result = truncateToVisualLines(styledOutput, BASH_PREVIEW_LINES, width);
-								cachedLines = result.visualLines;
+								const result = truncateToVisualLines(styledOutput, BASH_PREVIEW_LINES, Math.max(1, width - 2));
+								cachedLines = result.visualLines.map((line) => ` ${line}`);
 								cachedSkipped = result.skippedCount;
 								cachedWidth = width;
 							}
 							if (cachedSkipped && cachedSkipped > 0) {
-								const hint =
-									theme.fg("muted", `... (${cachedSkipped} earlier lines,`) +
-									` ${keyHint("expandTools", "to expand")})`;
-								return ["", truncateToWidth(hint, width, "..."), ...cachedLines];
+								const hint = theme.fg("muted", `... (${cachedSkipped} earlier lines)`);
+								return ["", truncateToWidth(` ${hint}`, width, "..."), ...cachedLines];
 							}
-							// Add blank line for spacing (matches expanded case)
 							return ["", ...cachedLines];
 						},
 						invalidate: () => {
@@ -661,7 +630,6 @@ export class ToolExecutionComponent extends Container {
 				}
 			}
 
-			// Truncation warnings
 			const truncation = this.result.details?.truncation;
 			const fullOutputPath = this.result.details?.fullOutputPath;
 			if (truncation?.truncated || fullOutputPath) {
@@ -678,7 +646,7 @@ export class ToolExecutionComponent extends Container {
 						);
 					}
 				}
-				this.contentBox.addChild(new Text(`\n${theme.fg("warning", `[${warnings.join(". ")}]`)}`, 0, 0));
+				body.addChild(new Text(`\n${theme.fg("warning", `[${warnings.join(". ")}]`)}`, 1, 0));
 			}
 		}
 	}
@@ -689,12 +657,19 @@ export class ToolExecutionComponent extends Container {
 		const textBlocks = this.result.content?.filter((c: any) => c.type === "text") || [];
 		const imageBlocks = this.result.content?.filter((c: any) => c.type === "image") || [];
 
-		let output = textBlocks
+	let output = textBlocks
 			.map((c: any) => {
 				// Use sanitizeBinaryOutput to handle binary data that crashes string-width
-				return sanitizeBinaryOutput(stripAnsi(c.text || "")).replace(/\r/g, "");
+				return sanitizeBinaryOutput(c.text || "");
 			})
 			.join("\n");
+
+		if (this.toolName === "bash") {
+			output = renderTerminalText(output);
+		} else {
+			output = output.replace(/\r/g, "");
+			output = stripAnsi(output);
+		}
 
 		const caps = getCapabilities();
 		if (imageBlocks.length > 0 && (!caps.images || !this.showImages)) {
@@ -718,8 +693,8 @@ export class ToolExecutionComponent extends Container {
 		return !this.expanded && this.renderMode === "minimal" && !this.result?.isError;
 	}
 
-	private collapsedExpandHint(label = keyHint("expandTools", "to expand")): string {
-		return theme.fg("muted", `(${label})`);
+	private collapsedExpandHint(_label?: string): string {
+		return ""; // hint is shown in editor bottom border instead
 	}
 
 	private collapsedFirstLine(output: string): string | undefined {
@@ -776,7 +751,7 @@ export class ToolExecutionComponent extends Container {
 							.map((line: string) => (lang ? replaceTabs(line) : theme.fg("toolOutput", replaceTabs(line))))
 							.join("\n");
 					if (remaining > 0) {
-						text += `${theme.fg("muted", `\n... (${remaining} more lines,`)} ${keyHint("expandTools", "to expand")})`;
+						text += theme.fg("muted", `\n... (${remaining} more lines)`);
 					}
 				}
 
@@ -856,9 +831,7 @@ export class ToolExecutionComponent extends Container {
 						"\n\n" +
 						displayLines.map((line: string) => (lang ? line : theme.fg("toolOutput", replaceTabs(line)))).join("\n");
 					if (remaining > 0) {
-						text +=
-							theme.fg("muted", `\n... (${remaining} more lines, ${totalLines} total,`) +
-							` ${keyHint("expandTools", "to expand")})`;
+						text += theme.fg("muted", `\n... (${remaining} more lines, ${totalLines} total)`);
 					}
 				}
 			}
@@ -946,7 +919,7 @@ export class ToolExecutionComponent extends Container {
 
 						text += `\n\n${displayLines.map((line: string) => theme.fg("toolOutput", line)).join("\n")}`;
 						if (remaining > 0) {
-							text += `${theme.fg("muted", `\n... (${remaining} more lines,`)} ${keyHint("expandTools", "to expand")})`;
+							text += theme.fg("muted", `\n... (${remaining} more lines)`);
 						}
 					}
 				}
@@ -999,7 +972,7 @@ export class ToolExecutionComponent extends Container {
 
 						text += `\n\n${displayLines.map((line: string) => theme.fg("toolOutput", line)).join("\n")}`;
 						if (remaining > 0) {
-							text += `${theme.fg("muted", `\n... (${remaining} more lines,`)} ${keyHint("expandTools", "to expand")})`;
+							text += theme.fg("muted", `\n... (${remaining} more lines)`);
 						}
 					}
 				}
@@ -1056,7 +1029,7 @@ export class ToolExecutionComponent extends Container {
 
 						text += `\n\n${displayLines.map((line: string) => theme.fg("toolOutput", line)).join("\n")}`;
 						if (remaining > 0) {
-							text += `${theme.fg("muted", `\n... (${remaining} more lines,`)} ${keyHint("expandTools", "to expand")})`;
+							text += theme.fg("muted", `\n... (${remaining} more lines)`);
 						}
 					}
 				}
@@ -1097,8 +1070,46 @@ export class ToolExecutionComponent extends Container {
 
 						text += `\n\n${displayLines.map((line: string) => theme.fg("toolOutput", line)).join("\n")}`;
 						if (remaining > 0) {
-							text += `${theme.fg("muted", `\n... (${remaining} more lines,`)} ${keyHint("expandTools", "to expand")})`;
+							text += theme.fg("muted", `\n... (${remaining} more lines)`);
 						}
+					}
+				}
+			}
+		} else if (this.toolName === "lsp") {
+			const action = this.args?.action as string | undefined;
+			const file = this.args?.file as string | undefined;
+			const line = this.args?.line as number | undefined;
+			const symbol = this.args?.symbol as string | undefined;
+			const query = this.args?.query as string | undefined;
+			const newName = this.args?.new_name as string | undefined;
+
+			text = `${statusIndicator} ${theme.fg("toolTitle", theme.bold("lsp"))}`;
+			if (action) text += ` ${theme.fg("accent", action)}`;
+			if (file) {
+				const shortFile = shortenPath(file);
+				let styledFile = theme.fg("muted", shortFile);
+				if (file && shortFile) {
+					styledFile = editorLink(file, styledFile, { cwd: this.cwd, line, scheme: this.editorScheme });
+				}
+				text += ` ${styledFile}`;
+				if (line !== undefined) text += theme.fg("warning", `:${line}`);
+			}
+			if (symbol) text += ` ${theme.fg("toolOutput", symbol)}`;
+			if (query) text += ` ${theme.fg("muted", `"${query}"`)}`;
+			if (newName) text += ` → ${theme.fg("accent", newName)}`;
+
+			if (this.result) {
+				const output = this.getTextOutput().trim();
+				if (output) {
+					if (hideCollapsedPreview) {
+						text += `\n\n${this.collapsedExpandHint()}`;
+					} else {
+						const lines = output.split("\n");
+						const maxLines = this.expanded ? lines.length : 10;
+						const displayLines = lines.slice(0, maxLines);
+						const remaining = lines.length - maxLines;
+						text += `\n\n${displayLines.map((l: string) => theme.fg("toolOutput", l)).join("\n")}`;
+						if (remaining > 0) text += theme.fg("muted", `\n... (${remaining} more lines)`);
 					}
 				}
 			}

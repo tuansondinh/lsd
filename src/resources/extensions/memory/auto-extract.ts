@@ -17,9 +17,74 @@ import { scanMemoryFiles, formatMemoryManifest } from './memory-scan.js';
 import { normalizeSubagentModel } from '../subagent/model-resolution.js';
 
 const AUTO_EXTRACT_ANSI_PATTERN = /\u001B\[[0-?]*[ -/]*[@-~]/g;
+const AUTO_EXTRACT_CACHE_TIMER_RE = /^\[phase\]\s+cache-timer\s*$/;
+const AUTO_EXTRACT_SESSION_ENDED_RE = /^\[agent\]\s+Session ended/;
+const AUTO_EXTRACT_HEADLESS_STATUS_RE = /^\[headless\]\s+Status:\s+(\w+)\s*$/i;
 
 export function stripAnsiForAutoExtractLog(text: string): string {
-  return text.replace(AUTO_EXTRACT_ANSI_PATTERN, '');
+    return text.replace(AUTO_EXTRACT_ANSI_PATTERN, '');
+}
+
+export function classifyAutoExtractLogLine(rawLine: string): {
+    stripped: string;
+    keep: boolean;
+    completion: 'none' | 'success' | 'failure';
+    completionReason: string | null;
+} {
+    const stripped = stripAnsiForAutoExtractLog(rawLine).trim();
+    if (!stripped) {
+        return {
+            stripped,
+            keep: false,
+            completion: 'none',
+            completionReason: null,
+        };
+    }
+
+    if (AUTO_EXTRACT_CACHE_TIMER_RE.test(stripped)) {
+        return {
+            stripped,
+            keep: false,
+            completion: 'none',
+            completionReason: null,
+        };
+    }
+
+    if (AUTO_EXTRACT_SESSION_ENDED_RE.test(stripped)) {
+        return {
+            stripped,
+            keep: true,
+            completion: 'success',
+            completionReason: 'session_end_detected',
+        };
+    }
+
+    const headlessStatusMatch = stripped.match(AUTO_EXTRACT_HEADLESS_STATUS_RE);
+    if (headlessStatusMatch) {
+        const status = headlessStatusMatch[1].toLowerCase();
+        if (status === 'complete') {
+            return {
+                stripped,
+                keep: true,
+                completion: 'success',
+                completionReason: 'headless_status_complete',
+            };
+        }
+
+        return {
+            stripped,
+            keep: true,
+            completion: 'failure',
+            completionReason: `headless_status_${status}`,
+        };
+    }
+
+    return {
+        stripped,
+        keep: true,
+        completion: 'none',
+        completionReason: null,
+    };
 }
 
 /**
@@ -29,40 +94,40 @@ export function stripAnsiForAutoExtractLog(text: string): string {
  * Returns an empty string only when there is no user-authored content.
  */
 export function buildTranscriptSummary(entries: any[]): string {
-  const lines: string[] = [];
-  let sawUserMessage = false;
+    const lines: string[] = [];
+    let sawUserMessage = false;
 
-  for (const entry of entries) {
-    if (entry.type !== 'message') continue;
+    for (const entry of entries) {
+        if (entry.type !== 'message') continue;
 
-    const role = entry.message?.role;
-    if (role !== 'user' && role !== 'assistant') continue;
+        const role = entry.message?.role;
+        if (role !== 'user' && role !== 'assistant') continue;
 
-    const raw = entry.message.content;
-    let text = '';
+        const raw = entry.message.content;
+        let text = '';
 
-    if (typeof raw === 'string') {
-      text = raw;
-    } else if (Array.isArray(raw)) {
-      // Multi-part messages — extract text blocks only, skip tool_use / tool_result
-      text = raw
-        .filter((part: any) => part.type === 'text' && typeof part.text === 'string')
-        .map((part: any) => part.text)
-        .join('\n');
+        if (typeof raw === 'string') {
+            text = raw;
+        } else if (Array.isArray(raw)) {
+            // Multi-part messages — extract text blocks only, skip tool_use / tool_result
+            text = raw
+                .filter((part: any) => part.type === 'text' && typeof part.text === 'string')
+                .map((part: any) => part.text)
+                .join('\n');
+        }
+
+        if (!text.trim()) continue;
+
+        if (role === 'user') sawUserMessage = true;
+
+        // Truncate individual messages to keep the transcript manageable
+        const truncated = text.length > 2000 ? text.slice(0, 2000) + '…' : text;
+        const label = role === 'user' ? 'User' : 'Assistant';
+        lines.push(`${label}: ${truncated}`);
     }
 
-    if (!text.trim()) continue;
-
-    if (role === 'user') sawUserMessage = true;
-
-    // Truncate individual messages to keep the transcript manageable
-    const truncated = text.length > 2000 ? text.slice(0, 2000) + '…' : text;
-    const label = role === 'user' ? 'User' : 'Assistant';
-    lines.push(`${label}: ${truncated}`);
-  }
-
-  if (!sawUserMessage || lines.length === 0) return '';
-  return lines.join('\n\n');
+    if (!sawUserMessage || lines.length === 0) return '';
+    return lines.join('\n\n');
 }
 
 /**
@@ -70,17 +135,17 @@ export function buildTranscriptSummary(entries: any[]): string {
  * on what to save (and what to skip).
  */
 export function buildExtractionPrompt(memoryDir: string, transcript: string): string {
-  const existing = scanMemoryFiles(memoryDir);
-  const manifest = existing.length > 0 ? formatMemoryManifest(existing) : 'None yet';
+    const existing = scanMemoryFiles(memoryDir);
+    const manifest = existing.length > 0 ? formatMemoryManifest(existing) : 'None yet';
 
-  return `You are a memory extraction agent for a coding assistant. Read the conversation transcript and save any durable facts worth remembering.
+    return `You are a memory extraction agent for a coding assistant. Read the conversation transcript and save any durable facts worth remembering.
 
 Memory directory: ${memoryDir}
 This directory already exists — write files directly.
 
 Rules:
 - Save ONLY: user preferences/role, feedback/corrections, project context (deadlines, decisions), external references
-- Do NOT save: code patterns, architecture, file paths, git history, debugging steps, ephemeral task details
+- Do NOT save: raw code snippets, low-level implementation details, file paths, git history, one-off debugging steps, ephemeral task details
 - Check existing memories below — update existing files rather than creating duplicates
 - Use frontmatter: ---\\nname: ...\\ndescription: ...\\ntype: user|feedback|project|reference\\n---
 - After writing topic files, update MEMORY.md with one-line index entries
@@ -99,38 +164,38 @@ ${transcript}`;
  * Returns null if no valid CLI binary can be found.
  */
 export function resolveCliPath(): string | null {
-  // Prefer env vars set by loader.ts — reliable across all invocation styles
-  const envPath = process.env.LSD_BIN_PATH || process.env.GSD_BIN_PATH;
-  if (envPath && existsSync(envPath)) return envPath;
+    // Prefer env vars set by loader.ts — reliable across all invocation styles
+    const envPath = process.env.LSD_BIN_PATH || process.env.GSD_BIN_PATH;
+    if (envPath && existsSync(envPath)) return envPath;
 
-  // Fallback: the entry point used to launch the current process
-  const argv1 = process.argv[1];
-  if (argv1 && existsSync(argv1)) return argv1;
+    // Fallback: the entry point used to launch the current process
+    const argv1 = process.argv[1];
+    if (argv1 && existsSync(argv1)) return argv1;
 
-  // Last resort: walk up from argv1 to find a bin/ sibling
-  if (argv1) {
-    const binDir = join(dirname(argv1), '..', 'bin');
-    for (const name of ['lsd', 'gsd']) {
-      const candidate = join(binDir, name);
-      if (existsSync(candidate)) return candidate;
+    // Last resort: walk up from argv1 to find a bin/ sibling
+    if (argv1) {
+        const binDir = join(dirname(argv1), '..', 'bin');
+        for (const name of ['lsd', 'gsd']) {
+            const candidate = join(binDir, name);
+            if (existsSync(candidate)) return candidate;
+        }
     }
-  }
 
-  return null;
+    return null;
 }
 
 export function readBudgetMemoryModel(): string | undefined {
-  try {
-    const settingsPath = join(getAgentDir(), 'settings.json');
-    if (!existsSync(settingsPath)) return undefined;
-    const raw = readFileSync(settingsPath, 'utf-8');
-    const parsed = JSON.parse(raw) as { budgetSubagentModel?: unknown };
-    return typeof parsed.budgetSubagentModel === 'string'
-      ? normalizeSubagentModel(parsed.budgetSubagentModel)
-      : undefined;
-  } catch {
-    return undefined;
-  }
+    try {
+        const settingsPath = join(getAgentDir(), 'settings.json');
+        if (!existsSync(settingsPath)) return undefined;
+        const raw = readFileSync(settingsPath, 'utf-8');
+        const parsed = JSON.parse(raw) as { budgetSubagentModel?: unknown };
+        return typeof parsed.budgetSubagentModel === 'string'
+            ? normalizeSubagentModel(parsed.budgetSubagentModel)
+            : undefined;
+    } catch {
+        return undefined;
+    }
 }
 
 /**
@@ -141,71 +206,71 @@ export function readBudgetMemoryModel(): string | undefined {
  * Fire-and-forget: the parent can exit without killing the child.
  */
 export function extractMemories(ctx: any, cwd: string): void {
-  // Guard: prevent recursive extraction
-  if (process.env.LSD_MEMORY_EXTRACT === '1') return;
+    // Guard: prevent recursive extraction
+    if (process.env.LSD_MEMORY_EXTRACT === '1') return;
 
-  // Guard: user opt-out
-  if (process.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY) return;
+    // Guard: user opt-out
+    if (process.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY) return;
 
-  const entries = ctx.sessionManager.getEntries();
+    const entries = ctx.sessionManager.getEntries();
 
-  // Guard: need at least one user message to extract from
-  const userMessageCount = entries.filter(
-    (e: any) => e.type === 'message' && e.message?.role === 'user',
-  ).length;
-  if (userMessageCount < 1) return;
+    // Guard: need at least one user message to extract from
+    const userMessageCount = entries.filter(
+        (e: any) => e.type === 'message' && e.message?.role === 'user',
+    ).length;
+    if (userMessageCount < 1) return;
 
-  const transcript = buildTranscriptSummary(entries);
-  if (!transcript) return;
+    const transcript = buildTranscriptSummary(entries);
+    if (!transcript) return;
 
-  const memoryDir = getMemoryDir(cwd);
-  mkdirSync(memoryDir, { recursive: true });
+    const memoryDir = getMemoryDir(cwd);
+    mkdirSync(memoryDir, { recursive: true });
 
-  const prompt = buildExtractionPrompt(memoryDir, transcript);
-  const auditPath = join(memoryDir, '.last-auto-extract.txt');
-  const logPath = join(memoryDir, '.last-auto-extract.log');
+    const prompt = buildExtractionPrompt(memoryDir, transcript);
+    const auditPath = join(memoryDir, '.last-auto-extract.txt');
+    const logPath = join(memoryDir, '.last-auto-extract.log');
 
-  // Write prompt to a temp file so the spawned agent can read it
-  const tmpPromptPath = join(tmpdir(), `lsd-memory-extract-${randomUUID()}.md`);
-  writeFileSync(tmpPromptPath, prompt, 'utf-8');
+    // Write prompt to a temp file so the spawned agent can read it
+    const tmpPromptPath = join(tmpdir(), `lsd-memory-extract-${randomUUID()}.md`);
+    writeFileSync(tmpPromptPath, prompt, 'utf-8');
 
-  const cliPath = resolveCliPath();
-  const budgetModel = readBudgetMemoryModel();
-  if (!cliPath) {
+    const cliPath = resolveCliPath();
+    const budgetModel = readBudgetMemoryModel();
+    if (!cliPath) {
+        writeFileSync(
+            auditPath,
+            [
+                `timestamp: ${new Date().toISOString()}`,
+                'status: skipped',
+                'reason: cli_path_not_found',
+                `cwd: ${cwd}`,
+                `userMessages: ${userMessageCount}`,
+                `transcriptLength: ${transcript.length}`,
+                `budgetModel: ${budgetModel ?? 'default'}`,
+            ].join('\n') + '\n',
+            'utf-8',
+        );
+        return;
+    }
+
     writeFileSync(
-      auditPath,
-      [
-        `timestamp: ${new Date().toISOString()}`,
-        'status: skipped',
-        'reason: cli_path_not_found',
-        `cwd: ${cwd}`,
-        `userMessages: ${userMessageCount}`,
-        `transcriptLength: ${transcript.length}`,
-        `budgetModel: ${budgetModel ?? 'default'}`,
-      ].join('\n') + '\n',
-      'utf-8',
+        auditPath,
+        [
+            `timestamp: ${new Date().toISOString()}`,
+            'status: spawning',
+            `cwd: ${cwd}`,
+            `userMessages: ${userMessageCount}`,
+            `transcriptLength: ${transcript.length}`,
+            `cliPath: ${cliPath}`,
+            `budgetModel: ${budgetModel ?? 'default'}`,
+            `logPath: ${logPath}`,
+        ].join('\n') + '\n',
+        'utf-8',
     );
-    return;
-  }
 
-  writeFileSync(
-    auditPath,
-    [
-      `timestamp: ${new Date().toISOString()}`,
-      'status: spawning',
-      `cwd: ${cwd}`,
-      `userMessages: ${userMessageCount}`,
-      `transcriptLength: ${transcript.length}`,
-      `cliPath: ${cliPath}`,
-      `budgetModel: ${budgetModel ?? 'default'}`,
-      `logPath: ${logPath}`,
-    ].join('\n') + '\n',
-    'utf-8',
-  );
+    const instruction = 'Extract memories from the transcript above. Write any worth-saving memories to the memory directory, then update MEMORY.md.';
 
-  const instruction = 'Extract memories from the transcript above. Write any worth-saving memories to the memory directory, then update MEMORY.md.';
-
-  const helperScript = `
+    const helperScript = `
 const { spawn } = require('node:child_process');
 const { appendFileSync, writeFileSync, readFileSync, readdirSync, statSync, existsSync } = require('node:fs');
 const { join, delimiter } = require('node:path');
@@ -213,14 +278,50 @@ const { join, delimiter } = require('node:path');
 const [cliPath, cwd, tmpPromptPath, auditPath, logPath, memoryDir, instruction, model, userMessageCount, transcriptLength] = process.argv.slice(1);
 const startedAt = new Date().toISOString();
 let finalized = false;
-let sawSessionEnded = false;
-let sessionEndTimer = null;
+let completionState = null;
+let completionTimer = null;
 let hardTimeout = null;
 let pendingLogText = '';
 const ANSI_PATTERN = /\u001B\[[0-?]*[ -/]*[@-~]/g;
+const CACHE_TIMER_RE = /^\[phase\]\s+cache-timer\s*$/;
+const SESSION_ENDED_RE = /^\[agent\]\s+Session ended/;
+const HEADLESS_STATUS_RE = /^\[headless\]\s+Status:\s+(\w+)\s*$/i;
 
 function stripAnsi(text) {
   return String(text).replace(ANSI_PATTERN, '');
+}
+
+function classifyLogLine(rawLine) {
+  const stripped = stripAnsi(rawLine).trim();
+  if (!stripped) {
+    return { stripped, keep: false, completion: null, completionReason: null };
+  }
+  if (CACHE_TIMER_RE.test(stripped)) {
+    return { stripped, keep: false, completion: null, completionReason: null };
+  }
+  if (SESSION_ENDED_RE.test(stripped)) {
+    return { stripped, keep: true, completion: 'finished', completionReason: 'session_end_detected' };
+  }
+  const headlessStatusMatch = stripped.match(HEADLESS_STATUS_RE);
+  if (headlessStatusMatch) {
+    const status = String(headlessStatusMatch[1] || '').toLowerCase();
+    if (status === 'complete') {
+      return { stripped, keep: true, completion: 'finished', completionReason: 'headless_status_complete' };
+    }
+    return { stripped, keep: true, completion: 'failed', completionReason: 'headless_status_' + status };
+  }
+  return { stripped, keep: true, completion: null, completionReason: null };
+}
+
+function scheduleCompletion(completion, completionReason) {
+  if (!completion || completionState || completionTimer) return;
+  completionState = { completion, completionReason };
+  completionTimer = setTimeout(() => {
+    finalize(completion, completion === 'finished' ? 0 : 1, null, completionReason);
+    try { child.kill('SIGTERM'); } catch {}
+    setTimeout(() => { try { child.kill('SIGKILL'); } catch {} }, 2000).unref();
+  }, 1500);
+  completionTimer.unref();
 }
 
 function flushLogText(text, force = false) {
@@ -230,24 +331,14 @@ function flushLogText(text, force = false) {
 
   const kept = [];
   for (const rawLine of parts) {
-    const line = stripAnsi(rawLine).trim();
-    if (!line) continue;
-    if (/^\[phase\]\s+cache-timer\s*$/.test(line)) continue;
-    kept.push(rawLine);
-    if (/^\[agent\]\s+Session ended/.test(line)) {
-      sawSessionEnded = true;
+    const classified = classifyLogLine(rawLine);
+    if (classified.keep) kept.push(rawLine);
+    if (classified.completion) {
+      scheduleCompletion(classified.completion, classified.completionReason);
     }
   }
 
   if (kept.length > 0) appendFileSync(logPath, kept.join('\n') + '\n');
-  if (sawSessionEnded && !sessionEndTimer) {
-    sessionEndTimer = setTimeout(() => {
-      finalize('finished', 0, null, 'session_end_detected');
-      try { child.kill('SIGTERM'); } catch {}
-      setTimeout(() => { try { child.kill('SIGKILL'); } catch {} }, 2000).unref();
-    }, 1500);
-    sessionEndTimer.unref();
-  }
 }
 
 function appendLog(chunk) {
@@ -291,7 +382,7 @@ function newestMemoryMtime(dir) {
 function finalize(status, code, signal, completionReason) {
   if (finalized) return;
   finalized = true;
-  if (sessionEndTimer) clearTimeout(sessionEndTimer);
+  if (completionTimer) clearTimeout(completionTimer);
   if (hardTimeout) clearTimeout(hardTimeout);
   const afterMtime = newestMemoryMtime(memoryDir);
   const logText = existsSync(logPath) ? readFileSync(logPath, 'utf-8') : '';
@@ -332,7 +423,7 @@ const child = spawn(
 );
 
 hardTimeout = setTimeout(() => {
-  finalize('failed', null, 'timeout', sawSessionEnded ? 'hung_after_session_end' : 'timeout');
+  finalize('failed', null, 'timeout', completionState?.completionReason ?? 'timeout');
   try { child.kill('SIGTERM'); } catch {}
   setTimeout(() => { try { child.kill('SIGKILL'); } catch {} }, 2000).unref();
 }, 120000);
@@ -351,53 +442,53 @@ child.on('exit', (code, signal) => {
 });
 `;
 
-  const proc = spawn(
-    process.execPath,
-    [
-      '-e',
-      helperScript,
-      cliPath,
-      cwd,
-      tmpPromptPath,
-      auditPath,
-      logPath,
-      memoryDir,
-      instruction,
-      budgetModel ?? '',
-      String(userMessageCount),
-      String(transcript.length),
-    ],
-    {
-      cwd,
-      detached: true,
-      stdio: 'ignore',
-      env: process.env,
-    },
-  );
-  proc.unref();
+    const proc = spawn(
+        process.execPath,
+        [
+            '-e',
+            helperScript,
+            cliPath,
+            cwd,
+            tmpPromptPath,
+            auditPath,
+            logPath,
+            memoryDir,
+            instruction,
+            budgetModel ?? '',
+            String(userMessageCount),
+            String(transcript.length),
+        ],
+        {
+            cwd,
+            detached: true,
+            stdio: 'ignore',
+            env: process.env,
+        },
+    );
+    proc.unref();
 
-  writeFileSync(
-    auditPath,
-    [
-      `timestamp: ${new Date().toISOString()}`,
-      'status: spawned',
-      `pid: ${proc.pid ?? 'unknown'}`,
-      `cwd: ${cwd}`,
-      `userMessages: ${userMessageCount}`,
-      `transcriptLength: ${transcript.length}`,
-      `cliPath: ${cliPath}`,
-      `model: ${budgetModel ?? 'default'}`,
-      `logPath: ${logPath}`,
-    ].join('\n') + '\n',
-    'utf-8',
-  );
+    writeFileSync(
+        auditPath,
+        [
+            `timestamp: ${new Date().toISOString()}`,
+            'status: spawned',
+            `pid: ${proc.pid ?? 'unknown'}`,
+            `cwd: ${cwd}`,
+            `userMessages: ${userMessageCount}`,
+            `transcriptLength: ${transcript.length}`,
+            `cliPath: ${cliPath}`,
+            `model: ${budgetModel ?? 'default'}`,
+            `logPath: ${logPath}`,
+        ].join('\n') + '\n',
+        'utf-8',
+    );
 
-  // Clean up the temp file after the child has had time to read it
-  setTimeout(() => {
-    try {
-      unlinkSync(tmpPromptPath);
-    } catch {
-      // Already cleaned up or inaccessible — safe to ignore
-    }
-  }, 120_000).unref();
+    // Clean up the temp file after the child has had time to read it
+    setTimeout(() => {
+        try {
+            unlinkSync(tmpPromptPath);
+        } catch {
+            // Already cleaned up or inaccessible — safe to ignore
+        }
+    }, 120_000).unref();
 }

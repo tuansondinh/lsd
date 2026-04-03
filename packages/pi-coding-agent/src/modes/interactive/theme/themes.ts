@@ -99,7 +99,7 @@ const dark: ThemeJson = {
 		thinkingHigh: "blueXhigh",
 		thinkingXhigh: "cyan",
 
-		bashMode: "green",
+		bashMode: "accent",
 	},
 	export: {
 		pageBg: "#18181e",
@@ -195,7 +195,7 @@ const light: ThemeJson = {
 		thinkingHigh: "blueHigh",
 		thinkingXhigh: "blueXhigh",
 
-		bashMode: "green",
+		bashMode: "accent",
 	},
 	export: {
 		pageBg: "#f8f8f8",

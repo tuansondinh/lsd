@@ -44,11 +44,10 @@ export class SkillInvocationMessageComponent extends Box {
 				}),
 			);
 		} else {
-			// Collapsed: single line - [skill] name (hint to expand)
+			// Collapsed: single line - [skill] name
 			const line =
 				theme.fg("customMessageLabel", `\x1b[1m[skill]\x1b[22m `) +
-				theme.fg("customMessageText", this.skillBlock.name) +
-				theme.fg("dim", ` (${editorKey("expandTools")} to expand)`);
+				theme.fg("customMessageText", this.skillBlock.name);
 			this.addChild(new Text(line, 0, 0));
 		}
 	}

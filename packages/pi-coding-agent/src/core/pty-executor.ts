@@ -13,6 +13,7 @@ export interface PtyExecutorOptions {
 	signal?: AbortSignal;
 	cols?: number;
 	rows?: number;
+	cwd?: string;
 	loginShell?: boolean;
 }
 
@@ -102,7 +103,7 @@ export async function executeBashInPty(command: string, options: PtyExecutorOpti
 		name: "xterm-256color",
 		cols: Math.max(20, options.cols ?? 80),
 		rows: Math.max(5, options.rows ?? 24),
-		cwd: process.cwd(),
+		cwd: options.cwd ?? process.cwd(),
 		env: {
 			...Object.fromEntries(
 				Object.entries(getShellEnv()).map(([key, value]) => [key, String(value ?? "")]),

@@ -13,6 +13,7 @@ import {
 	DEFAULT_MAX_BYTES,
 	DEFAULT_MAX_LINES,
 } from "@gsd/pi-coding-agent";
+import { Text } from "@gsd/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { spawn, spawnSync } from "node:child_process";
 import { createWriteStream } from "node:fs";
@@ -81,6 +82,18 @@ export function createAsyncBashTool(
 			"Check /jobs to see all running and recent background jobs.",
 		],
 		parameters: schema,
+		renderCall(args, theme, options) {
+			const cmd = args.command ?? "";
+			const display = cmd.length > 80 ? cmd.slice(0, 77) + "..." : cmd;
+			const indicator = options?.statusIndicator ? `${options.statusIndicator} ` : "";
+			let text = indicator + theme.fg("toolTitle", theme.bold("async_bash "));
+			text += theme.fg("bashMode", "$ ");
+			text += theme.fg("accent", display || theme.fg("muted", "..."));
+			if (args.label) text += theme.fg("muted", ` (${args.label})`);
+			if (args.timeout) text += theme.fg("dim", ` timeout:${args.timeout}s`);
+			return new Text(text, 0, 0);
+		},
+
 		async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
 			const manager = getManager();
 			const cwd = getCwd();

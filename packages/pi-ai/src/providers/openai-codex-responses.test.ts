@@ -3,6 +3,14 @@ import test from "node:test";
 
 import { streamSimpleOpenAICodexResponses } from "./openai-codex-responses.js";
 
+function makeJwt(accountId: string): string {
+	const header = Buffer.from(JSON.stringify({ alg: "none", typ: "JWT" })).toString("base64url");
+	const payload = Buffer.from(
+		JSON.stringify({ "https://api.openai.com/auth": { chatgpt_account_id: accountId } }),
+	).toString("base64url");
+	return `${header}.${payload}.sig`;
+}
+
 test("codex provider does not internally retry ChatGPT usage-plan 429s", async () => {
 	const originalFetch = globalThis.fetch;
 	let fetchCalls = 0;
@@ -40,7 +48,7 @@ test("codex provider does not internally retry ChatGPT usage-plan 429s", async (
 				systemPrompt: "",
 				messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
 			} as any,
-			{ apiKey: "test-key" },
+			{ apiKey: makeJwt("acct_123"), transport: "sse" } as any,
 		);
 
 		let finalError = "";

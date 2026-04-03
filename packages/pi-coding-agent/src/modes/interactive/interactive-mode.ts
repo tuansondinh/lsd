@@ -229,12 +229,17 @@ export class InteractiveMode {
 
 	// Tool execution tracking: toolCallId -> component
 	private pendingTools = new Map<string, ToolExecutionComponent>();
+	private agentPtyComponents = new Map<string, EmbeddedTerminalComponent>();
 
 	// Tool output expansion state
 	private toolOutputExpanded = false;
 
 	// Thinking block visibility state
 	private hideThinkingBlock = false;
+
+	// Pin last prompt feature
+	private pinLastPromptEnabled = false;
+	private lastSentPromptText: string | undefined = undefined;
 
 	// Skill commands: command name -> skill file path
 	private skillCommands = new Map<string, string>();
@@ -251,6 +256,7 @@ export class InteractiveMode {
 	// Track pending bash components (shown in pending area, moved to chat on submit)
 	private pendingBashComponents: InteractiveBashComponent[] = [];
 	private focusedEmbeddedTerminal?: EmbeddedTerminalComponent;
+	private lastEmbeddedTerminalSize?: { cols: number; rows: number };
 
 	// Auto-compaction state
 	private autoCompactionLoader: Loader | undefined = undefined;
@@ -333,6 +339,9 @@ export class InteractiveMode {
 
 		// Load hide thinking block setting
 		this.hideThinkingBlock = this.settingsManager.getHideThinkingBlock();
+
+		// Load pin last prompt setting
+		this.pinLastPromptEnabled = this.settingsManager.getPinLastPrompt();
 
 		// Register themes from resource loader and initialize
 		setRegisteredThemes(this.session.resourceLoader.getThemes().themes);
@@ -640,6 +649,7 @@ export class InteractiveMode {
 		// Main interactive loop
 		while (true) {
 			const userInput = await this.getUserInput();
+			this.recordLastSentPrompt(userInput);
 			try {
 				await this.session.prompt(userInput);
 			} catch (error: unknown) {
@@ -1425,7 +1435,7 @@ export class InteractiveMode {
 		this.defaultEditor.onExtensionShortcut = undefined;
 		this.updateTerminalTitle();
 		if (this.loadingAnimation) {
-			this.loadingAnimation.restoreCycle(this.workingMessages);
+			this.loadingAnimation.setCycleMessages(this.workingMessages);
 		}
 	}
 
@@ -1435,6 +1445,44 @@ export class InteractiveMode {
 	/**
 	 * Render all extension widgets to the widget container.
 	 */
+	/**
+	 * Record the last user-sent prompt text and refresh the widget.
+	 * Called from the main loop and input-controller paths.
+	 */
+	recordLastSentPrompt(text: string): void {
+		// Ignore slash commands and bash commands — they're not "topic" prompts
+		const trimmed = text.trim();
+		if (trimmed.startsWith("/") || trimmed.startsWith("!")) return;
+		this.lastSentPromptText = trimmed;
+		this.updatePinLastPromptWidget();
+	}
+
+	/**
+	 * Update (or remove) the "pin last prompt" widget above the editor.
+	 * Uses the built-in extension widget slot with key "__pin-last-prompt__".
+	 */
+	private updatePinLastPromptWidget(): void {
+		const key = "__pin-last-prompt__";
+		if (!this.pinLastPromptEnabled || !this.lastSentPromptText) {
+			// Remove widget
+			const existing = this.extensionWidgetsAbove.get(key);
+			if (existing?.dispose) existing.dispose();
+			this.extensionWidgetsAbove.delete(key);
+		} else {
+			// Truncate to one line (max 200 chars) to keep it compact
+			const raw = this.lastSentPromptText.replace(/[\r\n]+/g, " ").trim();
+			const label = raw.length > 200 ? raw.slice(0, 197) + "…" : raw;
+			const container = new Container();
+			container.addChild(new Text(
+				theme.fg("dim", `  last prompt: ${label}`),
+				0,
+				0,
+			));
+			this.extensionWidgetsAbove.set(key, container);
+		}
+		this.renderWidgets();
+	}
+
 	private renderWidgets(): void {
 		if (!this.widgetContainerAbove || !this.widgetContainerBelow) return;
 		this.renderWidgetContainer(this.widgetContainerAbove, this.extensionWidgetsAbove, true, true);
@@ -1642,7 +1690,7 @@ export class InteractiveMode {
 	/** Reset the loading animation back to cycling working messages. */
 	private resetLoadingMessage(): void {
 		if (this.loadingAnimation) {
-			this.loadingAnimation.restoreCycle(this.workingMessages);
+			this.loadingAnimation.setCycleMessages(this.workingMessages);
 		}
 	}
 
@@ -3118,6 +3166,7 @@ export class InteractiveMode {
 					enableSkillCommands: this.settingsManager.getEnableSkillCommands(),
 					codexRotate: this.settingsManager.getCodexRotate(),
 					cacheTimer: this.settingsManager.getCacheTimer(),
+					pinLastPrompt: this.settingsManager.getPinLastPrompt(),
 					steeringMode: this.session.steeringMode,
 					followUpMode: this.session.followUpMode,
 					transport: this.settingsManager.getTransport(),
@@ -3225,6 +3274,12 @@ export class InteractiveMode {
 					onCacheTimerChange: (enabled) => {
 						this.settingsManager.setCacheTimer(enabled);
 						this.showStatus(`Cache timer: ${enabled ? "enabled" : "disabled"}`);
+					},
+					onPinLastPromptChange: (enabled) => {
+						this.settingsManager.setPinLastPrompt(enabled);
+						this.pinLastPromptEnabled = enabled;
+						this.updatePinLastPromptWidget();
+						this.showStatus(`Pin last prompt: ${enabled ? "enabled" : "disabled"}`);
 					},
 					onRtkChange: (enabled) => {
 						this.settingsManager.setRtk(enabled);
@@ -4097,8 +4152,54 @@ export class InteractiveMode {
 		}
 	}
 
+	private getAgentPtyComponent(sessionId: string): EmbeddedTerminalComponent | undefined {
+		return this.agentPtyComponents.get(sessionId);
+	}
+
+	private ensureAgentPtyComponent(sessionId: string, command?: string): EmbeddedTerminalComponent {
+		let component = this.agentPtyComponents.get(sessionId);
+		if (component) return component;
+
+		component = new EmbeddedTerminalComponent(
+			command || `PTY ${sessionId}`,
+			this.ui,
+			this.settingsManager.getToolOutputMode(),
+			appKey(this.keybindings, "terminalFocus"),
+			false,
+		);
+		component.setStatusOverride(theme.fg("muted", "Agent-controlled terminal session"));
+		component.setExpanded(true);
+		this.chatContainer.addChild(component);
+		this.agentPtyComponents.set(sessionId, component);
+		return component;
+	}
+
+	private updateAgentPtyComponent(
+		sessionId: string,
+		options?: { command?: string; screenText?: string; completed?: boolean; cancelled?: boolean; exitCode?: number },
+	): void {
+		const component = this.ensureAgentPtyComponent(sessionId, options?.command);
+		if (options?.screenText !== undefined) {
+			component.setScreenText(options.screenText);
+		}
+		if (options?.completed) {
+			component.setStatusOverride(undefined);
+			component.setComplete(options.exitCode, options.cancelled ?? false);
+		} else {
+			component.setStatusOverride(theme.fg("muted", "Agent-controlled terminal session"));
+		}
+	}
+
+	private clearAgentPtyComponents(): void {
+		for (const [, component] of this.agentPtyComponents) {
+			this.chatContainer.removeChild(component);
+		}
+		this.agentPtyComponents.clear();
+	}
+
 	private focusEmbeddedTerminal(component: EmbeddedTerminalComponent): void {
 		this.focusedEmbeddedTerminal = component;
+		this.lastEmbeddedTerminalSize = undefined;
 		this.ui.setFocus(component);
 		component.invalidate();
 		this.ui.requestRender();
@@ -4107,6 +4208,7 @@ export class InteractiveMode {
 	private releaseEmbeddedTerminalFocus(): void {
 		const focused = this.focusedEmbeddedTerminal;
 		this.focusedEmbeddedTerminal = undefined;
+		this.lastEmbeddedTerminalSize = undefined;
 		this.ui.setFocus(this.editor);
 		focused?.invalidate();
 		this.ui.requestRender();
@@ -4337,6 +4439,14 @@ export class InteractiveMode {
 
 	requestRender(force = false): void {
 		if (!this.isInitialized) return;
+		if (this.focusedEmbeddedTerminal) {
+			const cols = Math.max(40, this.ui.terminal.columns - 2);
+			const rows = Math.max(10, this.ui.terminal.rows - 8);
+			if (!this.lastEmbeddedTerminalSize || this.lastEmbeddedTerminalSize.cols !== cols || this.lastEmbeddedTerminalSize.rows !== rows) {
+				this.focusedEmbeddedTerminal.resize(cols, rows);
+				this.lastEmbeddedTerminalSize = { cols, rows };
+			}
+		}
 		this.ui.requestRender(force);
 	}
 

@@ -17,6 +17,7 @@ export function createExtensionUIContext(host: any): ExtensionUIContext {
 					host.loadingAnimation.setMessage(message);
 				} else {
 					host.loadingAnimation.setMessage(`${host.defaultWorkingMessage} (${appKey(host.keybindings, "interrupt")} to interrupt)`);
+					host.loadingAnimation.resumeCycle();
 				}
 			} else {
 				host.pendingWorkingMessage = message;

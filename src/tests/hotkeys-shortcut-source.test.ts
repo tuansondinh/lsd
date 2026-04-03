@@ -19,7 +19,7 @@ const interactiveModeSource = readFileSync(
 );
 
 test("app keybindings declare showHotkeys bound to ctrl+k", () => {
-  assert.match(appKeybindingsSource, /\| "showHotkeys";/, "AppAction should include showHotkeys");
+  assert.match(appKeybindingsSource, /\| "showHotkeys"\s*[;|]/, "AppAction should include showHotkeys");
   assert.match(appKeybindingsSource, /showHotkeys: "ctrl\+k"/, "showHotkeys should default to ctrl+k");
 });
 

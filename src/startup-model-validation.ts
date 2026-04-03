@@ -58,6 +58,16 @@ export function validateConfiguredModel(
     // Only fires when the model is genuinely unknown (not just temporarily unavailable).
     const piDefault = getPiDefaultModelAndProvider()
     const preferred =
+      (configuredProvider === 'openai'
+        ? availableModels.find((m) => m.provider === 'openai' && m.id === 'gpt-5.4') ||
+          availableModels.find((m) => m.provider === 'openai' && m.id === 'gpt-5.4-mini') ||
+          availableModels.find((m) => m.provider === 'openai')
+        : undefined) ||
+      (configuredProvider === 'anthropic'
+        ? availableModels.find((m) => m.provider === 'anthropic' && m.id === 'claude-opus-4-6') ||
+          availableModels.find((m) => m.provider === 'anthropic' && m.id.includes('opus')) ||
+          availableModels.find((m) => m.provider === 'anthropic')
+        : undefined) ||
       (piDefault
         ? availableModels.find((m) => m.provider === piDefault.provider && m.id === piDefault.model)
         : undefined) ||

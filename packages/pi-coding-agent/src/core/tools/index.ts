@@ -92,6 +92,17 @@ export {
 	hashlineReadTool,
 } from "./hashline-read.js";
 export {
+	createPtyTools,
+	type PtyKillInput,
+	type PtyReadInput,
+	type PtyResizeInput,
+	type PtySendInput,
+	type PtyStartInput,
+	type PtyToolDetails,
+	type PtyWaitInput,
+	ptyToolNames,
+} from "./pty.js";
+export {
 	type Anchor,
 	applyHashlineEdits,
 	computeLineHash,
@@ -121,6 +132,7 @@ import { createGrepTool, grepTool } from "./grep.js";
 import { createHashlineEditTool, hashlineEditTool } from "./hashline-edit.js";
 import { createHashlineReadTool, hashlineReadTool } from "./hashline-read.js";
 import { createLsTool, lsTool } from "./ls.js";
+import { createPtyTools } from "./pty.js";
 import { createReadTool, type ReadToolOptions, readTool } from "./read.js";
 import { createWriteTool, writeTool } from "./write.js";
 import { createLspTool, lspTool } from "../lsp/index.js";
@@ -134,6 +146,8 @@ export const codingTools: Tool[] = [readTool, bashTool, editTool, writeTool];
 // Read-only tools for exploration without modification (using process.cwd())
 export const readOnlyTools: Tool[] = [readTool, grepTool, findTool, lsTool];
 
+const ptyBuiltinTools = createPtyTools(process.cwd());
+
 // All available tools (using process.cwd())
 export const allTools = {
 	read: readTool,
@@ -146,6 +160,12 @@ export const allTools = {
 	lsp: lspTool,
 	hashline_edit: hashlineEditTool,
 	hashline_read: hashlineReadTool,
+	pty_start: ptyBuiltinTools.pty_start,
+	pty_send: ptyBuiltinTools.pty_send,
+	pty_read: ptyBuiltinTools.pty_read,
+	pty_wait: ptyBuiltinTools.pty_wait,
+	pty_resize: ptyBuiltinTools.pty_resize,
+	pty_kill: ptyBuiltinTools.pty_kill,
 };
 
 // Hashline-mode coding tools — read with hash anchors, edit with hash references
@@ -158,6 +178,19 @@ export interface ToolsOptions {
 	read?: ReadToolOptions;
 	/** Options for the bash tool */
 	bash?: BashToolOptions;
+}
+
+function addPtyTools<T extends Record<string, Tool>>(target: T, cwd: string): T & Record<string, Tool> {
+	const ptyTools = createPtyTools(cwd);
+	return {
+		...target,
+		pty_start: ptyTools.pty_start,
+		pty_send: ptyTools.pty_send,
+		pty_read: ptyTools.pty_read,
+		pty_wait: ptyTools.pty_wait,
+		pty_resize: ptyTools.pty_resize,
+		pty_kill: ptyTools.pty_kill,
+	};
 }
 
 /**
@@ -183,7 +216,7 @@ export function createReadOnlyTools(cwd: string, options?: ToolsOptions): Tool[]
  * Create all tools configured for a specific working directory.
  */
 export function createAllTools(cwd: string, options?: ToolsOptions): Record<ToolName, Tool> {
-	return {
+	return addPtyTools({
 		read: createReadTool(cwd, options?.read),
 		bash: createBashTool(cwd, options?.bash),
 		edit: createEditTool(cwd),
@@ -194,7 +227,7 @@ export function createAllTools(cwd: string, options?: ToolsOptions): Record<Tool
 		lsp: createLspTool(cwd),
 		hashline_edit: createHashlineEditTool(cwd),
 		hashline_read: createHashlineReadTool(cwd, options?.read),
-	};
+	}, cwd) as Record<ToolName, Tool>;
 }
 
 /**

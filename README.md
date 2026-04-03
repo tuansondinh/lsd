@@ -242,8 +242,9 @@ A few quality-of-life touches in the TUI:
 
 - the footer can show a live cache timer for the current prompt-cache window
 - `/hotkeys` gives you a full shortcut reference on demand
-- `/settings` now includes toggles for Codex rotate, the cache timer, RTK shell-command compression, and a configurable **Main accent** preset
+- `/settings` now includes toggles for Codex rotate, the cache timer, **Pin last prompt**, RTK shell-command compression, and a configurable **Main accent** preset
 - changing the main accent also updates accent-driven UI elements and the text input border across thinking levels
+- when **Pin last prompt** is enabled, LSD keeps your most recent non-command prompt visible above the editor as a lightweight reminder
 
 Some workflow/automation commands still use the legacy namespace:
 

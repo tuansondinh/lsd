@@ -358,7 +358,7 @@ export interface ToolDefinition<TParams extends TSchema = TSchema, TDetails = un
 	): Promise<AgentToolResult<TDetails>>;
 
 	/** Custom rendering for tool call display */
-	renderCall?: (args: Static<TParams>, theme: Theme) => Component | undefined;
+	renderCall?: (args: Static<TParams>, theme: Theme, options?: { statusIndicator?: string }) => Component | undefined;
 
 	/** Custom rendering for tool result display */
 	renderResult?: (

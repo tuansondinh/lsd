@@ -140,6 +140,7 @@ async function awaitBackgroundSubagents(
     manager: BackgroundJobManager,
     jobIds?: string[],
     timeoutSeconds = DEFAULT_AWAIT_SUBAGENT_TIMEOUT_SECONDS,
+    signal?: AbortSignal,
 ): Promise<string> {
     const timeoutMs = timeoutSeconds * 1000;
 
@@ -173,17 +174,29 @@ async function awaitBackgroundSubagents(
     }
 
     const TIMEOUT_SENTINEL = Symbol("timeout");
+    const ABORT_SENTINEL = Symbol("abort");
     const timeoutPromise = new Promise<typeof TIMEOUT_SENTINEL>((resolve) => {
         const timer = setTimeout(() => resolve(TIMEOUT_SENTINEL), timeoutMs);
         if (typeof timer === "object" && "unref" in timer) timer.unref();
     });
+    const abortPromise = signal
+        ? new Promise<typeof ABORT_SENTINEL>((resolve) => {
+            if (signal.aborted) {
+                resolve(ABORT_SENTINEL);
+            } else {
+                signal.addEventListener("abort", () => resolve(ABORT_SENTINEL), { once: true });
+            }
+        })
+        : null;
 
     const raceResult = await Promise.race([
         Promise.race(running.map((job) => job.promise)).then(() => "completed" as const),
         timeoutPromise,
+        ...(abortPromise ? [abortPromise] : []),
     ]);
 
     const timedOut = raceResult === TIMEOUT_SENTINEL;
+    const wasAborted = raceResult === ABORT_SENTINEL;
     const completed = watched.filter((job) => job.status !== "running");
     const stillRunning = watched.filter((job) => job.status === "running");
 
@@ -191,7 +204,10 @@ async function awaitBackgroundSubagents(
     if (stillRunning.length > 0) {
         result += `\n\n**Still running:** ${stillRunning.map((job) => `${job.id} (${job.agentName})`).join(", ")}`;
     }
-    if (timedOut) {
+    if (wasAborted) {
+        result += `\n\n⎋ **Cancelled** — subagents are still running in the background. ` +
+            `Use \`await_subagent\` or \`/subagents wait\` again later.`;
+    } else if (timedOut) {
         result += `\n\n⏱ **Timed out** after ${timeoutSeconds}s waiting for subagents to finish. ` +
             `Subagents are still running in the background. ` +
             `Use \`await_subagent\` or \`/subagents wait\` again later.`;
@@ -818,12 +834,13 @@ export default function(pi: ExtensionAPI) {
                 const output = job.status === "completed"
                     ? (job.resultSummary ?? "(no output)")
                     : `Error: ${job.stderr ?? "unknown error"}`;
+                const modelInfo = job.model ? ` · ${job.model}` : "";
 
                 pi.sendMessage(
                     {
                         customType: "background_subagent_result",
                         content: [
-                            `**Background subagent ${statusEmoji}: ${job.id}** (${job.agentName}, ${elapsed}s)`,
+                            `**Background subagent ${statusEmoji}: ${job.id}** (${job.agentName}, ${elapsed}s${modelInfo})`,
                             `> ${taskPreview}`,
                             "",
                             output,
@@ -948,7 +965,8 @@ export default function(pi: ExtensionAPI) {
                     for (const job of running) {
                         const elapsed = ((Date.now() - job.startedAt) / 1000).toFixed(0);
                         const preview = job.task.length > 50 ? `${job.task.slice(0, 50)}…` : job.task;
-                        lines.push(`- **${job.id}** [${job.agentName}] ${elapsed}s — ${preview}`);
+                        const modelSuffix = job.model ? ` · ${job.model}` : "";
+                        lines.push(`- **${job.id}** [${job.agentName}${modelSuffix}] ${elapsed}s — ${preview}`);
                     }
                 }
                 if (done.length > 0) {
@@ -993,9 +1011,9 @@ export default function(pi: ExtensionAPI) {
             "Use a shorter timeout when polling and a longer timeout when the user explicitly wants to wait here.",
         ],
         parameters: AwaitSubagentParams,
-        async execute(_toolCallId, params) {
+        async execute(_toolCallId, params, signal) {
             const manager = getBgManager();
-            const output = await awaitBackgroundSubagents(manager, params.jobs, params.timeout ?? DEFAULT_AWAIT_SUBAGENT_TIMEOUT_SECONDS);
+            const output = await awaitBackgroundSubagents(manager, params.jobs, params.timeout ?? DEFAULT_AWAIT_SUBAGENT_TIMEOUT_SECONDS, signal);
             return {
                 content: [{ type: "text", text: output }],
                 details: undefined,
@@ -1278,6 +1296,15 @@ export default function(pi: ExtensionAPI) {
                         };
                     }
 
+                    // Pre-resolve model so we can show it in the launch message
+                    const bgPreferences = loadEffectivePreferences()?.preferences;
+                    const bgSettingsBudgetModel = readBudgetSubagentModelFromSettings();
+                    const bgResolvedModelCfg = resolveConfiguredSubagentModel(agentForBg, bgPreferences, bgSettingsBudgetModel);
+                    const bgInferredModel = resolveSubagentModel(
+                        { name: agentForBg.name, model: bgResolvedModelCfg },
+                        { overrideModel: params.model, parentModel: ctx.model ? { provider: ctx.model.provider, id: ctx.model.id } : undefined },
+                    );
+
                     let jobId: string;
                     try {
                         jobId = runSubagentInBackground(
@@ -1318,8 +1345,9 @@ export default function(pi: ExtensionAPI) {
                         };
                     }
 
+                    const bgModelLine = bgInferredModel ? `\nModel: ${bgInferredModel}` : "";
                     return {
-                        content: [{ type: "text", text: `Background subagent started. Job ID: **${jobId}**\nAgent: ${params.agent}\nUse \`await_subagent\` to wait, \`/subagents wait ${jobId}\` to block in the TUI, or \`/subagents cancel ${jobId}\` to stop it.` }],
+                        content: [{ type: "text", text: `Background subagent started. Job ID: **${jobId}**\nAgent: ${params.agent}${bgModelLine}\nUse \`await_subagent\` to wait, \`/subagents wait ${jobId}\` to block in the TUI, or \`/subagents cancel ${jobId}\` to stop it.` }],
                         details: makeDetails("single")([]),
                     };
                 }

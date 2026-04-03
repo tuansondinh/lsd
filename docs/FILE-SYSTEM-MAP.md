@@ -1,4 +1,4 @@
-# GSD2 File System Map
+# LSD File System Map
 # Maps every source file to its system/subsystem labels
 
 ---

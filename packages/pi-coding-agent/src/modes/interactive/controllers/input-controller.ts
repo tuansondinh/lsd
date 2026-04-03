@@ -56,6 +56,7 @@ export function setupEditorSubmitHandler(host: InteractiveModeStateHost & {
 		if (host.session.isStreaming) {
 			host.editor.addToHistory?.(text);
 			host.editor.setText("");
+			host.recordLastSentPrompt?.(text);
 			await host.session.prompt(text, { streamingBehavior: "steer" });
 			host.updatePendingMessagesDisplay();
 			host.ui.requestRender();
@@ -72,6 +73,7 @@ export function setupEditorSubmitHandler(host: InteractiveModeStateHost & {
 
 		if (host.options?.submitPromptsDirectly) {
 			host.editor.addToHistory?.(text);
+			host.recordLastSentPrompt?.(text);
 			try {
 				await host.session.prompt(text);
 			} catch (error: unknown) {

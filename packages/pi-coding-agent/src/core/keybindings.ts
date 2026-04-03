@@ -75,7 +75,7 @@ const DEFAULT_APP_KEYBINDINGS: Record<AppAction, KeyId | KeyId[]> = {
 	resume: [],
 	cyclePermissionMode: "shift+tab",
 	showHotkeys: "ctrl+k",
-	terminalFocus: "ctrl+f",
+	terminalFocus: "tab",
 };
 
 /**

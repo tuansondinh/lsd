@@ -18,6 +18,7 @@ Implemented a Codex OAuth rotation extension for LSD that manages multiple ChatG
    - Writes `openai-codex` credential array with `api_key` type
    - Avoids the `set()` method (which appends duplicates)
    - Maintains stable credential order for index-based backoff
+   - Followed by a live `AuthStorage.reload()` in the extension so the running process sees account changes immediately
 
 3. **Background Refresh Timer** (`index.ts`)
    - Runs every 10 minutes
@@ -42,11 +43,10 @@ Implemented a Codex OAuth rotation extension for LSD that manages multiple ChatG
    - `/codex import-cockpit` - Import from Cockpit
    - `/codex sync` - Force refresh all tokens
 
-6. **Error Detection** (`quota.ts`)
-   - Detects quota/rate limit errors
-   - Detects auth errors (401, expired tokens)
-   - Classifies errors by type
-   - Integrates with `AuthStorage.markUsageLimitReached()`
+6. **Error Detection / Rotation Path**
+   - Quota/rate-limit/auth classification lives in `quota.ts`
+   - Same-turn retry and per-credential backoff are performed by core `RetryHandler`
+   - The extension's responsibility is to keep `auth.json` and the live in-memory auth state in sync
 
 ## File Structure
 
@@ -87,6 +87,7 @@ Using `FileAuthStorageBackend.withLockAsync()`:
 - Prevents race conditions with multiple LSD instances
 - Replaces entire credential array (not just updating keys)
 - Maintains stable order for index-based backoff
+- Requires a follow-up live auth reload in the current process so retry rotation uses the updated credential set
 
 ### 4. Session-Sticky Credential Selection
 
@@ -105,15 +106,15 @@ LSD already uses session-sticky selection by default:
 
 ## Next Steps: Phase 2 (Resilience)
 
-The following features were planned but not yet implemented:
+Remaining improvements that could still be added:
 
-1. **Enhanced error detection in `agent_end`**
-   - Already implemented basic error detection
-   - Could add more sophisticated quota pattern matching
+1. **Richer `/codex status` diagnostics**
+   - Show live backoff / credential-availability state from `AuthStorage`
+   - Make it easier to verify when an account was rotated away after a usage-limit hit
 
-2. **Better credential change listener**
-   - Could listen for external auth.json modifications
-   - Would re-sync on change detection
+2. **External change detection**
+   - Could listen for external auth/account file modifications
+   - Would re-sync / reload on change detection
 
 3. **Migration helpers**
    - Could add `/codex migrate` to assist users moving from Cockpit
@@ -121,8 +122,12 @@ The following features were planned but not yet implemented:
 
 ## Testing
 
-To test the extension:
+Implemented regression coverage now includes:
+- `src/tests/codex-rotate-auth-reload.test.ts`
+- Verifies that codex-rotate syncs require a live auth reload for the running process to see the latest credentials
+- Verifies `quota_exhausted` backoff on one `openai-codex` credential causes the next retry to select the next credential
 
+Manual smoke test:
 1. Add an account: `/codex add`
 2. Check status: `/codex status`
 3. Add another account: `/codex add`

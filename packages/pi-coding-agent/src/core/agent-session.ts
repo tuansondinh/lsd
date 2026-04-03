@@ -2312,7 +2312,7 @@ export class AgentSession {
 
 		const defaultActiveToolNames = this._baseToolsOverride
 			? Object.keys(this._baseToolsOverride)
-			: ["read", "bash", "edit", "write", "lsp"];
+			: ["read", "bash", "edit", "write", "lsp", "pty_start", "pty_send", "pty_read", "pty_wait", "pty_resize", "pty_kill"];
 		const baseActiveToolNames = options.activeToolNames ?? defaultActiveToolNames;
 		this._refreshToolRegistry({
 			activeToolNames: baseActiveToolNames,

@@ -6,6 +6,7 @@
  */
 
 import type { ToolDefinition } from "@gsd/pi-coding-agent";
+import { Text } from "@gsd/pi-tui";
 import { Type } from "@sinclair/typebox";
 import type { AsyncJobManager, Job } from "./job-manager.js";
 
@@ -33,6 +34,18 @@ export function createAwaitTool(getManager: () => AsyncJobManager): ToolDefiniti
 		description:
 			"Wait for background jobs to complete. Provide specific job IDs or omit to wait for the next job that finishes. Returns results of completed jobs.",
 		parameters: schema,
+		renderCall(args, theme, options) {
+			const indicator = options?.statusIndicator ? `${options.statusIndicator} ` : "";
+			let text = indicator + theme.fg("toolTitle", theme.bold("await_job"));
+			if (args.jobs && args.jobs.length > 0) {
+				text += " " + theme.fg("accent", args.jobs.join(", "));
+			} else {
+				text += theme.fg("muted", " (any)");
+			}
+			if (args.timeout) text += theme.fg("dim", ` timeout:${args.timeout}s`);
+			return new Text(text, 0, 0);
+		},
+
 		async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
 			const manager = getManager();
 			const { jobs: jobIds, timeout } = params;

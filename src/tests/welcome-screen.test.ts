@@ -4,6 +4,7 @@
 
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import os from 'node:os'
 
 import { printWelcomeScreen } from '../../dist/welcome-screen.js'
 
@@ -46,9 +47,10 @@ test('renders model and provider', () => {
   assert.ok(out.includes('Anthropic'), 'provider missing')
 })
 
-test('renders cwd hint', () => {
+test('renders cwd row', () => {
   const out = strip(capture({ version: '1.0.0' }))
-  assert.ok(out.includes('/gsd to begin'), 'hint line missing')
+  assert.ok(out.includes('Directory'), 'directory label missing')
+  assert.ok(out.includes(process.cwd().replace(os.homedir(), '~')), 'cwd missing')
 })
 
 test('skips when not a TTY', (t) => {

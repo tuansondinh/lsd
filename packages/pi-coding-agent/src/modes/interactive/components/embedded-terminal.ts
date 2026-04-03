@@ -1,71 +1,84 @@
 /**
  * Embedded PTY terminal for user-triggered bash commands.
- * MVP: renders live ANSI text output and can forward keystrokes to a PTY handle.
+ * Renders a framed terminal surface and forwards keystrokes to a PTY handle.
  */
 
-import { Container, decodeKittyPrintable, parseKey, type Focusable, Text, type TUI, matchesKey } from "@gsd/pi-tui";
+import { decodeKittyPrintable, matchesKey, parseKey, type Focusable, type TUI } from "@gsd/pi-tui";
+import { truncateToWidth, visibleWidth } from "@gsd/pi-tui";
 import type { PtyExecutionHandle } from "../../../core/pty-executor.js";
-import { theme, type ThemeColor } from "../theme/theme.js";
-import { DynamicBorder } from "./dynamic-border.js";
+import { createHeadlessTerminal, snapshotTerminalLines, type HeadlessTerminal } from "../../../utils/terminal-screen.js";
+import { theme } from "../theme/theme.js";
 
 type ToolOutputMode = "minimal" | "normal";
 
-export class EmbeddedTerminalComponent extends Container implements Focusable {
+export class EmbeddedTerminalComponent implements Focusable {
     public focused = false;
 
     private command: string;
     private status: "running" | "complete" | "cancelled" | "error" = "running";
     private exitCode: number | undefined;
-    private contentContainer: Container;
-    private colorKey: ThemeColor;
     private focusKeyLabel: string;
-    private chunks: string[] = [];
+    private renderedLines: string[] = [];
     private rawOutput = "";
+    private terminal: HeadlessTerminal;
+    private terminalWriteChain: Promise<void> = Promise.resolve();
     private handle?: PtyExecutionHandle;
     private releaseFocus?: () => void;
-    private headerText: Text;
+    private statusOverride?: string;
 
     constructor(
         command: string,
         _ui: TUI,
         _renderMode: ToolOutputMode,
         focusKeyLabel: string,
-        excludeFromContext = false,
+        _excludeFromContext = false,
     ) {
-        super();
         this.command = command;
         this.focusKeyLabel = focusKeyLabel;
-        this.colorKey = (excludeFromContext ? "dim" : "bashMode") as ThemeColor;
-
-        const borderColor = (str: string) => theme.fg(this.colorKey, str);
-        this.addChild(new DynamicBorder(borderColor));
-        this.contentContainer = new Container();
-        this.addChild(this.contentContainer);
-        this.headerText = new Text(this.buildHeaderText(), 1, 0);
-        this.contentContainer.addChild(this.headerText);
-        this.addChild(new DynamicBorder(borderColor));
+        this.terminal = createHeadlessTerminal();
     }
 
     setHandle(handle: PtyExecutionHandle, releaseFocus: () => void): void {
         this.handle = handle;
         this.releaseFocus = releaseFocus;
-        this.updateDisplay();
+    }
+
+    setScreenText(text: string): void {
+        this.rawOutput = text;
+        this.renderedLines = text ? text.split("\n") : [];
+    }
+
+    setStatusOverride(text: string | undefined): void {
+        this.statusOverride = text;
+    }
+
+    resize(cols: number, rows: number): void {
+        const safeCols = Math.max(20, cols);
+        const safeRows = Math.max(5, rows);
+        this.handle?.resize(safeCols, safeRows);
+        this.terminal.resize(safeCols, safeRows);
+        this.renderedLines = snapshotTerminalLines(this.terminal);
     }
 
     setExpanded(_expanded: boolean): void {
         // Interactive terminals are always rendered expanded for now.
-        this.updateDisplay();
     }
 
     setRenderMode(_mode: ToolOutputMode): void {
-        this.updateDisplay();
+        // Interactive terminals are always rendered expanded for now.
     }
 
     appendOutput(chunk: string): void {
         this.rawOutput += chunk;
-        const normalized = chunk.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-        this.chunks.push(normalized);
-        this.updateDisplay();
+        this.terminalWriteChain = this.terminalWriteChain.then(
+            () =>
+                new Promise<void>((resolve) => {
+                    this.terminal.write(chunk, () => {
+                        this.renderedLines = snapshotTerminalLines(this.terminal);
+                        resolve();
+                    });
+                }),
+        );
     }
 
     setComplete(exitCode: number | undefined, cancelled: boolean): void {
@@ -75,7 +88,6 @@ export class EmbeddedTerminalComponent extends Container implements Focusable {
             : exitCode !== undefined && exitCode !== 0
                 ? "error"
                 : "complete";
-        this.updateDisplay();
     }
 
     getOutput(): string {
@@ -83,7 +95,7 @@ export class EmbeddedTerminalComponent extends Container implements Focusable {
     }
 
     handleInput(data: string): void {
-        if (matchesKey(data, "escape") || matchesKey(data, "ctrl+f")) {
+        if (matchesKey(data, "escape") || matchesKey(data, "tab")) {
             this.releaseFocus?.();
             return;
         }
@@ -100,6 +112,7 @@ export class EmbeddedTerminalComponent extends Container implements Focusable {
             case "shift+enter":
                 this.handle?.write("\r");
                 return;
+            case "shift+tab":
             case "tab":
                 this.handle?.write("\t");
                 return;
@@ -127,51 +140,85 @@ export class EmbeddedTerminalComponent extends Container implements Focusable {
                 return;
         }
 
-        // Plain printable single-byte input in non-kitty terminals.
         if (data.length === 1 && data >= " " && data !== "\x7f") {
             this.handle?.write(data);
         }
-        // Ignore unknown escape/control sequences so we don't echo terminal protocol gibberish into the PTY.
     }
 
     invalidate(): void {
-        super.invalidate();
-        this.updateDisplay();
+        // No-op; render reads directly from current state.
     }
 
-    private buildHeaderText(): string {
-        let text = theme.fg(this.colorKey, theme.bold(`$ ${this.command}`));
-        if (this.focused && this.status === "running") {
-            text += `  ${theme.fg("accent", "[terminal focused]")}`;
+    render(width: number): string[] {
+        const innerWidth = Math.max(10, width - 2);
+        const frameColor = this.status === "error"
+            ? "error"
+            : this.focused
+                ? "success"
+                : "success";
+        const border = (text: string) => theme.fg(frameColor, text);
+
+        const lines: string[] = [];
+        lines.push(border(`╭${"─".repeat(innerWidth)}╮`));
+
+        for (const line of this.buildBodyLines(innerWidth)) {
+            const content = truncateToWidth(line, innerWidth, "", true);
+            lines.push(`${border("│")}${content}${border("│")}`);
+        }
+
+        lines.push(border(`╰${"─".repeat(innerWidth)}╯`));
+        return lines;
+    }
+
+    private buildBodyLines(innerWidth: number): string[] {
+        const body: string[] = [];
+        body.push(this.buildHeaderText(innerWidth));
+        body.push("");
+
+        if (this.renderedLines.length > 0) {
+            body.push(...this.renderedLines);
         } else if (this.status === "running") {
-            text += `  ${theme.fg("muted", `[${this.focusKeyLabel} to interact]`)}`;
+            body.push(theme.fg("dim", "Terminal waiting for output…"));
         }
-        return text;
+
+        body.push("");
+        body.push(this.buildStatusText(innerWidth));
+        return body;
     }
 
-    private updateDisplay(): void {
-        this.contentContainer.clear();
-        this.headerText.setText(this.buildHeaderText());
-        this.contentContainer.addChild(this.headerText);
+    private buildHeaderText(innerWidth: number): string {
+        const prefix = this.focused
+            ? theme.fg("success", theme.bold(" TERMINAL "))
+            : theme.fg("success", " terminal ");
+        const command = theme.bold(`$ ${this.command}`);
+        const hint = this.focused
+            ? theme.fg("muted", "Tab/Esc return · Shift+Tab sends Tab")
+            : theme.fg("muted", `${this.focusKeyLabel} focus`);
 
-        const availableLines = this.chunks.join("").split("\n");
-        if (availableLines.length > 0) {
-            this.contentContainer.addChild(new Text(`\n${availableLines.join("\n")}`, 1, 0));
+        const left = `${prefix} ${command}`;
+        const leftWidth = visibleWidth(left);
+        const hintWidth = visibleWidth(hint);
+        if (leftWidth + 2 + hintWidth <= innerWidth) {
+            return left + " ".repeat(innerWidth - leftWidth - hintWidth) + hint;
         }
+        return truncateToWidth(`${left}  ${hint}`, innerWidth, "...");
+    }
 
-        const statusParts: string[] = [];
+    private buildStatusText(innerWidth: number): string {
+        let statusText: string;
         if (this.status === "running") {
-            statusParts.push(theme.fg("muted", this.focused ? "Interactive terminal active" : "Interactive terminal ready"));
+            statusText = this.statusOverride
+                ? this.statusOverride
+                : this.focused
+                    ? theme.fg("success", theme.bold("INPUT CAPTURED")) + theme.fg("muted", " — typing goes to the terminal")
+                    : theme.fg("muted", `Press ${this.focusKeyLabel} to focus this terminal`);
         } else if (this.status === "cancelled") {
-            statusParts.push(theme.fg("warning", "(cancelled)"));
+            statusText = theme.fg("warning", "(cancelled)");
         } else if (this.status === "error") {
-            statusParts.push(theme.fg("error", `(exit ${this.exitCode})`));
+            statusText = theme.fg("error", `(exit ${this.exitCode})`);
         } else {
-            statusParts.push(theme.fg("success", "(done)"));
+            statusText = theme.fg("success", "(done)");
         }
-
-        if (statusParts.length > 0) {
-            this.contentContainer.addChild(new Text(`\n${statusParts.join("\n")}`, 1, 0));
-        }
+        return truncateToWidth(statusText, innerWidth, "...");
     }
 }

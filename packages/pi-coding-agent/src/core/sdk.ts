@@ -254,8 +254,20 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 
 	const editMode = settingsManager.getEditMode();
 	const defaultActiveToolNames: ToolName[] = editMode === "hashline"
-		? ["hashline_read", "bash", "hashline_edit", "write", "lsp"]
-		: ["read", "bash", "edit", "write", "lsp"];
+		? [
+				"hashline_read",
+				"bash",
+				"hashline_edit",
+				"write",
+				"lsp",
+				"pty_start",
+				"pty_send",
+				"pty_read",
+				"pty_wait",
+				"pty_resize",
+				"pty_kill",
+			]
+		: ["read", "bash", "edit", "write", "lsp", "pty_start", "pty_send", "pty_read", "pty_wait", "pty_resize", "pty_kill"];
 	const initialActiveToolNames: ToolName[] = options.tools
 		? options.tools.map((t) => t.name).filter((n): n is ToolName => n in allTools)
 		: defaultActiveToolNames;
@@ -344,8 +356,9 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			// (e.g., OAuth token refresh failing due to brief connectivity loss).
 			const maxAttempts = 3;
 			const baseDelayMs = 2000;
+			const sid = sessionManager.getSessionId();
 			for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-				const key = await modelRegistry.getApiKeyForProvider(resolvedProvider);
+				const key = await modelRegistry.getApiKeyForProvider(resolvedProvider, sid);
 				if (key) return key;
 
 				// On the last attempt, fall through to error handling below

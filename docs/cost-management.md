@@ -1,6 +1,6 @@
 # Cost Management
 
-GSD tracks token usage and cost for every unit of work dispatched during auto mode. This data powers the dashboard, budget enforcement, and cost projections.
+LSD tracks token usage and cost for every unit of work dispatched during auto mode. This data powers the dashboard, budget enforcement, and cost projections.
 
 ## Cost Tracking
 
@@ -12,11 +12,19 @@ Every unit's metrics are captured automatically:
 - **Tool calls** — number of tool invocations
 - **Message counts** — assistant and user messages
 
-Data is stored in `.gsd/metrics.json` and survives across sessions.
+Data is stored in `.lsd/metrics.json` and survives across sessions.
 
 ### Viewing Costs
 
 **Dashboard:** `Ctrl+Alt+G` or `/gsd status` shows real-time cost breakdown.
+
+**Footer cost display:**
+
+```yaml
+show_token_cost: true    # default: false
+```
+
+When enabled, per-prompt and cumulative session token costs appear in the footer.
 
 **Aggregations available:**
 - By phase (research, planning, execution, completion, reassessment)
@@ -51,7 +59,7 @@ budget_enforcement: pause    # default when ceiling is set
 
 ## Cost Projections
 
-Once at least two slices have completed, GSD projects the remaining cost:
+Once at least two slices have completed, LSD projects the remaining cost:
 
 ```
 Projected remaining: $12.40 ($6.20/slice avg × 2 remaining)
@@ -61,12 +69,14 @@ Projections use per-slice averages from completed work. If the budget ceiling ha
 
 ## Budget Pressure & Model Downgrading
 
-When approaching the budget ceiling, the [complexity router](./token-optimization.md#budget-pressure) automatically downgrades model assignments to cheaper tiers. This is graduated:
+When approaching the budget ceiling, the complexity router automatically downgrades model assignments to cheaper tiers. This is graduated:
 
-- **< 50% used** — no adjustment
-- **50-75% used** — standard tasks downgrade to light
-- **75-90% used** — same, more aggressive
-- **> 90% used** — nearly everything downgrades; only heavy tasks stay at standard
+| Budget Used | Effect |
+|------------|--------|
+| < 50% | No adjustment |
+| 50-75% | Standard tasks downgrade to light |
+| 75-90% | Same, more aggressive |
+| > 90% | Nearly everything downgrades; only heavy tasks stay at standard |
 
 This ensures the budget is spread across remaining work instead of being exhausted early on complex tasks.
 
@@ -91,3 +101,4 @@ See [Token Optimization](./token-optimization.md) for details.
 - Per-phase model selection lets you use Opus only for planning while keeping execution on Sonnet
 - Enable `dynamic_routing` for automatic model downgrading on simple tasks — see [Dynamic Model Routing](./dynamic-model-routing.md)
 - Use `/gsd visualize` → Metrics tab to see where your budget is going
+- Enable `show_token_cost: true` in preferences to see per-prompt costs in the footer

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join, parse } from "node:path";
 import {
@@ -254,10 +254,14 @@ test("resource loader discovers project, user, and bundled skills with project s
 	writeSkillDir(userSkillsDir, "user-only-skill", "User only", "# User only\n");
 	writeSkillDir(projectSkillsDir, "project-only-skill", "Project only", "# Project only\n");
 
+	const bundledSkillsPath = existsSync(join(process.cwd(), "dist", "resources", "skills"))
+		? join(process.cwd(), "dist", "resources", "skills")
+		: join(process.cwd(), "src", "resources", "skills");
+
 	const loader = new DefaultResourceLoader({
 		cwd: project,
 		agentDir,
-		additionalSkillPaths: [join(process.cwd(), "dist", "resources", "skills")],
+		additionalSkillPaths: [bundledSkillsPath],
 		noExtensions: true,
 		noPromptTemplates: true,
 		noThemes: true,

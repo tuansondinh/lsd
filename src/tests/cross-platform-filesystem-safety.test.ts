@@ -77,10 +77,14 @@ const ALLOW_HARDCODED_TMP: Array<[string, string]> = [
 
 /** Pattern 4 — shell commands with interpolated variables */
 const ALLOW_SHELL_INTERPOLATION: Array<[string, string]> = [
-  // NPM_PACKAGE is a compile-time constant ('gsd-pi'), not user input.
+  // NPM package names are compile-time constants, not user-controlled input.
   ["update-cmd.ts", "npm view ${NPM_PACKAGE}"],
   ["update-cmd.ts", "npm install -g ${NPM_PACKAGE}"],
   ["update-check.ts", "npm install -g ${NPM_PACKAGE_NAME}"],
+  // Bundled legacy GSD extension sources are copied into dist-test/src during test compilation.
+  // The interpolated package name is still a constant and not a path derived from user input.
+  ["resources/extensions/gsd/commands-handlers.ts", "npm view ${NPM_PACKAGE}"],
+  ["resources/extensions/gsd/commands-handlers.ts", "npm install -g ${NPM_PACKAGE}"],
 ];
 
 function isAllowlisted(

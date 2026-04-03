@@ -1,6 +1,24 @@
-# Migration from v1
+# Migration
 
-If you have projects with `.planning` directories from the original Lucent Software Developer (v1), you can migrate them to GSD-2's `.gsd` format.
+## From GSD (`.gsd/` directories)
+
+If you have projects using the GSD format (`.gsd/` directories), LSD is compatible. The `.lsd/` directory is the preferred project config dir, but LSD can work with existing `.gsd/` state.
+
+To migrate a `.gsd/` project to `.lsd/`:
+
+```bash
+/gsd migrate
+```
+
+Or specify a path:
+
+```bash
+/gsd migrate ~/projects/my-old-gsd-project
+```
+
+## From LSD v1 (`.planning` directories)
+
+If you have projects with `.planning` directories from the original LSD v1, you can migrate them to the current format.
 
 ## Running the Migration
 
@@ -45,4 +63,15 @@ After migrating, verify the output with:
 /gsd doctor
 ```
 
-This checks `.gsd/` integrity and flags any structural issues.
+This checks `.lsd/` integrity and flags any structural issues.
+
+## Naming and Compatibility
+
+LSD evolved from GSD and some internals still use `/gsd` command names for compatibility. The project state directory is `.lsd/` (with `.gsd/` supported for legacy projects). User config lives at `~/.lsd/`.
+
+When updating docs or onboarding material, prefer:
+
+- **LSD** for the product name
+- **`lsd`** for the CLI command
+- **`.lsd/`** for project state
+- **`~/.lsd/`** for global state

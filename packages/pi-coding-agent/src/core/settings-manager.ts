@@ -152,6 +152,7 @@ export interface Settings {
 	enabledModels?: string[]; // Model patterns for cycling (same format as --models CLI flag)
 	codexRotate?: boolean; // Enable the bundled codex-rotate extension (default: false)
 	cacheTimer?: boolean; // Show elapsed time since last response in the footer (default: true)
+	pinLastPrompt?: boolean; // Pin last sent prompt above the editor as a reminder (default: false)
 	doubleEscapeAction?: "fork" | "tree" | "none"; // Action for double-escape with empty editor (default: "tree")
 	treeFilterMode?: "default" | "no-tools" | "user-only" | "labeled-only" | "all"; // Default filter when opening /tree
 	thinkingBudgets?: ThinkingBudgetsSettings; // Custom token budgets for thinking levels
@@ -1067,6 +1068,14 @@ export class SettingsManager {
 
 	setCacheTimer(enabled: boolean): void {
 		this.setGlobalSetting("cacheTimer", enabled);
+	}
+
+	getPinLastPrompt(): boolean {
+		return this.settings.pinLastPrompt ?? false;
+	}
+
+	setPinLastPrompt(enabled: boolean): void {
+		this.setGlobalSetting("pinLastPrompt", enabled);
 	}
 
 	getDoubleEscapeAction(): "fork" | "tree" | "none" {

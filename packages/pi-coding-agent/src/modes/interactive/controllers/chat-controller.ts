@@ -20,6 +20,11 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 	updatePendingMessagesDisplay: () => void;
 	updateTerminalTitle: () => void;
 	updateEditorBorderColor: () => void;
+	updateEditorExpandHint: () => void;
+	getAgentPtyComponent: (sessionId: string) => any;
+	ensureAgentPtyComponent: (sessionId: string, command?: string) => any;
+	updateAgentPtyComponent: (sessionId: string, options?: { command?: string; screenText?: string; completed?: boolean; cancelled?: boolean; exitCode?: number }) => void;
+	clearAgentPtyComponents: () => void;
 	pendingMessagesContainer: { clear: () => void };
 }, event: InteractiveModeEvent): Promise<void> {
 	if (!host.isInitialized) {
@@ -37,6 +42,7 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 					host.streamingComponent = undefined;
 					host.streamingMessage = undefined;
 					host.pendingTools.clear();
+					host.clearAgentPtyComponents();
 					host.pendingMessagesContainer.clear();
 					host.compactionQueuedMessages = [];
 					host.rebuildChatFromMessages();
@@ -74,18 +80,13 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 			host.loadingAnimation = new Loader(
 				host.ui,
 				(spinner) => theme.fg("accent", spinner),
-				(text) => theme.fg("muted", text),
+				(text) => theme.fg("accent", text),
 				host.defaultWorkingMessage,
 			);
+			host.loadingAnimation.setCycleMessages(host.workingMessages, 3000);
 			host.statusContainer.addChild(host.loadingAnimation);
-			// Show steer/queue hint in editor bottom border while agent is running
-			{
-				const enterKey = theme.fg("dim", "↵");
-				const followUpKey = theme.fg("dim", appKey(host.keybindings, "followUp"));
-				const steerLabel = theme.fg("muted", " steer");
-				const queueLabel = theme.fg("muted", " queue");
-				host.defaultEditor.bottomHint = `${enterKey}${steerLabel}  ${followUpKey}${queueLabel}`;
-			}
+			// Show steer/queue + expand hint in editor bottom border while agent is running
+			host.updateEditorExpandHint();
 			if (host.pendingWorkingMessage !== undefined) {
 				if (host.pendingWorkingMessage) {
 					host.loadingAnimation.setMessage(host.pendingWorkingMessage);
@@ -123,6 +124,9 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 				host.streamingComponent.updateContent(host.streamingMessage);
 				for (const content of host.streamingMessage.content) {
 					if (content.type === "toolCall") {
+						if (content.name === "pty_start" || content.name === "pty_send" || content.name === "pty_read" || content.name === "pty_wait" || content.name === "pty_resize" || content.name === "pty_kill") {
+							continue;
+						}
 						if (!host.pendingTools.has(content.id)) {
 							const component = new ToolExecutionComponent(
 								content.name,
@@ -215,6 +219,12 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 			break;
 
 		case "tool_execution_start":
+			if (event.toolName === "pty_start") {
+				return;
+			}
+			if (event.toolName === "pty_send" || event.toolName === "pty_read" || event.toolName === "pty_wait" || event.toolName === "pty_resize" || event.toolName === "pty_kill") {
+				return;
+			}
 			if (!host.pendingTools.has(event.toolCallId)) {
 				const component = new ToolExecutionComponent(
 					event.toolName,
@@ -235,6 +245,21 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 			break;
 
 		case "tool_execution_update": {
+			if (event.toolName === "pty_start" || event.toolName === "pty_send" || event.toolName === "pty_read" || event.toolName === "pty_wait" || event.toolName === "pty_resize" || event.toolName === "pty_kill") {
+				const details = event.partialResult?.details as { sessionId?: string; screenText?: string; exitCode?: number; cancelled?: boolean; completed?: boolean } | undefined;
+				const sessionId = details?.sessionId ?? (event.args as { sessionId?: string } | undefined)?.sessionId;
+				if (sessionId) {
+					host.updateAgentPtyComponent(sessionId, {
+						command: event.toolName === "pty_start" ? (event.args as { command?: string } | undefined)?.command : undefined,
+						screenText: details?.screenText,
+						completed: details?.completed,
+						cancelled: details?.cancelled,
+						exitCode: details?.exitCode,
+					});
+					host.ui.requestRender();
+				}
+				break;
+			}
 			const component = host.pendingTools.get(event.toolCallId);
 			if (component) {
 				component.updateResult({ ...event.partialResult, isError: false }, true);
@@ -244,6 +269,21 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 		}
 
 		case "tool_execution_end": {
+			if (event.toolName === "pty_start" || event.toolName === "pty_send" || event.toolName === "pty_read" || event.toolName === "pty_wait" || event.toolName === "pty_resize" || event.toolName === "pty_kill") {
+				const details = event.result?.details as { sessionId?: string; screenText?: string; exitCode?: number; cancelled?: boolean; completed?: boolean } | undefined;
+				const sessionId = details?.sessionId;
+				if (sessionId) {
+					host.updateAgentPtyComponent(sessionId, {
+						command: undefined,
+						screenText: details?.screenText,
+						completed: event.toolName === "pty_kill" || !!details?.completed,
+						cancelled: details?.cancelled ?? event.toolName === "pty_kill",
+						exitCode: details?.exitCode,
+					});
+					host.ui.requestRender();
+				}
+				break;
+			}
 			const component = host.pendingTools.get(event.toolCallId);
 			if (component) {
 				component.updateResult({ ...event.result, isError: event.isError });
@@ -265,8 +305,9 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 				host.streamingMessage = undefined;
 			}
 			host.pendingTools.clear();
-			// Clear the steer/queue hint when agent finishes
+			// Update hint: show expand/collapse if tool outputs exist, else clear
 			host.defaultEditor.bottomHint = "";
+			host.updateEditorExpandHint();
 			await host.checkShutdownRequested();
 			host.ui.requestRender();
 			break;

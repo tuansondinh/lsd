@@ -7,7 +7,7 @@
 | `/gsd` | Step mode — execute one unit at a time, pause between each |
 | `/gsd next` | Explicit step mode (same as `/gsd`) |
 | `/gsd auto` | Autonomous mode — research, plan, execute, commit, repeat |
-| `/gsd quick` | Execute a quick task with GSD guarantees (atomic commits, state tracking) without full planning overhead |
+| `/gsd quick` | Execute a quick task with LSD guarantees (atomic commits, state tracking) without full planning overhead |
 | `/gsd stop` | Stop auto mode gracefully |
 | `/gsd pause` | Pause auto-mode (preserves state, `/gsd auto` to resume) |
 | `/gsd steer` | Hard-steer plan documents during execution |
@@ -19,12 +19,12 @@
 | `/gsd triage` | Manually trigger triage of pending captures |
 | `/gsd dispatch` | Dispatch a specific phase directly (research, plan, execute, complete, reassess, uat, replan) |
 | `/gsd history` | View execution history (supports `--cost`, `--phase`, `--model` filters) |
-| `/gsd forensics` | Full-access GSD debugger — structured anomaly detection, unit traces, and LLM-guided root-cause analysis for auto-mode failures |
-| `/gsd cleanup` | Clean up GSD state files and stale worktrees |
+| `/gsd forensics` | Full-access LSD debugger — structured anomaly detection, unit traces, and LLM-guided root-cause analysis for auto-mode failures |
+| `/gsd cleanup` | Clean up LSD state files and stale worktrees |
 | `/gsd visualize` | Open workflow visualizer (progress, deps, metrics, timeline) |
 | `/gsd export --html` | Generate self-contained HTML report for current or completed milestone |
 | `/gsd export --html --all` | Generate retrospective reports for all milestones at once |
-| `/gsd update` | Update GSD to the latest version in-session |
+| `/gsd update` | Update LSD to the latest version in-session |
 | `/gsd knowledge` | Add persistent project knowledge (rule, pattern, or lesson) |
 | `/fast` | Toggle service tier for supported models (prioritized API routing) |
 | `/gsd rate` | Rate last unit's model tier (over/ok/under) — improves adaptive routing |
@@ -38,12 +38,12 @@
 | Command | Description |
 |---------|-------------|
 | `/gsd prefs` | Model selection, timeouts, budget ceiling |
-| `/gsd mode` | Switch workflow mode (solo/team) with coordinated defaults for milestone IDs, git commit behavior, and documentation |
+| `/gsd mode` | Switch workflow mode (solo/team) with coordinated defaults |
 | `/gsd config` | Re-run the provider setup wizard (LLM provider + tool keys) |
 | `/gsd keys` | API key manager — list, add, remove, test, rotate, doctor |
-| `/gsd doctor` | Runtime health checks with auto-fix — issues surface in real time across widget, visualizer, and HTML reports (v2.40) |
+| `/gsd doctor` | Runtime health checks with auto-fix |
 | `/gsd inspect` | Show SQLite DB diagnostics |
-| `/gsd init` | Project init wizard — detect, configure, bootstrap `.gsd/` |
+| `/gsd init` | Project init wizard — detect, configure, bootstrap `.lsd/` |
 | `/gsd setup` | Global setup status and configuration |
 | `/gsd skill-health` | Skill lifecycle dashboard — usage stats, success rates, token trends, staleness warnings |
 | `/gsd skill-health <name>` | Detailed view for a single skill |
@@ -51,7 +51,7 @@
 | `/gsd skill-health --stale N` | Show skills unused for N+ days |
 | `/gsd hooks` | Show configured post-unit and pre-dispatch hooks |
 | `/gsd run-hook` | Manually trigger a specific hook |
-| `/gsd migrate` | Migrate a v1 `.planning` directory to `.gsd` format |
+| `/gsd migrate` | Migrate a `.planning` (v1) or `.gsd/` directory to `.lsd/` format |
 
 ## Milestone Management
 
@@ -79,7 +79,7 @@
 
 See [Parallel Orchestration](./parallel-orchestration.md) for full documentation.
 
-## Workflow Templates (v2.42)
+## Workflow Templates
 
 | Command | Description |
 |---------|-------------|
@@ -88,7 +88,7 @@ See [Parallel Orchestration](./parallel-orchestration.md) for full documentation
 | `/gsd templates` | List available workflow templates |
 | `/gsd templates info <name>` | Show detailed template info |
 
-## Custom Workflows (v2.42)
+## Custom Workflows
 
 | Command | Description |
 |---------|-------------|
@@ -108,22 +108,19 @@ See [Parallel Orchestration](./parallel-orchestration.md) for full documentation
 | `/gsd extensions disable <id>` | Disable an extension |
 | `/gsd extensions info <id>` | Show extension details |
 
-## cmux Integration
-
-| Command | Description |
-|---------|-------------|
-| `/gsd cmux status` | Show cmux detection, prefs, and capabilities |
-| `/gsd cmux on` | Enable cmux integration |
-| `/gsd cmux off` | Disable cmux integration |
-| `/gsd cmux notifications on/off` | Toggle cmux desktop notifications |
-| `/gsd cmux sidebar on/off` | Toggle cmux sidebar metadata |
-| `/gsd cmux splits on/off` | Toggle cmux visual subagent splits |
-
-## Git Commands
+## Git & Worktrees
 
 | Command | Description |
 |---------|-------------|
 | `/worktree` (`/wt`) | Git worktree lifecycle — create, switch, merge, remove |
+
+```bash
+lsd -w               # create/resume worktree session
+lsd worktree list
+lsd worktree merge NAME
+lsd worktree clean
+lsd worktree remove NAME
+```
 
 ## Session Management
 
@@ -131,15 +128,18 @@ See [Parallel Orchestration](./parallel-orchestration.md) for full documentation
 |---------|-------------|
 | `/clear` | Start a new session (alias for `/new`) |
 | `/exit` | Graceful shutdown — saves session state before exiting |
-| `/kill` | Kill GSD process immediately |
+| `/kill` | Kill LSD process immediately |
 | `/model` | Switch the active model |
 | `/login` | Log in to an LLM provider |
-| `/settings` | Open interactive settings, including theme selection, main accent presets, Codex rotate, cache timer, and RTK toggles |
+| `/settings` | Open interactive settings, including theme selection, main accent presets, Codex rotate, cache timer, pin-last-prompt, and RTK toggles |
 | `/hotkeys` | Show the full keyboard shortcut reference |
 | `/cache-timer` | Toggle the footer cache elapsed-time indicator |
 | `/thinking` | Toggle thinking level during sessions |
 | `/voice` | Toggle real-time speech-to-text (macOS, Linux) |
 | `/usage` | Show built-in token/cost usage reports from LSD session history |
+| `/memories` | View persistent memory store for current project |
+| `/remember <text>` | Save a fact to persistent memory |
+| `/forget <topic>` | Remove a memory by topic |
 
 ## Keyboard Shortcuts
 
@@ -159,50 +159,50 @@ See [Parallel Orchestration](./parallel-orchestration.md) for full documentation
 
 | Flag | Description |
 |------|-------------|
-| `gsd` | Start a new interactive session |
-| `gsd --continue` (`-c`) | Resume the most recent session for the current directory |
-| `gsd --model <id>` | Override the default model for this session |
-| `gsd --print "msg"` (`-p`) | Single-shot prompt mode (no TUI) |
-| `gsd --mode <text\|json\|rpc\|mcp>` | Output mode for non-interactive use |
-| `gsd --list-models [search]` | List available models and exit |
-| `gsd --worktree` (`-w`) [name] | Start session in a git worktree (auto-generates name if omitted) |
-| `gsd --no-session` | Disable session persistence |
-| `gsd --extension <path>` | Load an additional extension (can be repeated) |
-| `gsd --append-system-prompt <text>` | Append text to the system prompt |
-| `gsd --tools <list>` | Comma-separated list of tools to enable |
-| `gsd --version` (`-v`) | Print version and exit |
-| `gsd --help` (`-h`) | Print help and exit |
-| `gsd sessions` | Interactive session picker — list all saved sessions for the current directory and choose one to resume |
-| `gsd --debug` | Enable structured JSONL diagnostic logging for troubleshooting dispatch and state issues |
-| `gsd config` | Set up global API keys for search and docs tools (saved to `~/.gsd/agent/auth.json`, applies to all projects). See [Global API Keys](./configuration.md#global-api-keys-gsd-config). |
-| `gsd update` | Update GSD to the latest version |
-| `gsd headless new-milestone` | Create a new milestone from a context file (headless — no TUI required) |
+| `lsd` | Start a new interactive session |
+| `lsd --continue` (`-c`) | Resume the most recent session for the current directory |
+| `lsd --model <id>` | Override the default model for this session |
+| `lsd --print "msg"` (`-p`) | Single-shot prompt mode (no TUI) |
+| `lsd --mode <text\|json\|rpc\|mcp>` | Output mode for non-interactive use |
+| `lsd --list-models [search]` | List available models and exit |
+| `lsd --worktree` (`-w`) [name] | Start session in a git worktree (auto-generates name if omitted) |
+| `lsd --no-session` | Disable session persistence |
+| `lsd --extension <path>` | Load an additional extension (can be repeated) |
+| `lsd --append-system-prompt <text>` | Append text to the system prompt |
+| `lsd --tools <list>` | Comma-separated list of tools to enable |
+| `lsd --version` (`-v`) | Print version and exit |
+| `lsd --help` (`-h`) | Print help and exit |
+| `lsd sessions` | Interactive session picker — list all saved sessions for the current directory and choose one to resume |
+| `lsd --debug` | Enable structured JSONL diagnostic logging |
+| `lsd config` | Set up global API keys (saved to `~/.lsd/agent/auth.json`, applies to all projects) |
+| `lsd update` | Update LSD to the latest version |
+| `lsd headless new-milestone` | Create a new milestone from a context file (headless — no TUI required) |
 
 ## Headless Mode
 
-`gsd headless` runs `/gsd` commands without a TUI — designed for CI, cron jobs, and scripted automation. It spawns a child process in RPC mode, auto-responds to interactive prompts, detects completion, and exits with meaningful exit codes.
+`lsd headless` runs commands without a TUI — designed for CI, cron jobs, and scripted automation. It spawns a child process in RPC mode, auto-responds to interactive prompts, detects completion, and exits with meaningful exit codes.
 
 ```bash
 # Run auto mode (default)
-gsd headless
+lsd headless
 
 # Run a single unit
-gsd headless next
+lsd headless next
 
 # With timeout for CI
-gsd headless --timeout 600000 auto
+lsd headless --timeout 600000 auto
 
 # Force a specific phase
-gsd headless dispatch plan
+lsd headless dispatch plan
 
 # Create a new milestone from a context file and start auto mode
-gsd headless new-milestone --context brief.md --auto
+lsd headless new-milestone --context brief.md --auto
 
 # Create a milestone from inline text
-gsd headless new-milestone --context-text "Build a REST API with auth"
+lsd headless new-milestone --context-text "Build a REST API with auth"
 
 # Pipe context from stdin
-echo "Build a CLI tool" | gsd headless new-milestone --context -
+echo "Build a CLI tool" | lsd headless new-milestone --context -
 ```
 
 | Flag | Description |
@@ -217,31 +217,15 @@ echo "Build a CLI tool" | gsd headless new-milestone --context -
 
 **Exit codes:** `0` = complete, `1` = error or timeout, `2` = blocked.
 
-Any `/gsd` subcommand works as a positional argument — `gsd headless status`, `gsd headless doctor`, `gsd headless dispatch execute`, etc.
+Any `/gsd` subcommand works as a positional argument — `lsd headless status`, `lsd headless doctor`, `lsd headless dispatch execute`, etc.
 
 ## MCP Server Mode
 
-`gsd --mode mcp` runs GSD as a [Model Context Protocol](https://modelcontextprotocol.io) server over stdin/stdout. This exposes all GSD tools (read, write, edit, bash, etc.) to external AI clients — Claude Desktop, VS Code Copilot, and any MCP-compatible host.
+`lsd --mode mcp` runs LSD as a [Model Context Protocol](https://modelcontextprotocol.io) server over stdin/stdout. This exposes all LSD tools to external AI clients — Claude Desktop, VS Code Copilot, and any MCP-compatible host.
 
 ```bash
-# Start GSD as an MCP server
-gsd --mode mcp
+lsd --mode mcp
 ```
-
-The server registers all tools from the agent session and maps MCP `tools/list` and `tools/call` requests to GSD tool definitions. It runs until the transport closes.
-
-## In-Session Update
-
-`/gsd update` checks npm for a newer version of GSD and installs it without leaving the session.
-
-```bash
-/gsd update
-# Current version: v2.36.0
-# Checking npm registry...
-# Updated to v2.37.0. Restart GSD to use the new version.
-```
-
-If already up to date, it reports so and takes no action.
 
 ## Export
 
@@ -255,4 +239,4 @@ If already up to date, it reports so and takes no action.
 /gsd export --html --all
 ```
 
-Reports are saved to `.gsd/reports/` with a browseable `index.html` that links to all generated snapshots.
+Reports are saved to `.lsd/reports/` with a browseable `index.html`.

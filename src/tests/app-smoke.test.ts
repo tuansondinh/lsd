@@ -2,7 +2,7 @@
  * Unit tests for the gsd CLI package.
  *
  * Tests the glue code that IS the product:
- * - app-paths resolve to ~/.gsd/
+ * - app-paths resolve to ~/.lsd/
  * - loader sets all required env vars
  * - resource-loader syncs bundled resources
  * - wizard loadStoredEnvKeys hydrates env
@@ -32,23 +32,23 @@ function assertExtensionIndexExists(agentDir: string, extensionName: string): vo
 // 1. app-paths
 // ═══════════════════════════════════════════════════════════════════════════
 
-test("app-paths resolve to ~/.gsd/", async () => {
+test("app-paths resolve to ~/.lsd/", async () => {
   const { appRoot, agentDir, sessionsDir, authFilePath } = await import("../app-paths.ts");
   // Use homedir() — process.env.HOME is undefined on Windows (uses USERPROFILE instead)
   const { homedir } = await import("node:os");
   const home = homedir();
 
-  assert.equal(appRoot, join(home, ".gsd"), "appRoot is ~/.gsd/");
-  assert.equal(agentDir, join(home, ".gsd", "agent"), "agentDir is ~/.gsd/agent/");
-  assert.equal(sessionsDir, join(home, ".gsd", "sessions"), "sessionsDir is ~/.gsd/sessions/");
-  assert.equal(authFilePath, join(home, ".gsd", "agent", "auth.json"), "authFilePath is ~/.gsd/agent/auth.json");
+  assert.equal(appRoot, join(home, ".lsd"), "appRoot is ~/.lsd/");
+  assert.equal(agentDir, join(home, ".lsd", "agent"), "agentDir is ~/.lsd/agent/");
+  assert.equal(sessionsDir, join(home, ".lsd", "sessions"), "sessionsDir is ~/.lsd/sessions/");
+  assert.equal(authFilePath, join(home, ".lsd", "agent", "auth.json"), "authFilePath is ~/.lsd/agent/auth.json");
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 2. loader env vars
 // ═══════════════════════════════════════════════════════════════════════════
 
-test("loader sets all 4 GSD_ env vars and PI_PACKAGE_DIR", async (t) => {
+test("loader sets all GSD/LSD env vars and PI_PACKAGE_DIR", async (t) => {
   // Run loader in a subprocess that prints env vars and exits before TUI starts
   const script = `
     import { fileURLToPath } from 'url';
@@ -91,15 +91,17 @@ test("loader sets all 4 GSD_ env vars and PI_PACKAGE_DIR", async (t) => {
 
   // Direct logic verification (no subprocess needed)
   const { agentDir: ad } = await import("../app-paths.ts");
-  assert.ok(ad.endsWith(join(".gsd", "agent")), "agentDir ends with .gsd/agent");
+  assert.ok(ad.endsWith(join(".lsd", "agent")), "agentDir ends with .lsd/agent");
 
   // Verify the env var names are in loader.ts source
   const loaderSrc = readFileSync(join(projectRoot, "src", "loader.ts"), "utf-8");
   assert.ok(loaderSrc.includes("PI_PACKAGE_DIR"), "loader sets PI_PACKAGE_DIR");
-  assert.ok(loaderSrc.includes("GSD_CODING_AGENT_DIR"), "loader sets GSD_CODING_AGENT_DIR");
+  assert.ok(loaderSrc.includes("LSD_CODING_AGENT_DIR"), "loader sets LSD_CODING_AGENT_DIR");
+  assert.ok(loaderSrc.includes("GSD_CODING_AGENT_DIR") || loaderSrc.includes("LSD_CODING_AGENT_DIR"), "loader preserves a coding agent dir env var");
   assert.ok(loaderSrc.includes("process.env.GSD_BIN_PATH = process.argv[1]"), "loader populates GSD_BIN_PATH");
   assert.ok(loaderSrc.includes("process.env.LSD_BIN_PATH = process.argv[1]"), "loader populates LSD_BIN_PATH");
   assert.ok(loaderSrc.includes("GSD_BUNDLED_EXTENSION_PATHS"), "loader sets GSD_BUNDLED_EXTENSION_PATHS");
+  assert.ok(loaderSrc.includes("LSD_BUNDLED_EXTENSION_PATHS"), "loader sets LSD_BUNDLED_EXTENSION_PATHS");
   assert.ok(loaderSrc.includes("applyRtkProcessEnv"), "loader applies RTK environment bootstrap");
   const rtkSrc = readFileSync(join(projectRoot, "src", "rtk.ts"), "utf-8");
   assert.ok(rtkSrc.includes("RTK_TELEMETRY_DISABLED"), "RTK helper disables telemetry for managed sessions");

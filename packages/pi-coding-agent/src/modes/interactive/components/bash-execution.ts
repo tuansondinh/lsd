@@ -3,20 +3,17 @@
  */
 
 import { Container, Loader, Text, type TUI } from "@gsd/pi-tui";
-import stripAnsi from "strip-ansi";
 import {
 	DEFAULT_MAX_BYTES,
 	DEFAULT_MAX_LINES,
 	type TruncationResult,
 	truncateTail,
 } from "../../../core/tools/truncate.js";
+import { renderTerminalLines } from "../../../utils/terminal-serializer.js";
 import { theme, type ThemeColor } from "../theme/theme.js";
 import { DynamicBorder } from "./dynamic-border.js";
 import { editorKey, keyHint } from "./keybinding-hints.js";
 import { truncateToVisualLines } from "./visual-truncate.js";
-
-// Flash interval for RTK badge animation (ms)
-const RTK_FLASH_INTERVAL_MS = 400;
 
 // Preview line limit when not expanded (matches tool execution behavior)
 const PREVIEW_LINES = 20;
@@ -26,6 +23,7 @@ type ToolOutputMode = "minimal" | "normal";
 export class BashExecutionComponent extends Container {
 	private command: string;
 	private outputLines: string[] = [];
+	private rawOutput = "";
 	private status: "running" | "complete" | "cancelled" | "error" = "running";
 	private exitCode: number | undefined = undefined;
 	private loader: Loader;
@@ -37,10 +35,7 @@ export class BashExecutionComponent extends Container {
 	private ui: TUI;
 	private colorKey: ThemeColor;
 	private sandboxed: boolean;
-	private rtkActive: boolean;
-	private rtkFlashOn = true;
-	private rtkFlashTimer: NodeJS.Timeout | null = null;
-	// Dedicated header node — updated in-place to avoid full container rebuild on flash tick
+	// Dedicated header node
 	private headerText: Text;
 
 	constructor(
@@ -48,14 +43,13 @@ export class BashExecutionComponent extends Container {
 		ui: TUI,
 		excludeFromContext = false,
 		renderMode: ToolOutputMode = "normal",
-		rtkActive = false,
+		_rtkActive = false,
 		sandboxed = false,
 	) {
 		super();
 		this.command = command;
 		this.ui = ui;
 		this.renderMode = renderMode;
-		this.rtkActive = rtkActive;
 		this.sandboxed = sandboxed;
 
 		// Use dim border for excluded-from-context commands (!! prefix)
@@ -69,7 +63,7 @@ export class BashExecutionComponent extends Container {
 		this.contentContainer = new Container();
 		this.addChild(this.contentContainer);
 
-		// Dedicated header Text node — updated directly for flash without full rebuild
+		// Header Text node
 		this.headerText = new Text(this.buildHeaderText(), 1, 0);
 		this.contentContainer.addChild(this.headerText);
 
@@ -84,29 +78,13 @@ export class BashExecutionComponent extends Container {
 
 		// Bottom border
 		this.addChild(new DynamicBorder(borderColor));
-
-		// Start RTK flash animation if active
-		if (this.rtkActive) {
-			this.rtkFlashTimer = setInterval(() => {
-				this.rtkFlashOn = !this.rtkFlashOn;
-				// Only update the header node — no full container rebuild
-				this.headerText.setText(this.buildHeaderText());
-				this.ui.requestRender();
-			}, RTK_FLASH_INTERVAL_MS);
-		}
 	}
 
-	/** Build the header line text including the RTK badge when active. */
+	/** Build the header line text. */
 	private buildHeaderText(): string {
 		let text = theme.fg(this.colorKey, theme.bold(`$ ${this.command}`));
 		if (this.sandboxed) {
 			text += `  ${theme.fg("success", "[sandboxed]")}`;
-		}
-		if (this.rtkActive) {
-			const badge = this.rtkFlashOn
-				? theme.fg("accent", "$ RTK")
-				: theme.fg("dim", "$ RTK");
-			text = `${text}  ${badge}`;
 		}
 		return text;
 	}
@@ -116,10 +94,6 @@ export class BashExecutionComponent extends Container {
 	 * from the tree before setComplete() has been called (e.g. on clear/cancel).
 	 */
 	dispose(): void {
-		if (this.rtkFlashTimer) {
-			clearInterval(this.rtkFlashTimer);
-			this.rtkFlashTimer = null;
-		}
 		this.loader.dispose();
 	}
 
@@ -144,20 +118,9 @@ export class BashExecutionComponent extends Container {
 	}
 
 	appendOutput(chunk: string): void {
-		// Strip ANSI codes and normalize line endings
-		// Note: binary data is already sanitized in tui-renderer.ts executeBashCommand
-		const clean = stripAnsi(chunk).replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-
-		// Append to output lines
-		const newLines = clean.split("\n");
-		if (this.outputLines.length > 0 && newLines.length > 0) {
-			// Append first chunk to last line (incomplete line continuation)
-			this.outputLines[this.outputLines.length - 1] += newLines[0];
-			this.outputLines.push(...newLines.slice(1));
-		} else {
-			this.outputLines.push(...newLines);
-		}
-
+		// Strip ANSI codes and preserve carriage-return semantics for display.
+		this.rawOutput += chunk;
+		this.outputLines = renderTerminalLines(this.rawOutput);
 		this.updateDisplay();
 	}
 
@@ -182,15 +145,6 @@ export class BashExecutionComponent extends Container {
 
 		// Stop loader
 		this.loader.stop();
-
-		// Stop RTK flash — settle to steady dim state
-		if (this.rtkFlashTimer) {
-			clearInterval(this.rtkFlashTimer);
-			this.rtkFlashTimer = null;
-			this.rtkFlashOn = false;
-			// Final header update to ensure dim badge is shown
-			this.headerText.setText(this.buildHeaderText());
-		}
 
 		this.updateDisplay();
 	}
@@ -223,7 +177,7 @@ export class BashExecutionComponent extends Container {
 				const displayText = availableLines.map((line) => theme.fg("muted", line)).join("\n");
 				this.contentContainer.addChild(new Text(`\n${displayText}`, 1, 0));
 			} else if (this.renderMode === "minimal") {
-				this.contentContainer.addChild(new Text(`\n${theme.fg("muted", `(${keyHint("expandTools", "to expand")})`)}`, 1, 0));
+				// collapsed — no inline hint needed (shown in editor bottom border)
 			} else {
 				// Use shared visual truncation utility
 				const styledOutput = previewLogicalLines.map((line) => theme.fg("muted", line)).join("\n");
@@ -243,14 +197,20 @@ export class BashExecutionComponent extends Container {
 		} else {
 			const statusParts: string[] = [];
 
-			// Show how many lines are hidden (collapsed preview)
-			if (hiddenLineCount > 0) {
+			// Show expand/collapse hint whenever there is output
+			if (availableLines.length > 0) {
 				if (this.expanded) {
 					statusParts.push(`(${keyHint("expandTools", "to collapse")})`);
-				} else {
+				} else if (this.renderMode === "minimal") {
+					statusParts.push(`(${keyHint("expandTools", "to expand")})`);
+				} else if (hiddenLineCount > 0) {
+					// Normal mode: show line count + hint
 					statusParts.push(
 						`${theme.fg("muted", `... ${hiddenLineCount} more lines`)} (${keyHint("expandTools", "to expand")})`,
 					);
+				} else {
+					// Normal mode: all preview lines visible, still offer expand
+					statusParts.push(`(${keyHint("expandTools", "to expand")})`);
 				}
 			}
 

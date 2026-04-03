@@ -35,6 +35,7 @@ export interface SettingsConfig {
 	enableSkillCommands: boolean;
 	codexRotate: boolean;
 	cacheTimer: boolean;
+	pinLastPrompt: boolean;
 	steeringMode: "all" | "one-at-a-time";
 	followUpMode: "all" | "one-at-a-time";
 	transport: Transport;
@@ -79,6 +80,7 @@ export interface SettingsCallbacks {
 	onEnableSkillCommandsChange: (enabled: boolean) => void;
 	onCodexRotateChange: (enabled: boolean) => void;
 	onCacheTimerChange: (enabled: boolean) => void;
+	onPinLastPromptChange: (enabled: boolean) => void;
 	onSteeringModeChange: (mode: "all" | "one-at-a-time") => void;
 	onFollowUpModeChange: (mode: "all" | "one-at-a-time") => void;
 	onTransportChange: (transport: Transport) => void;
@@ -427,6 +429,16 @@ export class SettingsSelectorComponent extends Container {
 			values: ["true", "false"],
 		});
 
+		// Pin last prompt toggle (insert after cache-timer)
+		const cacheTimerIdx = items.findIndex((item) => item.id === "cache-timer");
+		items.splice(cacheTimerIdx + 1, 0, {
+			id: "pin-last-prompt",
+			label: "Pin last prompt",
+			description: "Show your last sent message above the editor so you remember the topic",
+			currentValue: config.pinLastPrompt ? "true" : "false",
+			values: ["true", "false"],
+		});
+
 		// RTK toggle (insert after cache-timer)
 		const cacheTimerIndex = items.findIndex((item) => item.id === "cache-timer");
 		items.splice(cacheTimerIndex + 1, 0, {
@@ -548,6 +560,9 @@ export class SettingsSelectorComponent extends Container {
 						break;
 					case "cache-timer":
 						callbacks.onCacheTimerChange(newValue === "true");
+						break;
+					case "pin-last-prompt":
+						callbacks.onPinLastPromptChange(newValue === "true");
 						break;
 					case "rtk":
 						callbacks.onRtkChange(newValue === "true");
