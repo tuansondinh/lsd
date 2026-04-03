@@ -77,10 +77,11 @@ export function extractErrorFromResponse(response: any): string | null {
 /**
  * Get the AuthStorage instance for marking usage limits
  */
-function getAuthStorage() {
-	// Dynamic import to avoid top-level dependencies
-	const { AuthStorage } = require("@gsd/pi-coding-agent/dist/core/auth-storage.js");
-	return new AuthStorage();
+async function getAuthStorage(): Promise<import("@gsd/pi-coding-agent").AuthStorage> {
+	// Dynamic import to avoid top-level dependencies (require not available in ESM context)
+	const specifier = "@gsd/pi-coding-agent/dist/core/auth-storage.js";
+	const mod: any = await import(/* webpackIgnore: true */ specifier);
+	return new mod.AuthStorage();
 }
 
 /**
@@ -89,13 +90,13 @@ function getAuthStorage() {
  * This should be called when we detect a quota/rate limit error in the agent response.
  * It will back off the credential and LSD will automatically rotate to the next one.
  */
-export function markCredentialBackoff(
+export async function markCredentialBackoff(
 	provider: string,
 	sessionId: string,
 	errorType: CodexErrorType,
-): boolean {
+): Promise<boolean> {
 	try {
-		const authStorage = getAuthStorage();
+		const authStorage = await getAuthStorage();
 
 		// Map CodexErrorType to AuthStorage error type
 		const authErrorType =

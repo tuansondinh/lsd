@@ -33,6 +33,7 @@ import { processStreamChunk, type StreamState } from "@gsd/native";
 import { getShellConfig, getShellEnv, killProcessTree, sanitizeCommand } from "../utils/shell.js";
 import type { BashOperations } from "./tools/bash.js";
 import { DEFAULT_MAX_BYTES, truncateTail } from "./tools/truncate.js";
+import type { SandboxManager } from "./sandbox/index.js";
 
 // ============================================================================
 // Types
@@ -43,6 +44,8 @@ export interface BashExecutorOptions {
 	onChunk?: (chunk: string) => void;
 	/** AbortSignal for cancellation */
 	signal?: AbortSignal;
+	/** Optional sandbox manager for wrapped execution */
+	sandboxManager?: SandboxManager;
 }
 
 export interface BashResult {
@@ -56,6 +59,19 @@ export interface BashResult {
 	truncated: boolean;
 	/** Path to temp file containing full output (if output exceeded truncation threshold) */
 	fullOutputPath?: string;
+	/** Whether the command ran inside the OS sandbox */
+	sandboxed?: boolean;
+}
+
+function explainSandboxFailure(output: string, exitCode: number | undefined, sandboxed: boolean | undefined): string {
+	if (!sandboxed || exitCode === undefined || exitCode === 0) return output;
+	if (!/operation not permitted/i.test(output)) return output;
+	if (/sandbox blocked this operation/i.test(output)) return output;
+	const note =
+		"\n\n[sandbox blocked this operation]\n" +
+		"The command ran inside the OS sandbox and tried to access a restricted path or capability. " +
+		"Use /sandbox to inspect the active policy and allowed paths.";
+	return output + note;
 }
 
 // ============================================================================
@@ -87,130 +103,146 @@ export function executeBash(command: string, options?: BashExecutorOptions & { l
 		} else {
 			({ shell, args } = getShellConfig());
 		}
-		// On Windows, detached: true sets CREATE_NEW_PROCESS_GROUP which can
-		// cause EINVAL in VSCode/ConPTY terminal contexts.  The bg-shell
-		// extension already guards this (process-manager.ts); align here.
-		// Process-tree cleanup uses taskkill /F /T on Windows regardless.
-		const child: ChildProcess = spawn(shell, [...args, sanitizeCommand(command)], {
-			detached: process.platform !== "win32",
-			env: getShellEnv(),
-			stdio: ["ignore", "pipe", "pipe"],
-		});
 
-		// Track sanitized output for truncation
-		const outputChunks: string[] = [];
-		let outputBytes = 0;
-		const maxOutputBytes = DEFAULT_MAX_BYTES * 2;
-
-		// Temp file for large output
-		let tempFilePath: string | undefined;
-		let tempFileStream: WriteStream | undefined;
-		let totalBytes = 0;
-
-		// Handle abort signal
-		const abortHandler = () => {
-			if (child.pid) {
-				killProcessTree(child.pid);
-			}
-		};
-
-		if (options?.signal) {
-			if (options.signal.aborted) {
-				// Already aborted, don't even start
-				child.kill();
-				resolve({
-					output: "",
-					exitCode: undefined,
-					cancelled: true,
-					truncated: false,
-				});
-				return;
-			}
-			options.signal.addEventListener("abort", abortHandler, { once: true });
-		}
-
-		let streamState: StreamState | undefined;
-
-		const handleData = (data: Buffer) => {
-			totalBytes += data.length;
-
-			// Single-pass native processing: UTF-8 decode + ANSI strip + binary sanitize + CR removal
-			const result = processStreamChunk(data, streamState);
-			streamState = result.state;
-			const text = result.text;
-
-			// Start writing to temp file if exceeds threshold
-			if (totalBytes > DEFAULT_MAX_BYTES && !tempFilePath) {
-				registerTempCleanup();
-				const id = randomBytes(8).toString("hex");
-				tempFilePath = join(tmpdir(), `pi-bash-${id}.log`);
-				bashTempFiles.add(tempFilePath);
-				tempFileStream = createWriteStream(tempFilePath);
-				// Write already-buffered chunks to temp file
-				for (const chunk of outputChunks) {
-					tempFileStream.write(chunk);
-				}
-			}
-
-			if (tempFileStream) {
-				tempFileStream.write(text);
-			}
-
-			// Keep rolling buffer of sanitized text
-			outputChunks.push(text);
-			outputBytes += text.length;
-			while (outputBytes > maxOutputBytes && outputChunks.length > 1) {
-				const removed = outputChunks.shift()!;
-				outputBytes -= removed.length;
-			}
-
-			// Stream to callback if provided
-			if (options?.onChunk) {
-				options.onChunk(text);
-			}
-		};
-
-		child.stdout?.on("data", handleData);
-		child.stderr?.on("data", handleData);
-
-		child.on("close", (code) => {
-			// Clean up abort listener
-			if (options?.signal) {
-				options.signal.removeEventListener("abort", abortHandler);
-			}
-
-			if (tempFileStream) {
-				tempFileStream.end();
-			}
-
-			// Combine buffered chunks for truncation (already sanitized)
-			const fullOutput = outputChunks.join("");
-			const truncationResult = truncateTail(fullOutput);
-
-			// code === null means killed (cancelled)
-			const cancelled = code === null;
-
-			resolve({
-				output: truncationResult.truncated ? truncationResult.content : fullOutput,
-				exitCode: cancelled ? undefined : code,
-				cancelled,
-				truncated: truncationResult.truncated,
-				fullOutputPath: tempFilePath,
+		const startChild = async () => {
+			const executionPlan = options?.sandboxManager
+				? await options.sandboxManager.getExecutionPlan(sanitizeCommand(command), {
+					shell,
+					shellArgs: args,
+					cwd: process.cwd(),
+				})
+				: { program: shell, args: [...args, sanitizeCommand(command)], sandboxed: false, policy: "none" as const };
+			// On Windows, detached: true sets CREATE_NEW_PROCESS_GROUP which can
+			// cause EINVAL in VSCode/ConPTY terminal contexts.  The bg-shell
+			// extension already guards this (process-manager.ts); align here.
+			// Process-tree cleanup uses taskkill /F /T on Windows regardless.
+			const child: ChildProcess = spawn(executionPlan.program, executionPlan.args, {
+				detached: process.platform !== "win32",
+				env: getShellEnv(),
+				stdio: ["ignore", "pipe", "pipe"],
 			});
-		});
 
-		child.on("error", (err) => {
-			// Clean up abort listener
+			// Track sanitized output for truncation
+			const outputChunks: string[] = [];
+			let outputBytes = 0;
+			const maxOutputBytes = DEFAULT_MAX_BYTES * 2;
+
+			// Temp file for large output
+			let tempFilePath: string | undefined;
+			let tempFileStream: WriteStream | undefined;
+			let totalBytes = 0;
+
+			// Handle abort signal
+			const abortHandler = () => {
+				if (child.pid) {
+					killProcessTree(child.pid);
+				}
+			};
+
 			if (options?.signal) {
-				options.signal.removeEventListener("abort", abortHandler);
+				if (options.signal.aborted) {
+					// Already aborted, don't even start
+					child.kill();
+					resolve({
+						output: "",
+						exitCode: undefined,
+						cancelled: true,
+						truncated: false,
+						sandboxed: executionPlan.sandboxed,
+					});
+					return;
+				}
+				options.signal.addEventListener("abort", abortHandler, { once: true });
 			}
 
-			if (tempFileStream) {
-				tempFileStream.end();
-			}
+			let streamState: StreamState | undefined;
 
-			reject(err);
-		});
+			const handleData = (data: Buffer) => {
+				totalBytes += data.length;
+
+				// Single-pass native processing: UTF-8 decode + ANSI strip + binary sanitize + CR removal
+				const result = processStreamChunk(data, streamState);
+				streamState = result.state;
+				const text = result.text;
+
+				// Start writing to temp file if exceeds threshold
+				if (totalBytes > DEFAULT_MAX_BYTES && !tempFilePath) {
+					registerTempCleanup();
+					const id = randomBytes(8).toString("hex");
+					tempFilePath = join(tmpdir(), `pi-bash-${id}.log`);
+					bashTempFiles.add(tempFilePath);
+					tempFileStream = createWriteStream(tempFilePath);
+					// Write already-buffered chunks to temp file
+					for (const chunk of outputChunks) {
+						tempFileStream.write(chunk);
+					}
+				}
+
+				if (tempFileStream) {
+					tempFileStream.write(text);
+				}
+
+				// Keep rolling buffer of sanitized text
+				outputChunks.push(text);
+				outputBytes += text.length;
+				while (outputBytes > maxOutputBytes && outputChunks.length > 1) {
+					const removed = outputChunks.shift()!;
+					outputBytes -= removed.length;
+				}
+
+				// Stream to callback if provided
+				if (options?.onChunk) {
+					options.onChunk(text);
+				}
+			};
+
+			child.stdout?.on("data", handleData);
+			child.stderr?.on("data", handleData);
+
+			child.on("close", (code) => {
+				// Clean up abort listener
+				if (options?.signal) {
+					options.signal.removeEventListener("abort", abortHandler);
+				}
+
+				if (tempFileStream) {
+					tempFileStream.end();
+				}
+
+				// Combine buffered chunks for truncation (already sanitized)
+				const fullOutput = outputChunks.join("");
+				const truncationResult = truncateTail(fullOutput);
+
+				// code === null means killed (cancelled)
+				const cancelled = code === null;
+				const exitCode = cancelled ? undefined : code;
+				const finalOutput = truncationResult.truncated ? truncationResult.content : fullOutput;
+
+				resolve({
+					output: explainSandboxFailure(finalOutput, exitCode, executionPlan.sandboxed),
+					exitCode,
+					cancelled,
+					truncated: truncationResult.truncated,
+					fullOutputPath: tempFilePath,
+					sandboxed: executionPlan.sandboxed,
+				});
+			});
+
+			child.on("error", (err) => {
+				// Clean up abort listener
+				if (options?.signal) {
+					options.signal.removeEventListener("abort", abortHandler);
+				}
+
+				if (tempFileStream) {
+					tempFileStream.end();
+				}
+
+				reject(err);
+			});
+		};
+
+		startChild().catch(reject);
 	});
 }
 
@@ -285,13 +317,16 @@ export async function executeBashWithOperations(
 		const fullOutput = outputChunks.join("");
 		const truncationResult = truncateTail(fullOutput);
 		const cancelled = options?.signal?.aborted ?? false;
+		const exitCode = cancelled ? undefined : (result.exitCode ?? undefined);
+		const finalOutput = truncationResult.truncated ? truncationResult.content : fullOutput;
 
 		return {
-			output: truncationResult.truncated ? truncationResult.content : fullOutput,
-			exitCode: cancelled ? undefined : (result.exitCode ?? undefined),
+			output: explainSandboxFailure(finalOutput, exitCode, result.sandboxed),
+			exitCode,
 			cancelled,
 			truncated: truncationResult.truncated,
 			fullOutputPath: tempFilePath,
+			sandboxed: result.sandboxed,
 		};
 	} catch (err) {
 		if (tempFileStream) {
@@ -308,6 +343,7 @@ export async function executeBashWithOperations(
 				cancelled: true,
 				truncated: truncationResult.truncated,
 				fullOutputPath: tempFilePath,
+				sandboxed: undefined,
 			};
 		}
 

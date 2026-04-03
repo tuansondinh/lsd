@@ -58,6 +58,8 @@ export interface SettingsConfig {
 	toolOutputMode: "minimal" | "normal";
 	rtk: boolean;
 	editorScheme: "auto" | "vscode" | "cursor" | "zed" | "jetbrains" | "sublime" | "file";
+	sandboxEnabled?: boolean;
+	sandboxNetworkMode?: "allow" | "ask" | "deny";
 	classifierModelSubmenu?: (currentValue: string, done: (selectedValue?: string) => void) => Component;
 	budgetSubagentModelSubmenu?: (currentValue: string, done: (selectedValue?: string) => void) => Component;
 	planModeReasoningModelSubmenu?: (currentValue: string, done: (selectedValue?: string) => void) => Component;
@@ -69,6 +71,8 @@ export interface SettingsCallbacks {
 	onClassifierModelChange: (modelRef: string) => void;
 	onBudgetSubagentModelChange: (modelRef: string) => void;
 	onPlanModeReasoningModelChange: (modelRef: string) => void;
+	onSandboxEnabledChange?: (enabled: boolean) => void;
+	onSandboxNetworkModeChange?: (mode: "allow" | "ask" | "deny") => void;
 	onShowImagesChange: (enabled: boolean) => void;
 	onAutoResizeImagesChange: (enabled: boolean) => void;
 	onBlockImagesChange: (blocked: boolean) => void;
@@ -244,6 +248,20 @@ export class SettingsSelectorComponent extends Container {
 				description: "Minimal hides collapsed previews until Ctrl+O. Normal shows collapsed previews.",
 				currentValue: config.toolOutputMode,
 				values: ["minimal", "normal"],
+			},
+			{
+				id: "sandbox-enabled",
+				label: "Sandbox",
+				description: "Enable OS-level sandboxing for bash execution on supported platforms",
+				currentValue: (config.sandboxEnabled ?? true) ? "true" : "false",
+				values: ["true", "false"],
+			},
+			{
+				id: "sandbox-network",
+				label: "Sandbox network",
+				description: "Allow, ask, or deny network access for sandboxed bash commands",
+				currentValue: config.sandboxNetworkMode ?? "ask",
+				values: ["ask", "allow", "deny"],
 			},
 			{
 				id: "collapse-changelog",
@@ -548,6 +566,12 @@ export class SettingsSelectorComponent extends Container {
 						break;
 					case "tool-output-mode":
 						callbacks.onToolOutputModeChange(newValue as "minimal" | "normal");
+						break;
+					case "sandbox-enabled":
+						callbacks.onSandboxEnabledChange?.(newValue === "true");
+						break;
+					case "sandbox-network":
+						callbacks.onSandboxNetworkModeChange?.(newValue as "allow" | "ask" | "deny");
 						break;
 					case "collapse-changelog":
 						callbacks.onCollapseChangelogChange(newValue === "true");

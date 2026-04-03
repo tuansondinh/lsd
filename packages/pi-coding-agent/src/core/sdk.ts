@@ -14,6 +14,7 @@ import { DefaultResourceLoader } from "./resource-loader.js";
 import { SessionManager } from "./session-manager.js";
 import { SettingsManager } from "./settings-manager.js";
 import { time } from "./timings.js";
+import { SandboxManager } from "./sandbox/index.js";
 import {
 	allTools,
 	bashTool,
@@ -422,6 +423,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		modelRegistry,
 		initialActiveToolNames,
 		extensionRunnerRef,
+		sandboxManager: new SandboxManager(settingsManager),
 	});
 	const extensionsResult = resourceLoader.getExtensions();
 

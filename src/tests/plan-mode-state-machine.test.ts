@@ -142,6 +142,9 @@ test('plan mode pending → approved switches to configured reasoning model and 
   assert.equal(testing.getState().active, false)
   assert.equal(testing.getState().approvalStatus, 'approved')
   assert.equal(testing.getState().targetPermissionMode, 'auto')
+  assert.match(pi.sentMessages.at(-1) ?? '', /Plan approved\. Exit plan mode and start implementation immediately\./)
+  assert.match(pi.sentMessages.at(-1) ?? '', /Original task: Ship phase 4/)
+  assert.match(pi.sentMessages.at(-1) ?? '', /\.lsd\/plan\/PLAN-3\.md/)
 })
 
 test('plan mode pending → revising → pending → approved keeps preplan model and switches to bypass mode', async (t) => {
@@ -195,6 +198,7 @@ test('plan mode pending → revising → pending → approved keeps preplan mode
   assert.equal(getPermissionMode(), 'danger-full-access')
   assert.equal(testing.getState().approvalStatus, 'approved')
   assert.equal(testing.getState().targetPermissionMode, 'danger-full-access')
+  assert.match(pi.sentMessages.at(-1) ?? '', /Plan approved\. Exit plan mode and start implementation immediately\./)
 })
 
 test('plan mode pending → cancelled restores preplan model and original permission mode', async (t) => {
@@ -268,4 +272,5 @@ test('plan mode non-interactive plan write auto-approves with default auto mode 
   assert.deepEqual(pi.modelSwitches, [])
   assert.equal(getPermissionMode(), 'auto')
   assert.equal(testing.getState().approvalStatus, 'approved')
+  assert.match(pi.sentMessages.at(-1) ?? '', /Plan approved\. Exit plan mode and start implementation immediately\./)
 })

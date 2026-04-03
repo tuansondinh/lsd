@@ -9,9 +9,8 @@ import type { ExtensionAPI } from "@gsd/pi-coding-agent";
 import { getAllAccounts, updateAccount, getAccountsNeedingRefresh } from "./accounts.js";
 import { syncAccountsToAuth } from "./sync.js";
 import { registerCodexCommand } from "./commands.js";
-import { classifyError, markCredentialBackoff, shouldBackoffCredential } from "./quota.js";
-import { REFRESH_INTERVAL_MS, PROVIDER_NAME } from "./config.js";
-import { logCodexRotateError, logCodexRotateSwitch } from "./logger.js";
+import { REFRESH_INTERVAL_MS } from "./config.js";
+import { logCodexRotateError } from "./logger.js";
 
 let refreshTimer: NodeJS.Timeout | null = null;
 
@@ -126,7 +125,7 @@ export default function CodexRotateExtension(pi: ExtensionAPI) {
 
 			const errorType = classifyError(errorMessage);
 			const sessionId = ctx.sessionManager.getSessionId();
-			const anotherAvailable = markCredentialBackoff(PROVIDER_NAME, sessionId, errorType);
+			const anotherAvailable = await markCredentialBackoff(PROVIDER_NAME, sessionId, errorType);
 
 			if (anotherAvailable) {
 				logCodexRotateSwitch(`Auto-switched account after ${errorType} error`);

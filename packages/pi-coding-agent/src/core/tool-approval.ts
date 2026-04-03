@@ -17,9 +17,18 @@ export interface ClassifierRequest {
 
 type FileChangeApprovalHandler = (request: FileChangeApprovalRequest) => Promise<boolean>;
 type ClassifierHandler = (request: ClassifierRequest) => Promise<boolean>;
+export type NetworkApprovalDecision = "allow-once" | "allow-session" | "deny";
+
+export interface NetworkApprovalRequest {
+	command: string;
+	message: string;
+}
+
+type NetworkApprovalHandler = (request: NetworkApprovalRequest) => Promise<NetworkApprovalDecision>;
 
 let fileChangeApprovalHandler: FileChangeApprovalHandler | null = null;
 let classifierHandler: ClassifierHandler | null = null;
+let networkApprovalHandler: NetworkApprovalHandler | null = null;
 
 let subagentApprovalRouter: ((proxyId: string, approved: boolean) => boolean) | null = null;
 let subagentClassifierRouter: ((proxyId: string, approved: boolean) => boolean) | null = null;
@@ -60,6 +69,10 @@ export function setFileChangeApprovalHandler(handler: FileChangeApprovalHandler 
 
 export function setClassifierHandler(handler: ClassifierHandler | null): void {
 	classifierHandler = handler;
+}
+
+export function setNetworkApprovalHandler(handler: NetworkApprovalHandler | null): void {
+	networkApprovalHandler = handler;
 }
 
 export function registerStdioApprovalHandler(): void {
@@ -131,6 +144,13 @@ export async function requestFileChangeApproval(request: FileChangeApprovalReque
 	if (!approved) {
 		throw new Error(`User declined ${request.action} for ${request.path}.`);
 	}
+}
+
+export async function requestNetworkApproval(request: NetworkApprovalRequest): Promise<NetworkApprovalDecision> {
+	if (!networkApprovalHandler) {
+		return "deny";
+	}
+	return await networkApprovalHandler(request);
 }
 
 export async function requestClassifierDecision(request: ClassifierRequest): Promise<boolean> {

@@ -36,18 +36,27 @@ export class BashExecutionComponent extends Container {
 	private contentContainer: Container;
 	private ui: TUI;
 	private colorKey: ThemeColor;
+	private sandboxed: boolean;
 	private rtkActive: boolean;
 	private rtkFlashOn = true;
 	private rtkFlashTimer: NodeJS.Timeout | null = null;
 	// Dedicated header node — updated in-place to avoid full container rebuild on flash tick
 	private headerText: Text;
 
-	constructor(command: string, ui: TUI, excludeFromContext = false, renderMode: ToolOutputMode = "normal", rtkActive = false) {
+	constructor(
+		command: string,
+		ui: TUI,
+		excludeFromContext = false,
+		renderMode: ToolOutputMode = "normal",
+		rtkActive = false,
+		sandboxed = false,
+	) {
 		super();
 		this.command = command;
 		this.ui = ui;
 		this.renderMode = renderMode;
 		this.rtkActive = rtkActive;
+		this.sandboxed = sandboxed;
 
 		// Use dim border for excluded-from-context commands (!! prefix)
 		this.colorKey = (excludeFromContext ? "dim" : "bashMode") as ThemeColor;
@@ -93,6 +102,9 @@ export class BashExecutionComponent extends Container {
 	/** Build the header line text including the RTK badge when active. */
 	private buildHeaderText(): string {
 		let text = theme.fg(this.colorKey, theme.bold(`$ ${this.command}`));
+		if (this.sandboxed) {
+			text += `  ${theme.fg("success", "[sandboxed]")}`;
+		}
 		if (this.rtkActive) {
 			const badge = this.rtkFlashOn
 				? theme.fg("accent", "$ RTK")
@@ -157,6 +169,7 @@ export class BashExecutionComponent extends Container {
 		cancelled: boolean,
 		truncationResult?: TruncationResult,
 		fullOutputPath?: string,
+		sandboxed?: boolean,
 	): void {
 		this.exitCode = exitCode;
 		this.status = cancelled
@@ -166,6 +179,9 @@ export class BashExecutionComponent extends Container {
 				: "complete";
 		this.truncationResult = truncationResult;
 		this.fullOutputPath = fullOutputPath;
+		if (sandboxed !== undefined) {
+			this.sandboxed = sandboxed;
+		}
 
 		// Stop loader
 		this.loader.stop();
@@ -245,6 +261,14 @@ export class BashExecutionComponent extends Container {
 				statusParts.push(theme.fg("warning", "(cancelled)"));
 			} else if (this.status === "error") {
 				statusParts.push(theme.fg("error", `(exit ${this.exitCode})`));
+				if (this.sandboxed && /operation not permitted/i.test(fullOutput)) {
+					statusParts.push(
+						theme.fg(
+							"warning",
+							"Sandbox blocked this operation. Run /sandbox to inspect the active policy and allowed paths.",
+						),
+					);
+				}
 			}
 
 			// Add truncation warning (context truncation, not preview truncation)

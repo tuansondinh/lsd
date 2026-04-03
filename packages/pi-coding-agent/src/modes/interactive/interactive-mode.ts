@@ -65,6 +65,7 @@ import {
 	setPermissionMode,
 	setFileChangeApprovalHandler,
 	setClassifierHandler,
+	setNetworkApprovalHandler,
 	type PermissionMode,
 } from "../../core/tool-approval.js";
 import type { TruncationResult } from "../../core/tools/truncate.js";
@@ -306,6 +307,7 @@ export class InteractiveMode {
 		this.footer = new FooterComponent(session, this.footerDataProvider);
 		this.footer.setAutoCompactEnabled(session.autoCompactionEnabled);
 		this.footer.setPermissionMode(getPermissionMode());
+		this.footerDataProvider.setSandboxStatus("disabled");
 
 		// Load hide thinking block setting
 		this.hideThinkingBlock = this.settingsManager.getHideThinkingBlock();
@@ -538,6 +540,7 @@ export class InteractiveMode {
 
 		// Initialize available provider count for footer display
 		await this.updateAvailableProviderCount();
+		await this.refreshSandboxFooterStatus();
 	}
 
 	/**
@@ -576,6 +579,7 @@ export class InteractiveMode {
 
 		// Show startup warnings
 		const { migratedProviders, modelFallbackMessage, initialMessage, initialImages, initialMessages } = this.options;
+		await this.maybeShowSandboxStartupWarning();
 
 		if (migratedProviders && migratedProviders.length > 0) {
 			this.showWarning(`Migrated credentials to auth.json: ${migratedProviders.join(", ")}`);
@@ -1682,6 +1686,20 @@ export class InteractiveMode {
 			}
 			return approved;
 		});
+
+		setNetworkApprovalHandler(async (request) => {
+			this.loadingAnimation?.setMessage("Waiting for network approval…");
+			const result = await this.showExtensionSelector(
+				`${request.message}\n${request.command}`,
+				["Allow once", "Allow for session", "Deny"],
+			);
+			if (this.loadingAnimation) {
+				this.loadingAnimation.setMessage(this.defaultWorkingMessage);
+			}
+			if (result === "Allow once") return "allow-once";
+			if (result === "Allow for session") return "allow-session";
+			return "deny";
+		});
 	}
 
 	private async _showApprovalConfirm(title: string): Promise<boolean> {
@@ -2090,6 +2108,7 @@ export class InteractiveMode {
 			showProviderManager: () => this.showProviderManager(),
 			runSetupWizard: () => this.runSetupWizard(),
 			cyclePermissionMode: () => this.cyclePermissionMode(),
+			handleSandboxCommand: (arg) => this.handleSandboxCommand(arg),
 			showOAuthSelector: (mode) => this.showOAuthSelector(mode),
 			showSessionSelector: () => this.showSessionSelector(),
 			handleClearCommand: () => this.handleClearCommand(),
@@ -2151,6 +2170,89 @@ export class InteractiveMode {
 		this.ui.requestRender();
 	}
 
+	private async refreshSandboxFooterStatus(): Promise<void> {
+		const sandboxManager = this.session.sandboxManager;
+		if (!sandboxManager) {
+			this.footerDataProvider.setSandboxStatus("disabled");
+			return;
+		}
+		const config = sandboxManager.getSandboxConfig();
+		if (!config.enabled) {
+			this.footerDataProvider.setSandboxStatus("disabled");
+			return;
+		}
+		const availability = await sandboxManager.getAvailability();
+		this.footerDataProvider.setSandboxStatus(availability.available ? "active" : "unavailable");
+		this.ui.requestRender();
+	}
+
+	private async maybeShowSandboxStartupWarning(): Promise<void> {
+		const sandboxManager = this.session.sandboxManager;
+		if (!sandboxManager) return;
+		const config = sandboxManager.getSandboxConfig();
+		if (!config.enabled) return;
+		const availability = await sandboxManager.getAvailability();
+		if (availability.available) return;
+		const parts = [`Sandbox unavailable: ${availability.reason ?? "unknown reason"}`];
+		if (availability.installHint) parts.push(availability.installHint);
+		this.showWarning(parts.join(" "));
+	}
+
+	private async handleSandboxCommand(arg?: string): Promise<void> {
+		const sandboxManager = this.session.sandboxManager;
+		if (!sandboxManager) {
+			this.showWarning("Sandbox manager is not available in this session.");
+			return;
+		}
+		const normalized = arg?.trim().toLowerCase();
+		if (normalized === "on" || normalized === "enable") {
+			this.settingsManager.setSandboxEnabled(true);
+			await this.refreshSandboxFooterStatus();
+			this.showStatus("Sandbox: enabled");
+			return;
+		}
+		if (normalized === "off" || normalized === "disable") {
+			this.settingsManager.setSandboxEnabled(false);
+			await this.refreshSandboxFooterStatus();
+			this.showStatus("Sandbox: disabled");
+			return;
+		}
+		if (normalized === "network-on" || normalized === "network-allow") {
+			this.settingsManager.setSandboxNetworkMode("allow");
+			this.showStatus("Sandbox network: allow");
+			return;
+		}
+		if (normalized === "network-off" || normalized === "network-deny") {
+			this.settingsManager.setSandboxNetworkMode("deny");
+			this.showStatus("Sandbox network: deny");
+			return;
+		}
+		if (normalized === "network-ask") {
+			this.settingsManager.setSandboxNetworkMode("ask");
+			this.showStatus("Sandbox network: ask");
+			return;
+		}
+		const availability = await sandboxManager.getAvailability();
+		const config = sandboxManager.getSandboxConfig();
+		const policy = sandboxManager.getSandboxPolicy();
+		const lines = [
+			`${theme.bold("Sandbox")}`,
+			`${theme.fg("dim", "Enabled:")} ${config.enabled ? "yes" : "no"}`,
+			`${theme.fg("dim", "Policy:")} ${policy}`,
+			`${theme.fg("dim", "Available:")} ${availability.available ? "yes" : "no"}`,
+			`${theme.fg("dim", "Active for bash:")} ${config.enabled && availability.available && policy !== "none" ? "yes" : "no"}`,
+			`${theme.fg("dim", "Network mode:")} ${config.networkMode}`,
+			`${theme.fg("dim", "Network default:")} ${config.networkEnabled ? "enabled" : "blocked unless approved"}`,
+			availability.version ? `${theme.fg("dim", "Version:")} ${availability.version}` : "",
+			availability.reason ? `${theme.fg("dim", "Reason:")} ${availability.reason}` : "",
+			availability.installHint ? `${theme.fg("dim", "Install hint:")} ${availability.installHint}` : "",
+			`${theme.fg("dim", "Usage:")} /sandbox on | off | network-allow | network-ask | network-deny`,
+		].filter(Boolean);
+		this.chatContainer.addChild(new Spacer(1));
+		this.chatContainer.addChild(new Text(lines.join("\n"), 1, 0));
+		this.ui.requestRender();
+	}
+
 	private cyclePermissionMode(): void {
 		const modes: PermissionMode[] = ["danger-full-access", "accept-on-edit", "auto", "plan"];
 		const current = getPermissionMode();
@@ -2161,6 +2263,7 @@ export class InteractiveMode {
 		process.env.LUCENT_CODE_PERMISSION_MODE = next;
 		this.footer.setPermissionMode(next);
 		this.showStatus(`Permission mode: ${next}`);
+		void this.refreshSandboxFooterStatus();
 		this.ui.requestRender();
 	}
 
@@ -2201,6 +2304,7 @@ export class InteractiveMode {
 					message.excludeFromContext,
 					this.settingsManager.getToolOutputMode(),
 					false, // history items: don't show RTK badge (state unknown at record time)
+					message.sandboxed ?? false,
 				);
 				if (message.output) {
 					component.appendOutput(message.output);
@@ -2210,6 +2314,7 @@ export class InteractiveMode {
 					message.cancelled,
 					message.truncated ? ({ truncated: true } as TruncationResult) : undefined,
 					message.fullOutputPath,
+					message.sandboxed,
 				);
 				component.setExpanded(this.toolOutputExpanded);
 				this.chatContainer.addChild(component);
@@ -2321,6 +2426,7 @@ export class InteractiveMode {
 							{
 								showImages: this.settingsManager.getShowImages(),
 								renderMode: this.settingsManager.getToolOutputMode(),
+								editorScheme: this.settingsManager.getEditorScheme(),
 							},
 							this.getRegisteredToolDefinition(content.name),
 							this.ui,
@@ -2351,6 +2457,7 @@ export class InteractiveMode {
 							{
 								showImages: this.settingsManager.getShowImages(),
 								renderMode: this.settingsManager.getToolOutputMode(),
+								editorScheme: this.settingsManager.getEditorScheme(),
 							},
 							undefined,
 							this.ui,
@@ -2979,6 +3086,9 @@ export class InteractiveMode {
 					toolOutputMode: this.settingsManager.getToolOutputMode(),
 					rtk: this.settingsManager.getRtk(),
 					editorScheme: this.settingsManager.getEditorScheme(),
+					sandboxEnabled: this.settingsManager.getSandboxSettings().enabled ?? true,
+					sandboxNetworkMode: this.settingsManager.getSandboxSettings().networkMode
+						?? (this.settingsManager.getSandboxSettings().networkEnabled === true ? "allow" : this.settingsManager.getSandboxSettings().networkEnabled === false ? "deny" : "ask"),
 					classifierModelSubmenu: (_currentValue, submenuDone) =>
 						new ModelSelectorComponent(
 							this.ui,
@@ -3177,6 +3287,15 @@ export class InteractiveMode {
 						if (this.bashComponent) this.bashComponent.setRenderMode(mode);
 						for (const component of this.pendingBashComponents) component.setRenderMode(mode);
 						this.ui.requestRender();
+					},
+					onSandboxEnabledChange: (enabled) => {
+						this.settingsManager.setSandboxEnabled(enabled);
+						void this.refreshSandboxFooterStatus();
+						this.showStatus(`Sandbox: ${enabled ? "enabled" : "disabled"}`);
+					},
+					onSandboxNetworkModeChange: (mode) => {
+						this.settingsManager.setSandboxNetworkMode(mode);
+						this.showStatus(`Sandbox network: ${mode}`);
 					},
 					onCancel: () => {
 						done();
@@ -3948,6 +4067,7 @@ export class InteractiveMode {
 				excludeFromContext,
 				this.settingsManager.getToolOutputMode(),
 				isRtkEnabled(),
+				result.sandboxed ?? false,
 			);
 			this.bashComponent.setExpanded(this.toolOutputExpanded);
 			if (this.session.isStreaming) {
@@ -3966,6 +4086,7 @@ export class InteractiveMode {
 				result.cancelled,
 				result.truncated ? ({ truncated: true, content: result.output } as TruncationResult) : undefined,
 				result.fullOutputPath,
+				result.sandboxed,
 			);
 
 			// Record the result in session
@@ -3983,6 +4104,7 @@ export class InteractiveMode {
 			excludeFromContext,
 			this.settingsManager.getToolOutputMode(),
 			isRtkEnabled(),
+			false,
 		);
 		this.bashComponent.setExpanded(this.toolOutputExpanded);
 
@@ -4014,6 +4136,7 @@ export class InteractiveMode {
 					result.cancelled,
 					result.truncated ? ({ truncated: true, content: result.output } as TruncationResult) : undefined,
 					result.fullOutputPath,
+					result.sandboxed,
 				);
 			}
 		} catch (error) {

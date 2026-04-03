@@ -49,6 +49,8 @@ interface CliFlags {
   noSession?: boolean
   worktree?: boolean | string
   model?: string
+  sandbox?: 'none' | 'workspace-write' | 'auto'
+  noSandbox?: boolean
   listModels?: string | true
   extensions: string[]
   appendSystemPrompt?: string
@@ -90,6 +92,11 @@ function parseCliArgs(argv: string[]): CliFlags {
       flags.noSession = true
     } else if (arg === '--model' && i + 1 < args.length) {
       flags.model = args[++i]
+    } else if (arg === '--sandbox' && i + 1 < args.length) {
+      const value = args[++i]
+      if (value === 'none' || value === 'workspace-write' || value === 'auto') flags.sandbox = value
+    } else if (arg === '--no-sandbox') {
+      flags.noSandbox = true
     } else if (arg === '--extension' && i + 1 < args.length) {
       flags.extensions.push(args[++i])
     } else if (arg === '--append-system-prompt' && i + 1 < args.length) {
@@ -297,6 +304,11 @@ const modelRegistry = new ModelRegistry(authStorage, modelsJsonPath)
 markStartup('ModelRegistry')
 const settingsManager = SettingsManager.create(agentDir)
 markStartup('SettingsManager.create')
+if (cliFlags.noSandbox) {
+  process.env.PI_NO_SANDBOX = '1'
+} else if (cliFlags.sandbox) {
+  process.env.PI_SANDBOX = cliFlags.sandbox
+}
 process.env.LUCENT_CODE_PERMISSION_MODE = settingsManager.getPermissionMode()
 const configuredClassifierModel = settingsManager.getClassifierModel()
 if (configuredClassifierModel) {

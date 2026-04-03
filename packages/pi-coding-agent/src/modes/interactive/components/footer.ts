@@ -195,6 +195,13 @@ export class FooterComponent implements Component {
 		}
 		statsParts.push(permissionModeLabel);
 
+		const sandboxStatus = this.footerData.getSandboxStatus();
+		if (sandboxStatus === "active") {
+			statsParts.push(theme.fg("success", "🔒 sandboxed"));
+		} else if (sandboxStatus === "unavailable") {
+			statsParts.push(theme.fg("warning", "⚠ no sandbox"));
+		}
+
 		let statsLeft = statsParts.join(" ");
 
 		// Add model name on the right side, plus thinking level if model supports it

@@ -217,6 +217,13 @@ export class AuthStorage {
 	private credentialBackoff: Map<string, Map<number, number>> = new Map();
 
 	/**
+	 * Tracks the last credential index actually selected for a provider/session.
+	 * This lets session-sticky retries back off the credential that just failed,
+	 * rather than the session's preferred starting index.
+	 */
+	private lastSelectedCredentialIndex: Map<string, number> = new Map();
+
+	/**
 	 * Provider-level backoff tracking.
 	 * Set when all credentials for a provider are backed off.
 	 * Map<provider, backoffExpiresAt>
@@ -571,6 +578,10 @@ export class AuthStorage {
 	 * - Skips credentials that are currently backed off.
 	 * - Returns -1 if all credentials are backed off.
 	 */
+	private getCredentialSelectionKey(provider: string, sessionId?: string): string {
+		return `${provider}::${sessionId ?? ""}`;
+	}
+
 	private selectCredentialIndex(provider: string, credentials: AuthCredential[], sessionId?: string): number {
 		if (credentials.length === 0) return -1;
 		if (credentials.length === 1) {
@@ -579,7 +590,9 @@ export class AuthStorage {
 
 		let startIndex: number;
 		if (sessionId) {
-			startIndex = hashString(sessionId) % credentials.length;
+			const selectionKey = this.getCredentialSelectionKey(provider, sessionId);
+			const lastSelected = this.lastSelectedCredentialIndex.get(selectionKey);
+			startIndex = lastSelected !== undefined ? lastSelected : hashString(sessionId) % credentials.length;
 		} else {
 			const current = this.providerRoundRobinIndex.get(provider) ?? 0;
 			startIndex = current % credentials.length;
@@ -627,7 +640,11 @@ export class AuthStorage {
 		// Determine which credential was just used (same logic as selectCredentialIndex
 		// but without incrementing round-robin)
 		let usedIndex: number;
-		if (credentials.length === 1) {
+		const selectionKey = this.getCredentialSelectionKey(provider, sessionId);
+		const lastSelected = this.lastSelectedCredentialIndex.get(selectionKey);
+		if (lastSelected !== undefined) {
+			usedIndex = lastSelected;
+		} else if (credentials.length === 1) {
 			usedIndex = 0;
 		} else if (sessionId) {
 			usedIndex = hashString(sessionId) % credentials.length;
@@ -805,6 +822,7 @@ export class AuthStorage {
 			if (index >= 0) {
 				const resolved = await this.resolveCredentialApiKey(providerId, credentials[index]);
 				if (resolved) {
+					this.lastSelectedCredentialIndex.set(this.getCredentialSelectionKey(providerId, sessionId), index);
 					if (providerId === "openai-codex") {
 						this.markCodexAccountUsedByApiKey(resolved);
 					}

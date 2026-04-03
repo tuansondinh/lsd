@@ -130,6 +130,7 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 								{
 									showImages: host.settingsManager.getShowImages(),
 									renderMode: host.settingsManager.getToolOutputMode(),
+									editorScheme: host.settingsManager.getEditorScheme(),
 								},
 								host.getRegisteredToolDefinition(content.name),
 								host.ui,
@@ -148,6 +149,7 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 								{
 									showImages: host.settingsManager.getShowImages(),
 									renderMode: host.settingsManager.getToolOutputMode(),
+									editorScheme: host.settingsManager.getEditorScheme(),
 								},
 								undefined,
 								host.ui,
@@ -220,6 +222,7 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 					{
 						showImages: host.settingsManager.getShowImages(),
 						renderMode: host.settingsManager.getToolOutputMode(),
+						editorScheme: host.settingsManager.getEditorScheme(),
 					},
 					host.getRegisteredToolDefinition(event.toolName),
 					host.ui,

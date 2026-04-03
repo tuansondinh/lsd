@@ -124,7 +124,14 @@ export function registerCodexCommand(pi: ExtensionAPI): void {
 				switch (sub) {
 					case "add": {
 						ctx.ui.notify("Starting OAuth login flow...", "info");
-						const accountData = await performOAuthLogin();
+						const accountData = await performOAuthLogin(undefined, {
+							onStatus: (msg: string) => ctx.ui.notify(msg, "info"),
+							onManualCodeInput: async () =>
+								(await ctx.ui.input(
+									"Paste the redirect URL from your browser:",
+									"http://localhost:...",
+								)) ?? "",
+						});
 
 						// Prompt for email (optional)
 						const emailInput = await ctx.ui.input("Email for this account (optional, press Enter to skip)", "");

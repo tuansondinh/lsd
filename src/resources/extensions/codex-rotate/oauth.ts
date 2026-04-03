@@ -1,9 +1,13 @@
 /**
- * OAuth flow wrapper for Codex account management
+ * OAuth flow wrapper for Codex account management.
+ *
+ * Uses authStorage.login('openai-codex', callbacks) — the exact same code
+ * path as the onboarding wizard — so the browser auto-redirect flow, PKCE
+ * exchange, and manual-paste fallback all work identically.
  */
 
 import type { OAuthCredentials } from "@gsd/pi-ai";
-import { loginOpenAICodex, refreshOpenAICodexToken } from "@gsd/pi-ai/oauth";
+import { refreshOpenAICodexToken } from "@gsd/pi-ai/oauth";
 import type { CodexAccount } from "./types.js";
 import { logCodexRotateError } from "./logger.js";
 
@@ -12,6 +16,15 @@ function getAccountId(credentials: OAuthCredentials): string {
 		throw new Error("Missing Codex accountId in OAuth credentials");
 	}
 	return credentials.accountId;
+}
+
+/**
+ * Get the AuthStorage instance (same pattern as quota.ts)
+ */
+async function getAuthStorage(): Promise<import("@gsd/pi-coding-agent").AuthStorage> {
+	const specifier = "@gsd/pi-coding-agent/dist/core/auth-storage.js";
+	const mod: any = await import(/* webpackIgnore: true */ specifier);
+	return new mod.AuthStorage();
 }
 
 function asObject(value: unknown): Record<string, unknown> | null {
@@ -27,26 +40,77 @@ function getRequiredRefreshToken(data: Record<string, unknown>): string | null {
 	return typeof refreshToken === "string" && refreshToken.length > 0 ? refreshToken : null;
 }
 
+/** Open a URL in the system browser (best-effort, non-blocking) */
+async function openBrowser(url: string): Promise<void> {
+	try {
+		const { execFile } = await import("node:child_process");
+		if (process.platform === "win32") {
+			execFile("powershell", ["-c", `Start-Process '${url.replace(/'/g, "''")}'`], () => {});
+		} else {
+			const cmd = process.platform === "darwin" ? "open" : "xdg-open";
+			execFile(cmd, [url], () => {});
+		}
+	} catch {
+		// Browser open failed — URL still shown via onStatus
+	}
+}
+
 /**
- * Perform OAuth login and return a new Codex account
+ * Perform OAuth login and return a new Codex account.
+ *
+ * Delegates to authStorage.login('openai-codex', callbacks) — the exact same
+ * code path used by the onboarding wizard. After login completes, reads back
+ * the stored OAuth credential to extract the tokens for the account store.
  */
 export async function performOAuthLogin(
 	email?: string,
+	callbacks?: {
+		onStatus?: (message: string) => void;
+		onManualCodeInput?: () => Promise<string>;
+	},
 ): Promise<Omit<CodexAccount, "id" | "addedAt" | "lastUsed" | "disabled">> {
-	const credentials: OAuthCredentials = await loginOpenAICodex({
-		onAuth: () => {},
-		onPrompt: async () => {
-			throw new Error("OAuth browser flow failed. Please try again.");
+	const { onStatus, onManualCodeInput } = callbacks ?? {};
+	const authStorage = await getAuthStorage();
+
+	// Use authStorage.login() — the exact same path as onboarding
+	await authStorage.login("openai-codex", {
+		onAuth: (info: { url: string; instructions?: string }) => {
+			onStatus?.(`Opening browser for Codex OAuth...\nURL: ${info.url}`);
+			openBrowser(info.url);
+			if (info.instructions) {
+				onStatus?.(info.instructions);
+			}
 		},
-		onProgress: () => {},
+		onPrompt: async (prompt: { message: string; placeholder?: string }) => {
+			// Fallback: if onManualCodeInput is available, use it for the prompt too
+			if (onManualCodeInput) {
+				return onManualCodeInput();
+			}
+			throw new Error(`OAuth browser flow failed: ${prompt.message}`);
+		},
+		onProgress: (message: string) => {
+			onStatus?.(message);
+		},
+		onManualCodeInput,
 	});
+
+	// Read back the stored credential
+	const credential = authStorage.get("openai-codex");
+	if (!credential || credential.type !== "oauth") {
+		throw new Error("OAuth login succeeded but no credential was stored");
+	}
+
+	const { access, refresh, expires, accountId } = credential as OAuthCredentials & { type: string };
+	if (!access || !refresh || !accountId) {
+		throw new Error("Stored OAuth credential is missing required fields");
+	}
 
 	return {
 		email,
-		accountId: getAccountId(credentials),
-		refreshToken: credentials.refresh,
-		accessToken: credentials.access,
-		expiresAt: credentials.expires,
+		accountId: accountId as string,
+		refreshToken: refresh,
+		accessToken: access,
+		expiresAt: expires,
 	};
 }
 

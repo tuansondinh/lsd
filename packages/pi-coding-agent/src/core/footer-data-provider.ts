@@ -43,6 +43,7 @@ export class FooterDataProvider {
 	private gitWatcher: FSWatcher | null = null;
 	private branchChangeCallbacks = new Set<() => void>();
 	private availableProviderCount = 0;
+	private sandboxStatus: "active" | "unavailable" | "disabled" = "disabled";
 
 	constructor() {
 		this.setupGitWatcher();
@@ -96,6 +97,14 @@ export class FooterDataProvider {
 		return this.availableProviderCount;
 	}
 
+	getSandboxStatus(): "active" | "unavailable" | "disabled" {
+		return this.sandboxStatus;
+	}
+
+	setSandboxStatus(status: "active" | "unavailable" | "disabled"): void {
+		this.sandboxStatus = status;
+	}
+
 	/** Internal: update available provider count */
 	setAvailableProviderCount(count: number): void {
 		this.availableProviderCount = count;
@@ -140,5 +149,5 @@ export class FooterDataProvider {
 /** Read-only view for extensions - excludes setExtensionStatus, setAvailableProviderCount and dispose */
 export type ReadonlyFooterDataProvider = Pick<
 	FooterDataProvider,
-	"getGitBranch" | "getExtensionStatuses" | "getAvailableProviderCount" | "onBranchChange"
+	"getGitBranch" | "getExtensionStatuses" | "getAvailableProviderCount" | "getSandboxStatus" | "onBranchChange"
 >;

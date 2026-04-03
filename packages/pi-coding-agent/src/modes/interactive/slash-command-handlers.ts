@@ -97,6 +97,7 @@ export interface SlashCommandContext {
 	showProviderManager(): void;
 	runSetupWizard(): Promise<void>;
 	cyclePermissionMode(): void;
+	handleSandboxCommand(arg?: string): Promise<void>;
 	showOAuthSelector(mode: "login" | "logout"): Promise<void>;
 	showSessionSelector(): void;
 	handleClearCommand(): Promise<void>;
@@ -184,6 +185,11 @@ export async function dispatchSlashCommand(
 	}
 	if (text === "/permission") {
 		ctx.cyclePermissionMode();
+		return true;
+	}
+	if (text === "/sandbox" || text.startsWith("/sandbox ")) {
+		const arg = text.startsWith("/sandbox ") ? text.slice(9).trim() : undefined;
+		await ctx.handleSandboxCommand(arg);
 		return true;
 	}
 	if (text === "/login") {

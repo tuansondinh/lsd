@@ -3,13 +3,14 @@ import { createWriteStream, existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AgentTool } from "@gsd/pi-agent-core";
+import type { AgentTool, AgentToolResult } from "@gsd/pi-agent-core";
 import { type Static, Type } from "@sinclair/typebox";
 import { spawn } from "child_process";
 import { getShellConfig, getShellEnv, killProcessTree, sanitizeCommand } from "../../utils/shell.js";
 import { type BashInterceptorRule, compileInterceptor, DEFAULT_BASH_INTERCEPTOR_RULES } from "./bash-interceptor.js";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, type TruncationResult, truncateTail } from "./truncate.js";
 import type { ArtifactManager } from "../artifact-manager.js";
+import { SandboxNetworkDeniedError, type SandboxManager } from "../sandbox/index.js";
 
 // Cached Win32 FFI handles for restoring VT input after child processes
 let _vtHandles: { GetConsoleMode: any; SetConsoleMode: any; handle: any } | null = null;
@@ -119,6 +120,7 @@ export interface BashToolDetails {
 	truncation?: TruncationResult;
 	fullOutputPath?: string;
 	artifactId?: string;
+	sandboxed?: boolean;
 }
 
 /**
@@ -141,15 +143,16 @@ export interface BashOperations {
 			signal?: AbortSignal;
 			timeout?: number;
 			env?: NodeJS.ProcessEnv;
+			sandboxManager?: SandboxManager;
 		},
-	) => Promise<{ exitCode: number | null }>;
+	) => Promise<{ exitCode: number | null; sandboxed?: boolean }>;
 }
 
 /**
  * Default bash operations using local shell
  */
 const defaultBashOperations: BashOperations = {
-	exec: (command, cwd, { onData, signal, timeout, env }) => {
+	exec: (command, cwd, { onData, signal, timeout, env, sandboxManager }) => {
 		return new Promise((resolve, reject) => {
 			const { shell, args } = getShellConfig();
 
@@ -158,78 +161,86 @@ const defaultBashOperations: BashOperations = {
 				return;
 			}
 
-			// On Windows, detached: true sets CREATE_NEW_PROCESS_GROUP which can
-			// cause EINVAL in VSCode/ConPTY terminal contexts.  The bg-shell
-			// extension already guards this (process-manager.ts); align here.
-			// Process-tree cleanup uses taskkill /F /T on Windows regardless.
-			const child = spawn(shell, [...args, command], {
-				cwd,
-				detached: process.platform !== "win32",
-				env: env ?? getShellEnv(),
-				stdio: ["ignore", "pipe", "pipe"],
-			});
+			const spawnChild = async () => {
+				const executionPlan = sandboxManager
+					? await sandboxManager.getExecutionPlan(command, { shell, shellArgs: args, cwd })
+					: { program: shell, args: [...args, command], sandboxed: false, policy: "none" as const };
 
-			let timedOut = false;
+				// On Windows, detached: true sets CREATE_NEW_PROCESS_GROUP which can
+				// cause EINVAL in VSCode/ConPTY terminal contexts.  The bg-shell
+				// extension already guards this (process-manager.ts); align here.
+				// Process-tree cleanup uses taskkill /F /T on Windows regardless.
+				const child = spawn(executionPlan.program, executionPlan.args, {
+					cwd,
+					detached: process.platform !== "win32",
+					env: env ?? getShellEnv(),
+					stdio: ["ignore", "pipe", "pipe"],
+				});
 
-			// Set timeout if provided
-			let timeoutHandle: NodeJS.Timeout | undefined;
-			if (timeout !== undefined && timeout > 0) {
-				timeoutHandle = setTimeout(() => {
-					timedOut = true;
+				let timedOut = false;
+
+				// Set timeout if provided
+				let timeoutHandle: NodeJS.Timeout | undefined;
+				if (timeout !== undefined && timeout > 0) {
+					timeoutHandle = setTimeout(() => {
+						timedOut = true;
+						if (child.pid) {
+							killProcessTree(child.pid);
+						}
+					}, timeout * 1000);
+				}
+
+				// Stream stdout and stderr
+				if (child.stdout) {
+					child.stdout.on("data", onData);
+				}
+				if (child.stderr) {
+					child.stderr.on("data", onData);
+				}
+
+				// Handle shell spawn errors
+				child.on("error", (err) => {
+					if (timeoutHandle) clearTimeout(timeoutHandle);
+					if (signal) signal.removeEventListener("abort", onAbort);
+					reject(err);
+				});
+
+				// Handle abort signal - kill entire process tree
+				const onAbort = () => {
 					if (child.pid) {
 						killProcessTree(child.pid);
 					}
-				}, timeout * 1000);
-			}
+				};
 
-			// Stream stdout and stderr
-			if (child.stdout) {
-				child.stdout.on("data", onData);
-			}
-			if (child.stderr) {
-				child.stderr.on("data", onData);
-			}
-
-			// Handle shell spawn errors
-			child.on("error", (err) => {
-				if (timeoutHandle) clearTimeout(timeoutHandle);
-				if (signal) signal.removeEventListener("abort", onAbort);
-				reject(err);
-			});
-
-			// Handle abort signal - kill entire process tree
-			const onAbort = () => {
-				if (child.pid) {
-					killProcessTree(child.pid);
+				if (signal) {
+					if (signal.aborted) {
+						onAbort();
+					} else {
+						signal.addEventListener("abort", onAbort, { once: true });
+					}
 				}
+
+				// Handle process exit
+				child.on("close", (code) => {
+					restoreWindowsVTInput();
+					if (timeoutHandle) clearTimeout(timeoutHandle);
+					if (signal) signal.removeEventListener("abort", onAbort);
+
+					if (signal?.aborted) {
+						reject(new Error("aborted"));
+						return;
+					}
+
+					if (timedOut) {
+						reject(new Error(`timeout:${timeout}`));
+						return;
+					}
+
+					resolve({ exitCode: code, sandboxed: executionPlan.sandboxed });
+				});
 			};
 
-			if (signal) {
-				if (signal.aborted) {
-					onAbort();
-				} else {
-					signal.addEventListener("abort", onAbort, { once: true });
-				}
-			}
-
-			// Handle process exit
-			child.on("close", (code) => {
-				restoreWindowsVTInput();
-				if (timeoutHandle) clearTimeout(timeoutHandle);
-				if (signal) signal.removeEventListener("abort", onAbort);
-
-				if (signal?.aborted) {
-					reject(new Error("aborted"));
-					return;
-				}
-
-				if (timedOut) {
-					reject(new Error(`timeout:${timeout}`));
-					return;
-				}
-
-				resolve({ exitCode: code });
-			});
+			spawnChild().catch(reject);
 		});
 	},
 };
@@ -268,6 +279,8 @@ export interface BashToolOptions {
 	};
 	/** Tool names available in the session, used by the interceptor to check if replacement tools exist */
 	availableToolNames?: string[] | (() => string[]);
+	/** Optional sandbox manager for OS-level sandboxed execution */
+	sandboxManager?: SandboxManager;
 }
 
 export function createBashTool(cwd: string, options?: BashToolOptions): AgentTool<typeof bashSchema> {
@@ -275,6 +288,7 @@ export function createBashTool(cwd: string, options?: BashToolOptions): AgentToo
 	const commandPrefix = options?.commandPrefix;
 	const spawnHook = options?.spawnHook;
 	const artifactManager = options?.artifactManager;
+	const sandboxManager = options?.sandboxManager;
 
 	// Pre-compile interceptor rules once at construction time
 	const interceptorInstance =
@@ -329,7 +343,7 @@ export function createBashTool(cwd: string, options?: BashToolOptions): AgentToo
 			const resolvedCommand = sanitizeCommand(commandPrefix ? `${commandPrefix}\n${effectiveCommand}` : effectiveCommand);
 			const spawnContext = resolveSpawnContext(resolvedCommand, cwd, spawnHook);
 
-			return new Promise((resolve, reject) => {
+			const executionPromise = new Promise<AgentToolResult<any>>((resolve, reject) => {
 				// We'll stream to a file if output gets large
 				let spillFilePath: string | undefined;
 				let spillArtifactId: string | undefined;
@@ -396,8 +410,9 @@ export function createBashTool(cwd: string, options?: BashToolOptions): AgentToo
 					signal,
 					timeout,
 					env: spawnContext.env,
+					sandboxManager,
 				})
-					.then(({ exitCode }) => {
+					.then(({ exitCode, sandboxed }) => {
 						// Close temp file stream
 						if (spillFileStream) {
 							spillFileStream.end();
@@ -418,6 +433,7 @@ export function createBashTool(cwd: string, options?: BashToolOptions): AgentToo
 							details = {
 								truncation,
 								fullOutputPath: spillFilePath,
+								sandboxed,
 								...(spillArtifactId ? { artifactId: spillArtifactId } : {}),
 							};
 
@@ -440,6 +456,9 @@ export function createBashTool(cwd: string, options?: BashToolOptions): AgentToo
 							outputText += `\n\nCommand exited with code ${exitCode}`;
 							reject(new Error(outputText));
 						} else {
+							if (sandboxed && !details) {
+								details = { sandboxed };
+							}
 							resolve({ content: [{ type: "text", text: outputText }], details });
 						}
 					})
@@ -466,6 +485,29 @@ export function createBashTool(cwd: string, options?: BashToolOptions): AgentToo
 							reject(err);
 						}
 					});
+			});
+
+			return executionPromise.catch((err) => {
+				if (err instanceof SandboxNetworkDeniedError) {
+					// Resolve with an actionable denial message rather than throwing,
+					// so the LLM gets clear context and can inform the user how to unblock.
+					return {
+						content: [{
+							type: "text" as const,
+							text: [
+								"Network access was denied for this command.",
+								"",
+								"To allow network access, run one of:",
+								"  /sandbox network-allow   — always allow network",
+								"  /sandbox network-ask     — prompt each time (current mode)",
+								"",
+								"Or choose 'Allow for session' the next time the prompt appears.",
+							].join("\n"),
+						}],
+						details: undefined,
+					};
+				}
+				throw err;
 			});
 		},
 	};

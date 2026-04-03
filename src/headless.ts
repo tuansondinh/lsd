@@ -66,6 +66,8 @@ export interface HeadlessOptions {
   json: boolean
   outputFormat: OutputFormat
   model?: string
+  sandbox?: 'none' | 'workspace-write' | 'auto'
+  noSandbox?: boolean
   command: string
   commandArgs: string[]
   context?: string       // file path or '-' for stdin
@@ -162,6 +164,13 @@ export function parseHeadlessArgs(argv: string[]): HeadlessOptions {
       } else if (arg === '--model' && i + 1 < args.length) {
         // --model can also be passed from the main CLI; headless-specific takes precedence
         options.model = args[++i]
+      } else if (arg === '--sandbox' && i + 1 < args.length) {
+        const value = args[++i]
+        if (value === 'none' || value === 'workspace-write' || value === 'auto') {
+          options.sandbox = value as 'none' | 'workspace-write' | 'auto'
+        }
+      } else if (arg === '--no-sandbox') {
+        options.noSandbox = true
       } else if (arg === '--context' && i + 1 < args.length) {
         options.context = args[++i]
       } else if (arg === '--context-text' && i + 1 < args.length) {
@@ -265,6 +274,14 @@ async function runHeadlessOnce(options: HeadlessOptions, restartCount: number): 
     options.timeout = 0
   }
 
+  if (!options.json) {
+    if (options.noSandbox) {
+      process.stderr.write('[headless] Sandbox: disabled by flag\n')
+    } else if (options.sandbox) {
+      process.stderr.write(`[headless] Sandbox: ${options.sandbox}\n`)
+    }
+  }
+
   // Supervised mode cannot share stdin with --context -
   if (options.supervised && options.context === '-') {
     process.stderr.write('[headless] Error: --supervised cannot be used with --context - (both require stdin)\n')
@@ -353,6 +370,11 @@ async function runHeadlessOnce(options: HeadlessOptions, restartCount: number): 
   }
   if (injector) {
     clientOptions.env = injector.getSecretEnvVars()
+  }
+  if (options.noSandbox) {
+    clientOptions.env = { ...(clientOptions.env as Record<string, string> || {}), PI_NO_SANDBOX: '1' }
+  } else if (options.sandbox) {
+    clientOptions.env = { ...(clientOptions.env as Record<string, string> || {}), PI_SANDBOX: options.sandbox }
   }
   // Signal headless mode to the GSD extension (skips UAT human pause, etc.)
   clientOptions.env = { ...(clientOptions.env as Record<string, string> || {}), GSD_HEADLESS: '1' }

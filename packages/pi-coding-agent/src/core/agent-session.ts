@@ -87,6 +87,7 @@ import {
 } from "./tool-approval.js";
 import type { BashOperations } from "./tools/bash.js";
 import { createAllTools } from "./tools/index.js";
+import { SandboxManager } from "./sandbox/index.js";
 
 // ============================================================================
 // Skill Block Parsing
@@ -173,6 +174,8 @@ export interface AgentSessionConfig {
 	baseToolsOverride?: Record<string, AgentTool>;
 	/** Mutable ref used by Agent to access the current ExtensionRunner */
 	extensionRunnerRef?: { current?: ExtensionRunner };
+	/** Optional sandbox manager for bash execution */
+	sandboxManager?: SandboxManager;
 }
 
 export interface ExtensionBindings {
@@ -282,6 +285,7 @@ export class AgentSession {
 	private _baseToolRegistry: Map<string, AgentTool> = new Map();
 	private _cwd: string;
 	private _extensionRunnerRef?: { current?: ExtensionRunner };
+	private _sandboxManager?: SandboxManager;
 	private _initialActiveToolNames?: string[];
 	private _baseToolsOverride?: Record<string, AgentTool>;
 	private _extensionUIContext?: ExtensionUIContext;
@@ -320,6 +324,7 @@ export class AgentSession {
 			this._modelRegistry,
 		);
 		this._extensionRunnerRef = config.extensionRunnerRef;
+		this._sandboxManager = config.sandboxManager;
 		this._initialActiveToolNames = config.initialActiveToolNames;
 		this._baseToolsOverride = config.baseToolsOverride;
 
@@ -379,6 +384,10 @@ export class AgentSession {
 	/** Fallback resolver for cross-provider fallback */
 	get fallbackResolver(): FallbackResolver {
 		return this._fallbackResolver;
+	}
+
+	get sandboxManager(): SandboxManager | undefined {
+		return this._sandboxManager;
 	}
 
 	// =========================================================================
@@ -568,6 +577,9 @@ export class AgentSession {
 				});
 			} else if (mode === "auto") {
 				if (READ_ONLY_TOOLS.has(toolCall.name)) {
+					return undefined;
+				}
+				if (toolCall.name === "bash" && this._sandboxManager && await this._sandboxManager.shouldAutoAllowToolCall(toolCall.name)) {
 					return undefined;
 				}
 				if (MUTATING_TOOLS.has(toolCall.name)) {
@@ -2256,6 +2268,7 @@ export class AgentSession {
 					read: { autoResizeImages },
 					bash: {
 						commandPrefix: shellCommandPrefix,
+						sandboxManager: this._sandboxManager,
 						interceptor: {
 							enabled: this.settingsManager.getBashInterceptorEnabled(),
 							rules: this.settingsManager.getBashInterceptorRules(),
@@ -2388,6 +2401,7 @@ export class AgentSession {
 						onChunk,
 						signal: this._bashAbortController.signal,
 						loginShell: options?.loginShell,
+						sandboxManager: this._sandboxManager,
 					});
 
 			this.recordBashResult(command, result, options);
@@ -2410,6 +2424,7 @@ export class AgentSession {
 			cancelled: result.cancelled,
 			truncated: result.truncated,
 			fullOutputPath: result.fullOutputPath,
+			sandboxed: result.sandboxed,
 			timestamp: Date.now(),
 			excludeFromContext: options?.excludeFromContext,
 		};

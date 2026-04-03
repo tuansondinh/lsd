@@ -107,7 +107,7 @@ export class RetryHandler {
 		if (isContextOverflow(message, contextWindow)) return false;
 
 		const err = message.errorMessage;
-		return /overloaded|rate.?limit|too many requests|429|500|502|503|504|service.?unavailable|server.?error|internal.?error|connection.?error|connection.?refused|other side closed|fetch failed|upstream.?connect|reset before headers|terminated|retry delay|network.?(?:is\s+)?unavailable|credentials.*expired|temporarily backed off|extra usage is required/i.test(
+		return /overloaded|rate.?limit|too many requests|429|500|502|503|504|service.?unavailable|server.?error|internal.?error|connection.?error|connection.?refused|other side closed|fetch failed|upstream.?connect|reset before headers|terminated|retry delay|network.?(?:is\s+)?unavailable|credentials.*expired|temporarily backed off|extra usage is required|usage.?limit|401|unauthorized|invalid[_\s-]?token|expired[_\s-]?token|authentication failed/i.test(
 			err,
 		);
 	}
@@ -351,6 +351,9 @@ export class RetryHandler {
 		// Must be checked before the generic 429/rate_limit regex.
 		if (/extra usage is required|long context required/i.test(err)) return "quota_exhausted";
 		if (/quota|billing|exceeded.*limit|usage.*limit/i.test(err)) return "quota_exhausted";
+		if (/401|unauthorized|authentication failed|invalid[_\s-]?token|expired[_\s-]?token|credentials.*expired/i.test(err)) {
+			return "rate_limit";
+		}
 		if (/rate.?limit|too many requests|429/i.test(err)) return "rate_limit";
 		if (/500|502|503|504|server.?error|internal.?error|service.?unavailable/i.test(err)) return "server_error";
 		return "unknown";

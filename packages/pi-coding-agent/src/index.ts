@@ -217,12 +217,21 @@ export {
 export { BlobStore, isBlobRef, parseBlobRef, externalizeImageData, resolveImageData } from "./core/blob-store.js";
 export { ArtifactManager } from "./core/artifact-manager.js";
 export {
+	SandboxManager,
+	type SandboxCommandOptions,
+	type SandboxConfig,
+	type SandboxExecutionPlan,
+	type SandboxPolicy,
+	permissionModeToSandboxPolicy,
+} from "./core/sandbox/index.js";
+export {
 	type AsyncSettings,
 	type CompactionSettings,
 	type ImageSettings,
 	type MemorySettings,
 	type PackageSource,
 	type RetrySettings,
+	type SandboxSettings,
 	SettingsManager,
 	type TaskIsolationSettings,
 } from "./core/settings-manager.js";

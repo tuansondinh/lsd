@@ -40,6 +40,7 @@ export interface BashExecutionMessage {
 	cancelled: boolean;
 	truncated: boolean;
 	fullOutputPath?: string;
+	sandboxed?: boolean;
 	timestamp: number;
 	/** If true, this message is excluded from LLM context (!! prefix) */
 	excludeFromContext?: boolean;
@@ -86,7 +87,7 @@ declare module "@gsd/pi-agent-core" {
  * Convert a BashExecutionMessage to user message text for LLM context.
  */
 function bashExecutionToText(msg: BashExecutionMessage): string {
-	let text = `Ran \`${msg.command}\`\n`;
+	let text = `Ran \`${msg.command}\`${msg.sandboxed ? " (sandboxed)" : ""}\n`;
 	if (msg.output) {
 		text += `\`\`\`\n${msg.output}\n\`\`\``;
 	} else {

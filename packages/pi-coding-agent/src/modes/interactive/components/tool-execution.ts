@@ -27,12 +27,19 @@ import { truncateToVisualLines } from "./visual-truncate.js";
 const BASH_PREVIEW_LINES = 5;
 // Flash interval for RTK badge animation (ms)
 const RTK_FLASH_INTERVAL_MS = 400;
+// Flash interval for tool status spinner (ms)
+const SPINNER_INTERVAL_MS = 150;
 
 /** Returns true when RTK is active in this process. */
 function isRtkEnabled(): boolean {
 	const v = (process.env["GSD_RTK_DISABLED"] ?? "").trim().toLowerCase();
 	return v !== "1" && v !== "true" && v !== "yes";
 }
+
+// Spinner animation frames
+const SPINNER_FRAMES = ["◯", "◔", "◑", "◕", "●"];
+let spinnerFrame = 0;
+
 // During partial write tool-call streaming, re-highlight the first N lines fully
 // to keep multiline tokenization mostly correct without re-highlighting the full file.
 const WRITE_PARTIAL_FULL_HIGHLIGHT_LINES = 50;
@@ -108,6 +115,9 @@ export class ToolExecutionComponent extends Container {
 	// RTK badge flash state
 	private rtkFlashOn = true;
 	private rtkFlashTimer: NodeJS.Timeout | null = null;
+	// Tool status spinner state
+	private spinnerTimer: NodeJS.Timeout | null = null;
+	private spinnerFrame = 0;
 
 	constructor(
 		toolName: string,
@@ -374,6 +384,11 @@ export class ToolExecutionComponent extends Container {
 		}
 	}
 
+	setEditorScheme(scheme: EditorScheme): void {
+		this.editorScheme = scheme;
+		this.updateDisplay();
+	}
+
 	setShowImages(show: boolean): void {
 		this.showImages = show;
 		this.updateDisplay();
@@ -383,6 +398,10 @@ export class ToolExecutionComponent extends Container {
 		if (this.rtkFlashTimer) {
 			clearInterval(this.rtkFlashTimer);
 			this.rtkFlashTimer = null;
+		}
+		if (this.spinnerTimer) {
+			clearInterval(this.spinnerTimer);
+			this.spinnerTimer = null;
 		}
 	}
 
@@ -399,12 +418,36 @@ export class ToolExecutionComponent extends Container {
 	}
 
 	private updateDisplay(): void {
-		// Set background based on state
-		const bgFn = this.isPartial
-			? (text: string) => theme.bg("toolPendingBg", text)
-			: this.result?.isError
-				? (text: string) => theme.bg("toolErrorBg", text)
-				: (text: string) => theme.bg("toolSuccessBg", text);
+		// Status indicator with circle
+		let statusIndicator = "";
+		let statusColor = "";
+
+		if (this.isPartial) {
+			// Loading spinner - start timer on first partial render
+			if (!this.spinnerTimer) {
+				this.spinnerTimer = setInterval(() => {
+					this.spinnerFrame = (this.spinnerFrame + 1) % SPINNER_FRAMES.length;
+					this.updateDisplay();
+					this.ui.requestRender();
+				}, SPINNER_INTERVAL_MS);
+			}
+			statusIndicator = SPINNER_FRAMES[this.spinnerFrame];
+		} else {
+			// Stop spinner when no longer partial
+			if (this.spinnerTimer) {
+				clearInterval(this.spinnerTimer);
+				this.spinnerTimer = null;
+			}
+			if (this.result?.isError) {
+				// Failed - red circle
+				statusIndicator = theme.fg("error", "●");
+				statusColor = "error";
+			} else {
+				// Success - green circle
+				statusIndicator = theme.fg("success", "●");
+				statusColor = "success";
+			}
+		}
 
 		const useBuiltInRenderer = this.shouldUseBuiltInRenderer();
 		let customRendererHasContent = false;
@@ -413,18 +456,18 @@ export class ToolExecutionComponent extends Container {
 		// Use built-in rendering for built-in tools (or overrides without custom renderers)
 		if (useBuiltInRenderer) {
 			if (this.toolName === "bash") {
-				// Bash uses Box with visual line truncation
-				this.contentBox.setBgFn(bgFn);
+				// Bash uses Box with visual line truncation - no background
+				this.contentBox.setBgFn((text: string) => text);
 				this.contentBox.clear();
-				this.renderBashContent();
+				this.renderBashContent(statusIndicator);
 			} else {
-				// Other built-in tools: use Text directly with caching
-				this.contentText.setCustomBgFn(bgFn);
-				this.contentText.setText(this.formatToolExecution());
+				// Other built-in tools: use Text directly with caching - no background
+				this.contentText.setCustomBgFn((text: string) => text);
+				this.contentText.setText(this.formatToolExecution(statusIndicator));
 			}
 		} else if (this.toolDefinition) {
-			// Custom tools use Box for flexible component rendering
-			this.contentBox.setBgFn(bgFn);
+			// Custom tools use Box for flexible component rendering - no background
+			this.contentBox.setBgFn((text: string) => text);
 			this.contentBox.clear();
 
 			// Render call component
@@ -489,8 +532,8 @@ export class ToolExecutionComponent extends Container {
 			}
 		} else {
 			// Unknown tool with no registered definition - show generic fallback
-			this.contentText.setCustomBgFn(bgFn);
-			this.contentText.setText(this.formatToolExecution());
+			this.contentText.setCustomBgFn((text: string) => text);
+			this.contentText.setText(this.formatToolExecution(statusIndicator));
 		}
 
 		// Handle images (same for both custom and built-in)
@@ -547,7 +590,7 @@ export class ToolExecutionComponent extends Container {
 	/**
 	 * Render bash content using visual line truncation (like bash-execution.ts)
 	 */
-	private renderBashContent(): void {
+	private renderBashContent(statusIndicator: string): void {
 		const command = str(this.args?.command);
 		const timeout = this.args?.timeout as number | undefined;
 		const rtkActive = isRtkEnabled();
@@ -561,15 +604,16 @@ export class ToolExecutionComponent extends Container {
 			}, RTK_FLASH_INTERVAL_MS);
 		}
 
-		// Header
+		// Header with status indicator
 		const timeoutSuffix = timeout ? theme.fg("muted", ` (timeout ${timeout}s)`) : "";
 		const commandDisplay =
 			command === null ? theme.fg("error", "[invalid arg]") : command ? command : theme.fg("toolOutput", "...");
+		const sandboxBadge = this.result?.details?.sandboxed ? `  ${theme.fg("success", "[sandboxed]")}` : "";
 		const rtkBadge = rtkActive
 			? "  " + (this.rtkFlashOn ? theme.fg("accent", "$ RTK") : theme.fg("dim", "$ RTK"))
 			: "";
 		this.contentBox.addChild(
-			new Text(theme.fg("toolTitle", theme.bold(`$ ${commandDisplay}`)) + timeoutSuffix + rtkBadge, 0, 0),
+			new Text(`${statusIndicator} ${theme.fg("toolTitle", theme.bold(`$ ${commandDisplay}`))}${timeoutSuffix}${sandboxBadge}${rtkBadge}`, 0, 0),
 		);
 
 		if (this.result) {
@@ -668,6 +712,11 @@ export class ToolExecutionComponent extends Container {
 	}
 
 	private shouldHideCollapsedPreview(): boolean {
+		// Always hide preview for read tool when not expanded (like Claude Code)
+		// For other tools, only hide in minimal mode without errors
+		if (this.toolName === "read") {
+			return !this.expanded && !this.result?.isError;
+		}
 		return !this.expanded && this.renderMode === "minimal" && !this.result?.isError;
 	}
 
@@ -680,7 +729,7 @@ export class ToolExecutionComponent extends Container {
 		return first ? truncateToWidth(first, 120, "...") : undefined;
 	}
 
-	private formatToolExecution(): string {
+	private formatToolExecution(statusIndicator: string): string {
 		let text = "";
 		const invalidArg = theme.fg("error", "[invalid arg]");
 		const hideCollapsedPreview = this.shouldHideCollapsedPreview();
@@ -691,14 +740,20 @@ export class ToolExecutionComponent extends Container {
 			const offset = this.args?.offset;
 			const limit = this.args?.limit;
 
-			let pathDisplay = path === null ? invalidArg : path ? theme.fg("accent", path) : theme.fg("toolOutput", "...");
+			const startLine = offset ?? 1;
+			const endLine = limit !== undefined ? startLine + limit - 1 : "";
+			const lineNum = offset !== undefined ? startLine : undefined;
+
+			let styledPath = path === null ? invalidArg : path ? theme.fg("accent", path) : theme.fg("toolOutput", "...");
+			if (rawPath && path) {
+				styledPath = editorLink(rawPath, styledPath, { cwd: this.cwd, line: lineNum, scheme: this.editorScheme });
+			}
+			let pathDisplay = styledPath;
 			if (offset !== undefined || limit !== undefined) {
-				const startLine = offset ?? 1;
-				const endLine = limit !== undefined ? startLine + limit - 1 : "";
 				pathDisplay += theme.fg("warning", `:${startLine}${endLine ? `-${endLine}` : ""}`);
 			}
 
-			text = `${theme.fg("toolTitle", theme.bold("read"))} ${pathDisplay}`;
+			text = `${statusIndicator} ${theme.fg("toolTitle", theme.bold("read"))} ${pathDisplay}`;
 
 			if (this.result) {
 				const rawOutput = this.getTextOutput();
@@ -758,10 +813,11 @@ export class ToolExecutionComponent extends Container {
 			const fileContent = str(this.args?.content);
 			const path = rawPath !== null ? shortenPath(rawPath) : null;
 
-			text =
-				theme.fg("toolTitle", theme.bold("write")) +
-				" " +
-				(path === null ? invalidArg : path ? theme.fg("accent", path) : theme.fg("toolOutput", "..."));
+			let writePathDisplay = path === null ? invalidArg : path ? theme.fg("accent", path) : theme.fg("toolOutput", "...");
+			if (rawPath && path) {
+				writePathDisplay = editorLink(rawPath, writePathDisplay, { cwd: this.cwd, scheme: this.editorScheme });
+			}
+			text = `${statusIndicator} ${theme.fg("toolTitle", theme.bold("write"))} ${writePathDisplay}`;
 
 			if (fileContent === null) {
 				text += `\n\n${theme.fg("error", "[invalid content arg - expected string]")}`;
@@ -821,17 +877,26 @@ export class ToolExecutionComponent extends Container {
 			const path = rawPath !== null ? shortenPath(rawPath) : null;
 
 			// Build path display, appending :line if we have diff info
-			let pathDisplay = path === null ? invalidArg : path ? theme.fg("accent", path) : theme.fg("toolOutput", "...");
 			const firstChangedLine =
 				(this.editDiffPreview && "firstChangedLine" in this.editDiffPreview
 					? this.editDiffPreview.firstChangedLine
 					: undefined) ||
 				(this.result && !this.result.isError ? this.result.details?.firstChangedLine : undefined);
+
+			let styledEditPath = path === null ? invalidArg : path ? theme.fg("accent", path) : theme.fg("toolOutput", "...");
+			if (rawPath && path) {
+				styledEditPath = editorLink(rawPath, styledEditPath, {
+					cwd: this.cwd,
+					line: firstChangedLine ?? undefined,
+					scheme: this.editorScheme,
+				});
+			}
+			let pathDisplay = styledEditPath;
 			if (firstChangedLine) {
 				pathDisplay += theme.fg("warning", `:${firstChangedLine}`);
 			}
 
-			text = `${theme.fg("toolTitle", theme.bold("edit"))} ${pathDisplay}`;
+			text = `${statusIndicator} ${theme.fg("toolTitle", theme.bold("edit"))} ${pathDisplay}`;
 
 			if (this.result?.isError) {
 				// Show error from result
@@ -861,7 +926,11 @@ export class ToolExecutionComponent extends Container {
 			const path = rawPath !== null ? shortenPath(rawPath || ".") : null;
 			const limit = this.args?.limit;
 
-			text = `${theme.fg("toolTitle", theme.bold("ls"))} ${path === null ? invalidArg : theme.fg("accent", path)}`;
+			let lsPathDisplay = path === null ? invalidArg : theme.fg("accent", path);
+			if (path && rawPath !== null) {
+				lsPathDisplay = editorLink(rawPath || ".", lsPathDisplay, { cwd: this.cwd, scheme: this.editorScheme });
+			}
+			text = `${statusIndicator} ${theme.fg("toolTitle", theme.bold("ls"))} ${lsPathDisplay}`;
 			if (limit !== undefined) {
 				text += theme.fg("toolOutput", ` (limit ${limit})`);
 			}
@@ -903,11 +972,18 @@ export class ToolExecutionComponent extends Container {
 			const path = rawPath !== null ? shortenPath(rawPath || ".") : null;
 			const limit = this.args?.limit;
 
+			let findPathDisplay = path === null ? invalidArg : path;
+			if (path && rawPath !== null) {
+				findPathDisplay = editorLink(rawPath || ".", theme.fg("accent", findPathDisplay), { cwd: this.cwd, scheme: this.editorScheme });
+			} else {
+				findPathDisplay = theme.fg("accent", findPathDisplay);
+			}
 			text =
-				theme.fg("toolTitle", theme.bold("find")) +
+				`${statusIndicator} ${theme.fg("toolTitle", theme.bold("find"))}` +
 				" " +
 				(pattern === null ? invalidArg : theme.fg("accent", pattern || "")) +
-				theme.fg("toolOutput", ` in ${path === null ? invalidArg : path}`);
+				theme.fg("toolOutput", " in ") +
+				findPathDisplay;
 			if (limit !== undefined) {
 				text += theme.fg("toolOutput", ` (limit ${limit})`);
 			}
@@ -950,11 +1026,18 @@ export class ToolExecutionComponent extends Container {
 			const glob = str(this.args?.glob);
 			const limit = this.args?.limit;
 
+			let grepPathDisplay = path === null ? invalidArg : path;
+			if (path && rawPath !== null) {
+				grepPathDisplay = editorLink(rawPath || ".", theme.fg("accent", grepPathDisplay), { cwd: this.cwd, scheme: this.editorScheme });
+			} else {
+				grepPathDisplay = theme.fg("accent", grepPathDisplay);
+			}
 			text =
-				theme.fg("toolTitle", theme.bold("grep")) +
+				`${statusIndicator} ${theme.fg("toolTitle", theme.bold("grep"))}` +
 				" " +
 				(pattern === null ? invalidArg : theme.fg("accent", `/${pattern || ""}/`)) +
-				theme.fg("toolOutput", ` in ${path === null ? invalidArg : path}`);
+				theme.fg("toolOutput", " in ") +
+				grepPathDisplay;
 			if (glob) {
 				text += theme.fg("toolOutput", ` (${glob})`);
 			}
@@ -999,7 +1082,7 @@ export class ToolExecutionComponent extends Container {
 			}
 		} else if (this.toolName === "web_search") {
 			// Server-side Anthropic web search
-			text = theme.fg("toolTitle", theme.bold("web search"));
+			text = `${statusIndicator} ${theme.fg("toolTitle", theme.bold("web search"))}`;
 
 			if (process.env.PI_OFFLINE === "1") {
 				text += "\n\n" + theme.fg("muted", "\u{1F50C} Offline \u{2014} web search unavailable");
@@ -1023,7 +1106,7 @@ export class ToolExecutionComponent extends Container {
 			}
 		} else {
 			// Generic tool (shouldn't reach here for custom tools)
-			text = theme.fg("toolTitle", theme.bold(this.toolName));
+			text = `${statusIndicator} ${theme.fg("toolTitle", theme.bold(this.toolName))}`;
 
 			const content = JSON.stringify(this.args, null, 2);
 			text += hideCollapsedPreview ? `\n\n${this.collapsedExpandHint()}` : `\n\n${content}`;

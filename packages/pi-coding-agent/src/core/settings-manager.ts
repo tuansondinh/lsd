@@ -52,6 +52,15 @@ export interface BashInterceptorSettings {
 	rules?: BashInterceptorRule[]; // override default rules
 }
 
+export interface SandboxSettings {
+	enabled?: boolean; // default: true on supported platforms
+	autoAllowBashIfSandboxed?: boolean; // default: true
+	writableRoots?: string[]; // additional writable roots beyond cwd and /tmp
+	readOnlySubpaths?: string[]; // protected subpaths within writable roots
+	networkEnabled?: boolean; // legacy boolean override; prefer networkMode
+	networkMode?: "allow" | "ask" | "deny"; // default: ask
+}
+
 export interface MarkdownSettings {
 	codeBlockIndent?: string; // default: "  "
 }
@@ -155,6 +164,7 @@ export interface Settings {
 	memory?: MemorySettings;
 	async?: AsyncSettings;
 	bashInterceptor?: BashInterceptorSettings;
+	sandbox?: SandboxSettings;
 	taskIsolation?: TaskIsolationSettings;
 	fallback?: FallbackSettings;
 	modelDiscovery?: ModelDiscoverySettings;
@@ -1145,6 +1155,31 @@ export class SettingsManager {
 
 	getAsyncMaxJobs(): number {
 		return this.settings.async?.maxJobs ?? 100;
+	}
+
+	getSandboxSettings(): SandboxSettings {
+		return {
+			enabled: this.settings.sandbox?.enabled,
+			autoAllowBashIfSandboxed: this.settings.sandbox?.autoAllowBashIfSandboxed,
+			writableRoots: this.settings.sandbox?.writableRoots ? [...this.settings.sandbox.writableRoots] : undefined,
+			readOnlySubpaths: this.settings.sandbox?.readOnlySubpaths ? [...this.settings.sandbox.readOnlySubpaths] : undefined,
+			networkEnabled: this.settings.sandbox?.networkEnabled,
+			networkMode: this.settings.sandbox?.networkMode,
+		};
+	}
+
+	setSandboxEnabled(enabled: boolean): void {
+		this.setNestedGlobalSetting("sandbox", "enabled", enabled);
+	}
+
+	setSandboxNetworkEnabled(enabled: boolean): void {
+		this.setNestedGlobalSetting("sandbox", "networkEnabled", enabled);
+		this.setNestedGlobalSetting("sandbox", "networkMode", enabled ? "allow" : "deny");
+	}
+
+	setSandboxNetworkMode(mode: "allow" | "ask" | "deny"): void {
+		this.setNestedGlobalSetting("sandbox", "networkMode", mode);
+		this.setNestedGlobalSetting("sandbox", "networkEnabled", mode === "allow");
 	}
 
 	getTaskIsolationMode(): "none" | "worktree" | "fuse-overlay" {

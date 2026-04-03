@@ -220,6 +220,16 @@ async function setModelIfNeeded(pi: ExtensionAPI, ctx: any, modelRef: ModelRef |
   await pi.setModel(model, { persist: false });
 }
 
+function buildExecutionKickoffMessage(): string {
+  const task = state.task.trim();
+  const details: string[] = [
+    "Plan approved. Exit plan mode and start implementation immediately.",
+  ];
+  if (task) details.push(`Original task: ${task}`);
+  if (state.latestPlanPath) details.push(`Use the approved plan artifact at ${state.latestPlanPath} as the execution plan.`);
+  return details.join(" ");
+}
+
 async function approvePlan(pi: ExtensionAPI, ctx: any, permissionMode: RestorablePermissionMode): Promise<void> {
   const reasoningModel = parseQualifiedModelRef(readPlanModeReasoningModel());
   if (reasoningModel) {
@@ -231,6 +241,7 @@ async function approvePlan(pi: ExtensionAPI, ctx: any, permissionMode: Restorabl
     targetPermissionMode: permissionMode,
   };
   leavePlanMode(pi, "approved", permissionMode);
+  await pi.sendUserMessage(buildExecutionKickoffMessage(), { deliverAs: "followUp" });
 }
 
 async function cancelPlan(pi: ExtensionAPI, ctx: any, clearTask = true): Promise<RestorablePermissionMode> {

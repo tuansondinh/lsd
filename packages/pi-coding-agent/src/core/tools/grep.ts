@@ -66,7 +66,7 @@ export function createGrepTool(cwd: string, options?: GrepToolOptions): AgentToo
 	return {
 		name: "grep",
 		label: "grep",
-		description: `Search file contents for a pattern. Returns matching lines with file paths and line numbers. Respects .gitignore. Output is truncated to ${DEFAULT_LIMIT} matches or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). Long lines are truncated to ${GREP_MAX_LINE_LENGTH} chars.`,
+		description: `Search file contents for a text pattern. Returns matching lines with file paths and line numbers. Respects .gitignore. Output is truncated to ${DEFAULT_LIMIT} matches or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). Long lines are truncated to ${GREP_MAX_LINE_LENGTH} chars. For finding symbol definitions, references, type info, or callers in code, prefer the \`lsp\` tool instead — it resolves semantically.`,
 		parameters: grepSchema,
 		execute: async (
 			_toolCallId: string,
