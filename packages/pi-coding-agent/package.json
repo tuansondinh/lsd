@@ -13,6 +13,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./dist/core/auth-storage.js": {
+      "types": "./dist/core/auth-storage.d.ts",
+      "import": "./dist/core/auth-storage.js"
     }
   },
   "scripts": {

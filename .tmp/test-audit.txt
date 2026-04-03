@@ -1,0 +1,12 @@
+timestamp: 2026-04-03T10:59:12.183Z
+status: finished
+cwd: /Users/sonwork/Workspace/lsd
+userMessages: 2
+transcriptLength: 100
+cliPath: /Users/sonwork/.nvm/versions/node/v22.22.0/bin/lsd
+model: default
+logPath: /Users/sonwork/Workspace/lsd/.tmp/test.log
+exitCode: 0
+signal: null
+result: no_memory_changes
+completionReason: child_exit
