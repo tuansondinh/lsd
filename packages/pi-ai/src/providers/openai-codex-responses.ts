@@ -83,7 +83,15 @@ interface RequestBody {
 // ============================================================================
 
 function isRetryableError(status: number, errorText: string): boolean {
-	if (status === 429 || status === 500 || status === 502 || status === 503 || status === 504) {
+	// Usage/quota limit 429s should NOT be retried at the provider level —
+	// they need to bubble up to the RetryHandler for credential rotation.
+	if (status === 429) {
+		if (/usage_limit_reached|usage_not_included|usage.?limit|quota/i.test(errorText)) {
+			return false;
+		}
+		return true;
+	}
+	if (status === 500 || status === 502 || status === 503 || status === 504) {
 		return true;
 	}
 	return /rate.?limit|overloaded|service.?unavailable|upstream.?connect|connection.?refused/i.test(errorText);

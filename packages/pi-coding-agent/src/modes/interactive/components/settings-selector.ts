@@ -492,7 +492,7 @@ export class SettingsSelectorComponent extends Container {
 		items.splice(gitignoreIndex + 1, 0, {
 			id: "timestamp-format",
 			label: "Timestamp format",
-			description: "Date/time format for message timestamps",
+			description: "Time format for message timestamps",
 			currentValue: config.timestampFormat,
 			values: ["date-time-iso", "date-time-us"],
 		});

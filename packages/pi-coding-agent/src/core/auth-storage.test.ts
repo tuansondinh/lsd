@@ -79,6 +79,16 @@ describe("AuthStorage — multiple credentials", () => {
 		// With 20 different sessions and 3 keys, we should see more than one key
 		assert.ok(results.size > 1, "multiple sessions should hash to different keys");
 	});
+
+	it("openai-codex prefers the first configured credential across sessions", async () => {
+		const storage = inMemory({
+			"openai-codex": [makeKey("codex-primary"), makeKey("codex-secondary"), makeKey("codex-third")],
+		});
+
+		assert.equal(await storage.getApiKey("openai-codex", "sess-a"), "codex-primary");
+		assert.equal(await storage.getApiKey("openai-codex", "sess-b"), "codex-primary");
+		assert.equal(await storage.getApiKey("openai-codex"), "codex-primary");
+	});
 });
 
 // ─── login accumulation ───────────────────────────────────────────────────────
@@ -222,6 +232,29 @@ describe("AuthStorage — rate-limit backoff", () => {
 		const next = await storage.getApiKey("anthropic", sessionId);
 		assert.ok(next);
 		assert.notEqual(next, chosen);
+	});
+
+	it("session-sticky: repeated backoff walks alternates instead of re-backing-off the sticky index", async () => {
+		const storage = inMemory({
+			anthropic: [makeKey("sk-1"), makeKey("sk-2"), makeKey("sk-3")],
+		});
+
+		const sessionId = "sess-rotate";
+		const first = await storage.getApiKey("anthropic", sessionId);
+		assert.ok(first);
+		assert.equal(storage.markUsageLimitReached("anthropic", sessionId), true);
+
+		const second = await storage.getApiKey("anthropic", sessionId);
+		assert.ok(second);
+		assert.notEqual(second, first);
+		assert.equal(storage.markUsageLimitReached("anthropic", sessionId), true);
+
+		const third = await storage.getApiKey("anthropic", sessionId);
+		assert.ok(third);
+		assert.notEqual(third, first);
+		assert.notEqual(third, second);
+		assert.equal(storage.markUsageLimitReached("anthropic", sessionId), false);
+		assert.equal(await storage.getApiKey("anthropic", sessionId), undefined);
 	});
 });
 

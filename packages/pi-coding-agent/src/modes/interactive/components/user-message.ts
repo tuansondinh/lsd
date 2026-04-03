@@ -31,14 +31,14 @@ export class UserMessageComponent extends Container {
 			return lines;
 		}
 
-		// Insert right-aligned timestamp above the message content
-		if (this.timestamp) {
-			const timeStr = formatTimestamp(this.timestamp, this.timestampFormat);
-			const label = theme.fg("dim", timeStr);
-			const padding = Math.max(0, width - timeStr.length - 1);
-			const timestampLine = " ".repeat(padding) + label;
-			lines.splice(0, 0, timestampLine);
-		}
+		// Timestamp display removed
+		// if (this.timestamp) {
+		// 	const timeStr = formatTimestamp(this.timestamp, this.timestampFormat);
+		// 	const label = theme.fg("dim", timeStr);
+		// 	const padding = Math.max(0, width - timeStr.length - 1);
+		// 	const timestampLine = " ".repeat(padding) + label;
+		// 	lines.splice(0, 0, timestampLine);
+		// }
 
 		lines[0] = OSC133_ZONE_START + lines[0];
 		lines[lines.length - 1] = lines[lines.length - 1] + OSC133_ZONE_END;

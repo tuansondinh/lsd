@@ -40,6 +40,22 @@ export class RetryHandler {
 
 	constructor(private readonly _deps: RetryHandlerDeps) {}
 
+	private _triggerRetryContinue(finalErrorContext: string): void {
+		this._deps.agent.continue().catch((error: unknown) => {
+			const message = error instanceof Error ? error.message : String(error);
+			if (this._retryPromise) {
+				this._deps.emit({
+					type: "auto_retry_end",
+					success: false,
+					attempt: this._retryAttempt,
+					finalError: `${finalErrorContext}: ${message}`,
+				});
+				this._retryAttempt = 0;
+				this._resolveRetry();
+			}
+		});
+	}
+
 	/** Current retry attempt (0 if not retrying) */
 	get retryAttempt(): number {
 		return this._retryAttempt;
@@ -84,7 +100,7 @@ export class RetryHandler {
 	 * Call this when an assistant message completes without error.
 	 */
 	handleSuccessfulResponse(): void {
-		if (this._retryAttempt > 0) {
+		if (this._retryPromise) {
 			this._deps.emit({
 				type: "auto_retry_end",
 				success: true,
@@ -158,7 +174,7 @@ export class RetryHandler {
 
 				// Retry immediately with the next credential - don't increment _retryAttempt
 				setTimeout(() => {
-					this._deps.agent.continue().catch(() => {});
+					this._triggerRetryContinue("Retry continuation failed after credential switch");
 				}, 0);
 
 				return true;
@@ -194,7 +210,7 @@ export class RetryHandler {
 
 					// Retry immediately with fallback provider - don't increment _retryAttempt
 					setTimeout(() => {
-						this._deps.agent.continue().catch(() => {});
+						this._triggerRetryContinue("Retry continuation failed after provider fallback");
 					}, 0);
 
 					return true;
@@ -291,7 +307,7 @@ export class RetryHandler {
 
 		// Retry via continue() - use setTimeout to break out of event handler chain
 		setTimeout(() => {
-			this._deps.agent.continue().catch(() => {});
+			this._triggerRetryContinue("Retry continuation failed");
 		}, 0);
 
 		return true;
@@ -397,7 +413,7 @@ export class RetryHandler {
 		});
 
 		setTimeout(() => {
-			this._deps.agent.continue().catch(() => {});
+			this._triggerRetryContinue("Retry continuation failed after long context downgrade");
 		}, 0);
 
 		return true;

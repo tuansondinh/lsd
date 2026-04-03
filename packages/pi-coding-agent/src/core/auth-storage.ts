@@ -592,11 +592,24 @@ export class AuthStorage {
 		if (sessionId) {
 			const selectionKey = this.getCredentialSelectionKey(provider, sessionId);
 			const lastSelected = this.lastSelectedCredentialIndex.get(selectionKey);
-			startIndex = lastSelected !== undefined ? lastSelected : hashString(sessionId) % credentials.length;
+			if (lastSelected !== undefined) {
+				startIndex = lastSelected;
+			} else if (provider === "openai-codex") {
+				// Codex rotate keeps auth.json ordered by most recently successful account.
+				// Honor that order for new sessions so they start on the last known-good credential
+				// instead of re-hashing into a potentially exhausted one.
+				startIndex = 0;
+			} else {
+				startIndex = hashString(sessionId) % credentials.length;
+			}
 		} else {
-			const current = this.providerRoundRobinIndex.get(provider) ?? 0;
-			startIndex = current % credentials.length;
-			this.providerRoundRobinIndex.set(provider, current + 1);
+			if (provider === "openai-codex") {
+				startIndex = 0;
+			} else {
+				const current = this.providerRoundRobinIndex.get(provider) ?? 0;
+				startIndex = current % credentials.length;
+				this.providerRoundRobinIndex.set(provider, current + 1);
+			}
 		}
 
 		// Try starting from the preferred index, wrapping around

@@ -51,6 +51,11 @@ export async function syncAccountsToAuth(accounts: CodexAccount[]): Promise<bool
 
 			const credentials: ApiKeyCredential[] = accounts
 				.filter((acc) => !acc.disabled)
+				.sort((a, b) => {
+					const lastUsedDiff = (b.lastUsed ?? 0) - (a.lastUsed ?? 0);
+					if (lastUsedDiff !== 0) return lastUsedDiff;
+					return b.addedAt - a.addedAt;
+				})
 				.map((acc) => ({
 					type: "api_key" as const,
 					key: acc.accessToken,

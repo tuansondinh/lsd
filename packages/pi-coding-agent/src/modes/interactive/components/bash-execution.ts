@@ -2,7 +2,7 @@
  * Component for displaying bash command execution with streaming output.
  */
 
-import { Container, Loader, Spacer, Text, type TUI } from "@gsd/pi-tui";
+import { Container, Loader, Text, type TUI } from "@gsd/pi-tui";
 import stripAnsi from "strip-ansi";
 import {
 	DEFAULT_MAX_BYTES,
@@ -61,9 +61,6 @@ export class BashExecutionComponent extends Container {
 		// Use dim border for excluded-from-context commands (!! prefix)
 		this.colorKey = (excludeFromContext ? "dim" : "bashMode") as ThemeColor;
 		const borderColor = (str: string) => theme.fg(this.colorKey, str);
-
-		// Add spacer
-		this.addChild(new Spacer(1));
 
 		// Top border
 		this.addChild(new DynamicBorder(borderColor));

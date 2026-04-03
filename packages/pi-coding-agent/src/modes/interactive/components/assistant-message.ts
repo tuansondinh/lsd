@@ -116,10 +116,11 @@ export class AssistantMessageComponent extends Container {
 			}
 		}
 
+		// Timestamp display removed
 		// Show timestamp when the message is complete (has a stop reason)
-		if (message.stopReason && message.timestamp) {
-			const timeStr = formatTimestamp(message.timestamp, this.timestampFormat);
-			this.contentContainer.addChild(new Text(theme.fg("dim", timeStr), 1, 0));
-		}
+		// if (message.stopReason && message.timestamp) {
+		// 	const timeStr = formatTimestamp(message.timestamp, this.timestampFormat);
+		// 	this.contentContainer.addChild(new Text(theme.fg("dim", timeStr), 1, 0));
+		// }
 	}
 }

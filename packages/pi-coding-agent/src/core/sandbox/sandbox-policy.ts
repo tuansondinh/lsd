@@ -33,7 +33,6 @@ export function permissionModeToSandboxPolicy(mode: PermissionMode): SandboxPoli
 }
 
 export const DEFAULT_READ_ONLY_SUBPATHS = [
-	".git",
 	".gsd",
 	".claude",
 	"node_modules/.cache",

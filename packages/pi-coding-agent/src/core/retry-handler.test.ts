@@ -244,12 +244,85 @@ describe("RetryHandler — long-context entitlement 429 (#2803)", () => {
 		});
 	});
 
+	describe("successful credential rotation completion", () => {
+		it("resolves the pending retry after a successful credential-switch retry", async () => {
+			const { deps, emittedEvents } = createMockDeps({
+				model: createMockModel("openai", "gpt-5.4"),
+				markUsageLimitReachedResult: true,
+			});
+
+			const handler = new RetryHandler(deps);
+			const msg = errorMessage("You have hit your ChatGPT usage limit (team plan). Try again in ~128 min.");
+
+			// Mirror real agent-session behavior: create the pending retry promise before handling agent_end.
+			handler.createRetryPromiseForAgentEnd([msg]);
+
+			const retried = await handler.handleRetryableError(msg);
+			assert.equal(retried, true, "Expected credential rotation retry to start");
+
+			let resolved = false;
+			const waitPromise = handler.waitForRetry().then(() => {
+				resolved = true;
+			});
+
+			// Success on the rotated credential should release the original prompt() waiter.
+			handler.handleSuccessfulResponse();
+			await waitPromise;
+
+			assert.equal(resolved, true, "Pending retry promise should resolve after successful rotated response");
+			assert.equal(handler.isRetrying, false, "Retry handler should no longer be retrying");
+
+			const retryEnd = emittedEvents.find((e) => e.type === "auto_retry_end" && e.success === true);
+			assert.ok(retryEnd, "Expected successful auto_retry_end event after rotated credential succeeds");
+		});
+
+		it("resolves the pending retry if retry continuation rejects", async () => {
+			const continueError = new Error("Operation aborted");
+			const { deps, emittedEvents, continueFn } = createMockDeps({
+				model: createMockModel("openai", "gpt-5.4"),
+				markUsageLimitReachedResult: true,
+			});
+			continueFn.mock.mockImplementation(async () => {
+				throw continueError;
+			});
+
+			const handler = new RetryHandler(deps);
+			const msg = errorMessage("You have hit your ChatGPT usage limit (team plan). Try again in ~124 min.");
+
+			handler.createRetryPromiseForAgentEnd([msg]);
+			const retried = await handler.handleRetryableError(msg);
+			assert.equal(retried, true, "Expected credential rotation retry to start");
+
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			await handler.waitForRetry();
+
+			assert.equal(handler.isRetrying, false, "Retry handler should recover from rejected continue()");
+			const retryEnd = emittedEvents.find((e) => e.type === "auto_retry_end" && e.success === false);
+			assert.ok(retryEnd, "Expected failed auto_retry_end event when continue() rejects");
+			assert.match(String(retryEnd?.finalError ?? ""), /Operation aborted/);
+		});
+	});
+
 	describe("isRetryableError", () => {
 		it("considers long-context entitlement error as retryable", () => {
 			const { deps } = createMockDeps();
 			const handler = new RetryHandler(deps);
 			const msg = errorMessage("Extra usage is required for long context requests.");
 			assert.equal(handler.isRetryableError(msg), true);
+		});
+
+		it("considers ChatGPT usage limit errors as retryable", () => {
+			const { deps } = createMockDeps();
+			const handler = new RetryHandler(deps);
+			const msg = errorMessage("You have hit your ChatGPT usage limit (team plan). Try again in ~144 min.");
+			assert.equal(handler.isRetryableError(msg), true);
+		});
+
+		it("considers auth/token errors as retryable credential failures", () => {
+			const { deps } = createMockDeps();
+			const handler = new RetryHandler(deps);
+			assert.equal(handler.isRetryableError(errorMessage("401 Unauthorized")), true);
+			assert.equal(handler.isRetryableError(errorMessage("invalid_token")), true);
 		});
 	});
 });

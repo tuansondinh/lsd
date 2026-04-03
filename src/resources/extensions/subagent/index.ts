@@ -1330,6 +1330,13 @@ export default function(pi: ExtensionAPI) {
                 try {
                     const effectiveCwd = params.cwd ?? ctx.cwd;
 
+                    if (onUpdate && ctx.hasUI) {
+                        onUpdate({
+                            content: [{ type: "text", text: `Subagent **${params.agent}** running… (press **Ctrl+B** to move to background)` }],
+                            details: makeDetails("single")([]),
+                        });
+                    }
+
                     if (useIsolation) {
                         const taskId = crypto.randomUUID();
                         isolation = await createIsolation(effectiveCwd, taskId, isolationMode);
