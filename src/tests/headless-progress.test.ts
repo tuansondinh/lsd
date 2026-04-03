@@ -149,6 +149,16 @@ describe('formatProgress', () => {
       assert.equal(result, null)
     })
 
+    it('suppresses cache-timer setStatus chatter', () => {
+      const result = formatProgress({
+        type: 'extension_ui_request',
+        method: 'setStatus',
+        statusKey: 'cache-timer',
+        message: '⏱ 0:09',
+      }, ctx())
+      assert.equal(result, null)
+    })
+
     it('shows setStatus with statusKey as phase', () => {
       const result = formatProgress({
         type: 'extension_ui_request',

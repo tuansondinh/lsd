@@ -101,7 +101,7 @@ describe('buildAutoExtractHelperScript', () => {
     test('preserves regex escapes in the generated helper source', () => {
         const script = buildAutoExtractHelperScript();
 
-        assert.ok(script.includes(String.raw`const CACHE_TIMER_RE = /^\[phase\]\s+cache-timer\s*$/;`));
+        assert.ok(script.includes(String.raw`const CACHE_TIMER_RE = /^\[phase\]\s+cache-timer(?:\s*:\s*.*)?\s*$/i;`));
         assert.ok(script.includes(String.raw`const SESSION_ENDED_RE = /^\[agent\]\s+Session ended/;`));
         assert.ok(script.includes(String.raw`const HEADLESS_STATUS_RE = /^\[headless\]\s+Status:\s+(\w+)\s*$/i;`));
         assert.ok(script.includes(String.raw`const parts = pendingLogText.split(/\r?\n/);`));
@@ -126,6 +126,15 @@ describe('buildExtractionPrompt', () => {
     test('classifies cache-timer lines as ignorable noise', () => {
         assert.deepEqual(classifyAutoExtractLogLine('[phase]   cache-timer'), {
             stripped: '[phase]   cache-timer',
+            keep: false,
+            completion: 'none',
+            completionReason: null,
+        });
+    });
+
+    test('classifies cache-timer lines with rendered values as ignorable noise', () => {
+        assert.deepEqual(classifyAutoExtractLogLine('[phase]   cache-timer: ⏱ 0:05'), {
+            stripped: '[phase]   cache-timer: ⏱ 0:05',
             keep: false,
             completion: 'none',
             completionReason: null,

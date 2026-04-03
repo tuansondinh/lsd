@@ -58,27 +58,29 @@ function readJsonFile(path: string): Record<string, unknown> {
 }
 
 function parseAutoDreamSettings(source: Record<string, unknown>): Partial<AutoDreamSettings> {
+    // Check top-level autoDream field first (set via /settings UI)
+    const topLevel = source.autoDream;
     const memory = source.memory;
-    if (!memory || typeof memory !== 'object') return {};
-
-    const settings = memory as {
+    const nested = (memory && typeof memory === 'object') ? memory as {
         autoDream?: unknown;
         autoDreamMinHours?: unknown;
         autoDreamMinSessions?: unknown;
-    };
+    } : undefined;
+
+    // Top-level takes precedence for enabled; nested.memory for thresholds
+    const enabledSource = typeof topLevel === 'boolean' ? topLevel
+        : nested && typeof nested.autoDream === 'boolean' ? nested.autoDream
+        : undefined;
 
     return {
-        enabled:
-            typeof settings.autoDream === 'boolean'
-                ? settings.autoDream
-                : DEFAULT_AUTO_DREAM_SETTINGS.enabled,
+        ...(enabledSource !== undefined ? { enabled: enabledSource } : {}),
         minHours:
-            typeof settings.autoDreamMinHours === 'number' && Number.isFinite(settings.autoDreamMinHours)
-                ? Math.max(1, settings.autoDreamMinHours)
+            nested && typeof nested.autoDreamMinHours === 'number' && Number.isFinite(nested.autoDreamMinHours)
+                ? Math.max(1, nested.autoDreamMinHours)
                 : DEFAULT_AUTO_DREAM_SETTINGS.minHours,
         minSessions:
-            typeof settings.autoDreamMinSessions === 'number' && Number.isFinite(settings.autoDreamMinSessions)
-                ? Math.max(1, Math.floor(settings.autoDreamMinSessions))
+            nested && typeof nested.autoDreamMinSessions === 'number' && Number.isFinite(nested.autoDreamMinSessions)
+                ? Math.max(1, Math.floor(nested.autoDreamMinSessions))
                 : DEFAULT_AUTO_DREAM_SETTINGS.minSessions,
     };
 }
@@ -383,6 +385,13 @@ const { join, delimiter } = require('node:path');
 const [cliPath, cwd, tmpPromptPath, auditPath, logPath, memoryDir, sessionDir, instruction, model, trigger, priorMtime, sessionCount] = process.argv.slice(1);
 let finalized = false;
 let pendingLogText = '';
+let completionState = null;
+let completionTimer = null;
+let hardTimeout = null;
+const ANSI_PATTERN = /\u001B\[[0-?]*[ -/]*[@-~]/g;
+const CACHE_TIMER_RE = /^\[phase\]\s+cache-timer(?:\s*:\s*.*)?\s*$/i;
+const SESSION_ENDED_RE = /^\[agent\]\s+Session ended/;
+const HEADLESS_STATUS_RE = /^\[headless\]\s+Status:\s+(\w+)\s*$/i;
 
 function newestMemoryMtime(dir) {
 	try {
@@ -454,6 +463,43 @@ function pruneBrokenMemoryRefs(dir) {
 	}
 }
 
+function stripAnsi(text) {
+	return String(text).replace(ANSI_PATTERN, '');
+}
+
+function classifyLogLine(rawLine) {
+	const stripped = stripAnsi(rawLine).trim();
+	if (!stripped) {
+		return { stripped, keep: false, completion: null, completionReason: null };
+	}
+	if (CACHE_TIMER_RE.test(stripped)) {
+		return { stripped, keep: false, completion: null, completionReason: null };
+	}
+	if (SESSION_ENDED_RE.test(stripped)) {
+		return { stripped, keep: true, completion: 'finished', completionReason: 'session_end_detected' };
+	}
+	const headlessStatusMatch = stripped.match(HEADLESS_STATUS_RE);
+	if (headlessStatusMatch) {
+		const status = String(headlessStatusMatch[1] || '').toLowerCase();
+		if (status === 'complete') {
+			return { stripped, keep: true, completion: 'finished', completionReason: 'headless_status_complete' };
+		}
+		return { stripped, keep: true, completion: 'failed', completionReason: 'headless_status_' + status };
+	}
+	return { stripped, keep: true, completion: null, completionReason: null };
+}
+
+function scheduleCompletion(completion, completionReason) {
+	if (!completion || completionState || completionTimer) return;
+	completionState = { completion, completionReason };
+	completionTimer = setTimeout(() => {
+		finalize(completion, completion === 'finished' ? 0 : 1, null, completionReason);
+		try { child.kill('SIGTERM'); } catch {}
+		setTimeout(() => { try { child.kill('SIGKILL'); } catch {} }, 2000).unref();
+	}, 1500);
+	completionTimer.unref();
+}
+
 function writeAudit(status, extra = []) {
 	try {
 		writeFileSync(auditPath, [
@@ -490,7 +536,16 @@ function flushLogText(text, force = false) {
 	pendingLogText += text;
 	const parts = pendingLogText.split(/\r?\n/);
 	pendingLogText = force ? '' : (parts.pop() ?? '');
-	const kept = parts.filter((line) => line.trim());
+
+	const kept = [];
+	for (const rawLine of parts) {
+		const classified = classifyLogLine(rawLine);
+		if (classified.keep) kept.push(rawLine);
+		if (classified.completion) {
+			scheduleCompletion(classified.completion, classified.completionReason);
+		}
+	}
+
 	if (kept.length > 0) appendFileSync(logPath, kept.join('\n') + '\n');
 }
 
@@ -504,6 +559,8 @@ function appendLog(chunk) {
 function finalize(status, code, signal, completionReason) {
 	if (finalized) return;
 	finalized = true;
+	if (completionTimer) clearTimeout(completionTimer);
+	if (hardTimeout) clearTimeout(hardTimeout);
 	flushLogText('', true);
 	const beforeBrokenRefs = listBrokenMemoryRefs(memoryDir);
 	const prunedRefs = beforeBrokenRefs.length > 0 ? pruneBrokenMemoryRefs(memoryDir) : [];
@@ -552,8 +609,8 @@ const child = spawn(process.execPath, childArgs, {
 	stdio: ['ignore', 'pipe', 'pipe'],
 });
 
-const hardTimeout = setTimeout(() => {
-	finalize('failed', null, 'timeout', 'timeout');
+hardTimeout = setTimeout(() => {
+	finalize('failed', null, 'timeout', completionState?.completionReason ?? 'timeout');
 	try { child.kill('SIGTERM'); } catch {}
 	setTimeout(() => { try { child.kill('SIGKILL'); } catch {} }, 2000).unref();
 }, 180000);
@@ -563,12 +620,12 @@ child.stdout.on('data', appendLog);
 child.stderr.on('data', appendLog);
 child.on('error', (err) => {
 	appendLog(String(err && err.stack ? err.stack : err) + '\n');
-	clearTimeout(hardTimeout);
+	flushLogText('', true);
 	finalize('failed', null, 'spawn_error', String(err && err.message ? err.message : err));
 });
 child.on('exit', (code, signal) => {
-	clearTimeout(hardTimeout);
-	finalize(code === 0 ? 'finished' : 'failed', code, signal, 'child_exit');
+	flushLogText('', true);
+	finalize(code === 0 ? 'finished' : 'failed', code, signal, completionState?.completionReason ?? 'child_exit');
 });
 `;
 

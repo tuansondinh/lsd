@@ -21,7 +21,6 @@ import { getLanguageFromPath, highlightCode, theme } from "../theme/theme.js";
 import { type EditorScheme, editorLink } from "../utils/editor-link.js";
 import { shortenPath } from "../utils/shorten-path.js";
 import { renderDiff } from "./diff.js";
-import { DynamicBorder } from "./dynamic-border.js";
 import { keyHint } from "./keybinding-hints.js";
 import { truncateToVisualLines } from "./visual-truncate.js";
 
@@ -476,8 +475,9 @@ export class ToolExecutionComponent extends Container {
 					if (this.shouldHideCollapsedPreview()) {
 						const output = this.getTextOutput();
 						const hasDetails = output.trim().length > 0 || this.imageComponents.length > 0 || this.result.details !== undefined;
-						if (hasDetails) {
-							this.contentBox.addChild(new Text(`\n${this.collapsedExpandHint()}`, 0, 0));
+						const collapsedHint = this.collapsedHintWithPrefix("\n");
+						if (hasDetails && collapsedHint) {
+							this.contentBox.addChild(new Text(collapsedHint, 0, 0));
 							customRendererHasContent = true;
 						}
 					} else {
@@ -504,7 +504,10 @@ export class ToolExecutionComponent extends Container {
 				const output = this.getTextOutput();
 				if (output) {
 					if (this.shouldHideCollapsedPreview()) {
-						this.contentBox.addChild(new Text(`\n${this.collapsedExpandHint()}`, 0, 0));
+						const collapsedHint = this.collapsedHintWithPrefix("\n");
+						if (collapsedHint) {
+							this.contentBox.addChild(new Text(collapsedHint, 0, 0));
+						}
 					} else {
 						this.contentBox.addChild(new Text(theme.fg("toolOutput", output), 0, 0));
 					}
@@ -574,20 +577,21 @@ export class ToolExecutionComponent extends Container {
 	private renderBashContent(statusIndicator: string): void {
 		const command = str(this.args?.command);
 		const timeout = this.args?.timeout as number | undefined;
-		const borderColor = (str: string) => theme.fg("bashMode", str);
 		const body = new Container();
 
-		this.contentBox.addChild(new DynamicBorder(borderColor));
 		this.contentBox.addChild(body);
-		this.contentBox.addChild(new DynamicBorder(borderColor));
 
 		const timeoutSuffix = timeout ? theme.fg("muted", ` (timeout ${timeout}s)`) : "";
 		const commandDisplay =
-			command === null ? theme.fg("error", "[invalid arg]") : command ? command : theme.fg("toolOutput", "...");
+			command === null
+				? theme.fg("error", "[invalid arg]")
+				: command
+					? theme.fg("toolOutput", command)
+					: theme.fg("toolOutput", "...");
 		const sandboxBadge = this.result?.details?.sandboxed ? `  ${theme.fg("success", "[sandboxed]")}` : "";
-		body.addChild(
-			new Text(`${statusIndicator} ${theme.fg("toolTitle", theme.bold(`$ ${commandDisplay}`))}${timeoutSuffix}${sandboxBadge}`, 1, 0),
-		);
+		const toolLabel = theme.fg("toolTitle", theme.bold("bash"));
+		const shellPrompt = theme.fg("muted", "$ ");
+		body.addChild(new Text(`${statusIndicator} ${toolLabel} ${shellPrompt}${commandDisplay}${timeoutSuffix}${sandboxBadge}`, 0, 0));
 
 		if (this.result) {
 			const output = this.getTextOutput().trim();
@@ -599,9 +603,12 @@ export class ToolExecutionComponent extends Container {
 					.join("\n");
 
 				if (this.expanded) {
-					body.addChild(new Text(`\n${styledOutput}`, 1, 0));
+					body.addChild(new Text(`\n${styledOutput}`, 0, 0));
 				} else if (this.renderMode === "minimal") {
-					body.addChild(new Text(`\n${this.collapsedExpandHint()}`, 1, 0));
+					const collapsedHint = this.collapsedHintWithPrefix("\n");
+					if (collapsedHint) {
+						body.addChild(new Text(collapsedHint, 1, 0));
+					}
 				} else {
 					let cachedWidth: number | undefined;
 					let cachedLines: string[] | undefined;
@@ -610,7 +617,7 @@ export class ToolExecutionComponent extends Container {
 					body.addChild({
 						render: (width: number) => {
 							if (cachedLines === undefined || cachedWidth !== width) {
-								const result = truncateToVisualLines(styledOutput, BASH_PREVIEW_LINES, Math.max(1, width - 2));
+								const result = truncateToVisualLines(styledOutput, BASH_PREVIEW_LINES, Math.max(1, width - 1));
 								cachedLines = result.visualLines.map((line) => ` ${line}`);
 								cachedSkipped = result.skippedCount;
 								cachedWidth = width;
@@ -646,7 +653,7 @@ export class ToolExecutionComponent extends Container {
 						);
 					}
 				}
-				body.addChild(new Text(`\n${theme.fg("warning", `[${warnings.join(". ")}]`)}`, 1, 0));
+				body.addChild(new Text(`\n${theme.fg("warning", `[${warnings.join(". ")}]`)}`, 0, 0));
 			}
 		}
 	}
@@ -697,6 +704,11 @@ export class ToolExecutionComponent extends Container {
 		return ""; // hint is shown in editor bottom border instead
 	}
 
+	private collapsedHintWithPrefix(prefix = "\n\n"): string {
+		const hint = this.collapsedExpandHint();
+		return hint ? `${prefix}${hint}` : "";
+	}
+
 	private collapsedFirstLine(output: string): string | undefined {
 		const first = output.split("\n").map((line) => line.trim()).find(Boolean);
 		return first ? truncateToWidth(first, 120, "...") : undefined;
@@ -738,7 +750,7 @@ export class ToolExecutionComponent extends Container {
 
 				if (hideCollapsedPreview) {
 					if (output.trim()) {
-						text += `\n\n${this.collapsedExpandHint()}`;
+						text += this.collapsedHintWithPrefix();
 					}
 				} else {
 					const maxLines = this.expanded ? lines.length : 10;
@@ -820,7 +832,7 @@ export class ToolExecutionComponent extends Container {
 				}
 
 				if (hideCollapsedPreview) {
-					text += `\n\n${this.collapsedExpandHint()}`;
+					text += this.collapsedHintWithPrefix();
 				} else {
 					const totalLines = lines.length;
 					const maxLines = this.expanded ? lines.length : 10;
@@ -880,7 +892,7 @@ export class ToolExecutionComponent extends Container {
 				// This takes priority over editDiffPreview which may have a stale error
 				// due to race condition (async preview computed after file was modified)
 				text += hideCollapsedPreview
-					? `\n\n${this.collapsedExpandHint()}`
+					? this.collapsedHintWithPrefix()
 					: `\n\n${renderDiff(this.result.details.diff, { filePath: rawPath ?? undefined })}`;
 			} else if (this.editDiffPreview) {
 				// Use cached diff preview (before tool executes)
@@ -888,7 +900,7 @@ export class ToolExecutionComponent extends Container {
 					text += `\n\n${theme.fg("error", this.editDiffPreview.error)}`;
 				} else if (this.editDiffPreview.diff) {
 					text += hideCollapsedPreview
-						? `\n\n${this.collapsedExpandHint()}`
+						? this.collapsedHintWithPrefix()
 						: `\n\n${renderDiff(this.editDiffPreview.diff, { filePath: rawPath ?? undefined })}`;
 				}
 			}
@@ -910,7 +922,7 @@ export class ToolExecutionComponent extends Container {
 				const output = this.getTextOutput().trim();
 				if (output) {
 					if (hideCollapsedPreview) {
-						text += `\n\n${this.collapsedExpandHint()}`;
+						text += this.collapsedHintWithPrefix();
 					} else {
 						const lines = output.split("\n");
 						const maxLines = this.expanded ? lines.length : 20;
@@ -963,7 +975,7 @@ export class ToolExecutionComponent extends Container {
 				const output = this.getTextOutput().trim();
 				if (output) {
 					if (hideCollapsedPreview) {
-						text += `\n\n${this.collapsedExpandHint()}`;
+						text += this.collapsedHintWithPrefix();
 					} else {
 						const lines = output.split("\n");
 						const maxLines = this.expanded ? lines.length : 20;
@@ -1020,7 +1032,7 @@ export class ToolExecutionComponent extends Container {
 				const output = this.getTextOutput().trim();
 				if (output) {
 					if (hideCollapsedPreview) {
-						text += `\n\n${this.collapsedExpandHint()}`;
+						text += this.collapsedHintWithPrefix();
 					} else {
 						const lines = output.split("\n");
 						const maxLines = this.expanded ? lines.length : 15;
@@ -1061,7 +1073,7 @@ export class ToolExecutionComponent extends Container {
 				const output = this.getTextOutput().trim();
 				if (output) {
 					if (hideCollapsedPreview) {
-						text += `\n\n${this.collapsedExpandHint()}`;
+						text += this.collapsedHintWithPrefix();
 					} else {
 						const lines = output.split("\n");
 						const maxLines = this.expanded ? lines.length : 10;
@@ -1102,7 +1114,7 @@ export class ToolExecutionComponent extends Container {
 				const output = this.getTextOutput().trim();
 				if (output) {
 					if (hideCollapsedPreview) {
-						text += `\n\n${this.collapsedExpandHint()}`;
+						text += this.collapsedHintWithPrefix();
 					} else {
 						const lines = output.split("\n");
 						const maxLines = this.expanded ? lines.length : 10;
@@ -1118,7 +1130,7 @@ export class ToolExecutionComponent extends Container {
 			text = `${statusIndicator} ${theme.fg("toolTitle", theme.bold(this.toolName))}`;
 
 			const content = JSON.stringify(this.args, null, 2);
-			text += hideCollapsedPreview ? `\n\n${this.collapsedExpandHint()}` : `\n\n${content}`;
+			text += hideCollapsedPreview ? this.collapsedHintWithPrefix() : `\n\n${content}`;
 			const output = this.getTextOutput();
 			if (output && !hideCollapsedPreview) {
 				text += `\n${output}`;

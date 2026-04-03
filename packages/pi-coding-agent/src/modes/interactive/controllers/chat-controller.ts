@@ -79,7 +79,7 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 			host.statusContainer.clear();
 			host.loadingAnimation = new Loader(
 				host.ui,
-				(spinner) => theme.fg("accent", spinner),
+				(spinner) => theme.fg("text", spinner),
 				(text) => theme.fg("accent", text),
 				host.defaultWorkingMessage,
 			);
@@ -319,7 +319,7 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 			host.statusContainer.clear();
 			host.autoCompactionLoader = new Loader(
 				host.ui,
-				(spinner) => theme.fg("accent", spinner),
+				(spinner) => theme.fg("text", spinner),
 				(text) => theme.fg("muted", text),
 				`${event.reason === "overflow" ? "Context overflow detected, " : ""}Auto-compacting... (${appKey(host.keybindings, "interrupt")} to cancel)`,
 			);
@@ -365,7 +365,7 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 			host.statusContainer.clear();
 			host.retryLoader = new Loader(
 				host.ui,
-				(spinner) => theme.fg("warning", spinner),
+				(spinner) => theme.fg("text", spinner),
 				(text) => theme.fg("muted", text),
 				`Retrying (${event.attempt}/${event.maxAttempts}) in ${Math.round(event.delayMs / 1000)}s... (${appKey(host.keybindings, "interrupt")} to cancel)`,
 			);

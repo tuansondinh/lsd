@@ -40,6 +40,7 @@ type PicoModule = {
   dim: (s: string) => string
   bold: (s: string) => string
   red: (s: string) => string
+  white: (s: string) => string
   reset: (s: string) => string
 }
 
@@ -102,8 +103,12 @@ async function loadPico(): Promise<PicoModule> {
   } catch {
     // Fallback: return identity functions
     const identity = (s: string) => s
-    return { cyan: identity, green: identity, yellow: identity, dim: identity, bold: identity, red: identity, reset: identity }
+    return { cyan: identity, green: identity, yellow: identity, dim: identity, bold: identity, red: identity, white: identity, reset: identity }
   }
+}
+
+function createWhiteSpinner(p: ClackModule, pc: PicoModule) {
+  return p.spinner({ styleFrame: (frame: string) => pc.white(frame) })
 }
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
@@ -487,7 +492,7 @@ async function runLspStep(
     const entry = missing.find((s) => s.name === name)
     if (!entry) continue
 
-    const s = p.spinner()
+    const s = createWhiteSpinner(p, pc)
     s.start(`Installing ${entry.label}...`)
     const result = await installServer(name)
     if (result.success) {
@@ -595,7 +600,7 @@ async function runOAuthFlow(
   const providerName = providerInfo?.name ?? providerId
   const usesCallbackServer = providerInfo?.usesCallbackServer ?? false
 
-  const s = p.spinner()
+  const s = createWhiteSpinner(p, pc)
   s.start(`Authenticating with ${providerName}...`)
 
   try {
@@ -684,7 +689,7 @@ async function runBedrockSsoFlow(
   if (p.isCancel(region) || !region) return false
   const trimmedRegion = String(region).trim()
 
-  const s = p.spinner()
+  const s = createWhiteSpinner(p, pc)
   s.start(`Running aws sso login for profile ${trimmedProfile}...`)
 
   try {
@@ -1064,7 +1069,7 @@ async function runRemoteQuestionsStep(
     }
 
     // Validate
-    const s = p.spinner()
+    const s = createWhiteSpinner(p, pc)
     s.start('Validating Slack token...')
     try {
       const res = await fetch('https://slack.com/api/auth.test', {
@@ -1112,7 +1117,7 @@ async function runRemoteQuestionsStep(
     }
 
     // Validate
-    const s = p.spinner()
+    const s = createWhiteSpinner(p, pc)
     s.start('Validating Telegram bot token...')
     try {
       const res = await fetch(`https://api.telegram.org/bot${trimmed}/getMe`, {
@@ -1142,7 +1147,7 @@ async function runRemoteQuestionsStep(
     const trimmedChatId = (chatId as string).trim()
 
     // Test send
-    const ts = p.spinner()
+    const ts = createWhiteSpinner(p, pc)
     ts.start('Testing message delivery...')
     try {
       const res = await fetch(`https://api.telegram.org/bot${trimmed}/sendMessage`, {
@@ -1175,7 +1180,7 @@ async function runDiscordChannelStep(p: ClackModule, pc: PicoModule, token: stri
   const headers = { Authorization: `Bot ${token}` }
 
   // Validate token
-  const s = p.spinner()
+  const s = createWhiteSpinner(p, pc)
   s.start('Validating Discord bot token...')
   let auth: any
   try {

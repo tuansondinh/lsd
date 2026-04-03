@@ -59,6 +59,8 @@ export interface SettingsConfig {
 	toolOutputMode: "minimal" | "normal";
 	rtk: boolean;
 	editorScheme: "auto" | "vscode" | "cursor" | "zed" | "jetbrains" | "sublime" | "file";
+	autoDream: boolean;
+	autoMemory: boolean;
 	sandboxEnabled?: boolean;
 	sandboxNetworkMode?: "allow" | "ask" | "deny";
 	classifierModelSubmenu?: (currentValue: string, done: (selectedValue?: string) => void) => Component;
@@ -72,6 +74,8 @@ export interface SettingsCallbacks {
 	onClassifierModelChange: (modelRef: string) => void;
 	onBudgetSubagentModelChange: (modelRef: string) => void;
 	onPlanModeReasoningModelChange: (modelRef: string) => void;
+	onAutoDreamChange: (enabled: boolean) => void;
+	onAutoMemoryChange: (enabled: boolean) => void;
 	onSandboxEnabledChange?: (enabled: boolean) => void;
 	onSandboxNetworkModeChange?: (mode: "allow" | "ask" | "deny") => void;
 	onShowImagesChange: (enabled: boolean) => void;
@@ -439,6 +443,26 @@ export class SettingsSelectorComponent extends Container {
 			values: ["true", "false"],
 		});
 
+		// Auto-dream toggle (insert after pin-last-prompt)
+		const pinLastPromptIdx = items.findIndex((item) => item.id === "pin-last-prompt");
+		items.splice(pinLastPromptIdx + 1, 0, {
+			id: "auto-dream",
+			label: "Auto dream",
+			description: "Automatically consolidate and refine memory after sessions",
+			currentValue: config.autoDream ? "true" : "false",
+			values: ["true", "false"],
+		});
+
+		// Auto-memory toggle (insert after auto-dream)
+		const autoDreamIdx = items.findIndex((item) => item.id === "auto-dream");
+		items.splice(autoDreamIdx + 1, 0, {
+			id: "auto-memory",
+			label: "Auto memory",
+			description: "Automatically extract and save memories from session transcripts",
+			currentValue: config.autoMemory ? "true" : "false",
+			values: ["true", "false"],
+		});
+
 		// RTK toggle (insert after cache-timer)
 		const cacheTimerIndex = items.findIndex((item) => item.id === "cache-timer");
 		items.splice(cacheTimerIndex + 1, 0, {
@@ -563,6 +587,12 @@ export class SettingsSelectorComponent extends Container {
 						break;
 					case "pin-last-prompt":
 						callbacks.onPinLastPromptChange(newValue === "true");
+						break;
+					case "auto-dream":
+						callbacks.onAutoDreamChange(newValue === "true");
+						break;
+					case "auto-memory":
+						callbacks.onAutoMemoryChange(newValue === "true");
 						break;
 					case "rtk":
 						callbacks.onRtkChange(newValue === "true");

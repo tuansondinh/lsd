@@ -11,7 +11,6 @@ import {
 } from "../../../core/tools/truncate.js";
 import { renderTerminalLines } from "../../../utils/terminal-serializer.js";
 import { theme, type ThemeColor } from "../theme/theme.js";
-import { DynamicBorder } from "./dynamic-border.js";
 import { editorKey, keyHint } from "./keybinding-hints.js";
 import { truncateToVisualLines } from "./visual-truncate.js";
 
@@ -52,14 +51,10 @@ export class BashExecutionComponent extends Container {
 		this.renderMode = renderMode;
 		this.sandboxed = sandboxed;
 
-		// Use dim border for excluded-from-context commands (!! prefix)
+		// Use dim tone for excluded-from-context commands (!! prefix)
 		this.colorKey = (excludeFromContext ? "dim" : "bashMode") as ThemeColor;
-		const borderColor = (str: string) => theme.fg(this.colorKey, str);
 
-		// Top border
-		this.addChild(new DynamicBorder(borderColor));
-
-		// Content container (holds dynamic content between borders)
+		// Content container
 		this.contentContainer = new Container();
 		this.addChild(this.contentContainer);
 
@@ -75,14 +70,11 @@ export class BashExecutionComponent extends Container {
 			`Running... (${editorKey("selectCancel")} to cancel)`, // Plain text for loader
 		);
 		this.contentContainer.addChild(this.loader);
-
-		// Bottom border
-		this.addChild(new DynamicBorder(borderColor));
 	}
 
 	/** Build the header line text. */
 	private buildHeaderText(): string {
-		let text = theme.fg(this.colorKey, theme.bold(`$ ${this.command}`));
+		let text = `${theme.fg("toolTitle", theme.bold("bash"))} ${theme.fg(this.colorKey, theme.bold(`$ ${this.command}`))}`;
 		if (this.sandboxed) {
 			text += `  ${theme.fg("success", "[sandboxed]")}`;
 		}

@@ -60,8 +60,8 @@ export class Loader extends Text {
 	private wordAnimId: NodeJS.Timeout | null = null;
 
 	// ── shimmer gradient: theme blueHigh → blueXhigh ─────────────────────────
-	private readonly gradStart: [number, number, number] = [96, 165, 250];  // #60a5fa (thinkingHigh)
-	private readonly gradEnd:   [number, number, number] = [147, 197, 253]; // #93c5fd (thinkingXhigh)
+	private readonly gradStart: [number, number, number] = [147, 197, 253]; // #93c5fd (blue-300)
+	private readonly gradEnd:   [number, number, number] = [191, 219, 254]; // #bfdbfe (blue-200)
 
 	// Shimmer ticks independently at ~40ms for smooth gradient movement
 	private shimmerTick = 0;

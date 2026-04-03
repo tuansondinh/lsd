@@ -17,7 +17,7 @@ import { scanMemoryFiles, formatMemoryManifest } from './memory-scan.js';
 import { normalizeSubagentModel } from '../subagent/model-resolution.js';
 
 const AUTO_EXTRACT_ANSI_PATTERN = /\u001B\[[0-?]*[ -/]*[@-~]/g;
-const AUTO_EXTRACT_CACHE_TIMER_RE = /^\[phase\]\s+cache-timer\s*$/;
+const AUTO_EXTRACT_CACHE_TIMER_RE = /^\[phase\]\s+cache-timer(?:\s*:\s*.*)?\s*$/i;
 const AUTO_EXTRACT_SESSION_ENDED_RE = /^\[agent\]\s+Session ended/;
 const AUTO_EXTRACT_HEADLESS_STATUS_RE = /^\[headless\]\s+Status:\s+(\w+)\s*$/i;
 
@@ -212,7 +212,7 @@ let completionTimer = null;
 let hardTimeout = null;
 let pendingLogText = '';
 const ANSI_PATTERN = /\u001B\[[0-?]*[ -/]*[@-~]/g;
-const CACHE_TIMER_RE = /^\[phase\]\s+cache-timer\s*$/;
+const CACHE_TIMER_RE = /^\[phase\]\s+cache-timer(?:\s*:\s*.*)?\s*$/i;
 const SESSION_ENDED_RE = /^\[agent\]\s+Session ended/;
 const HEADLESS_STATUS_RE = /^\[headless\]\s+Status:\s+(\w+)\s*$/i;
 
@@ -379,12 +379,27 @@ child.on('exit', (code, signal) => {
  * and spawns a detached headless agent to process it.
  * Fire-and-forget: the parent can exit without killing the child.
  */
+function readAutoMemoryEnabled(): boolean {
+    try {
+        const settingsPath = join(getAgentDir(), 'settings.json');
+        if (!existsSync(settingsPath)) return false;
+        const raw = readFileSync(settingsPath, 'utf-8');
+        const parsed = JSON.parse(raw) as { autoMemory?: unknown };
+        return parsed.autoMemory === true;
+    } catch {
+        return false;
+    }
+}
+
 export function extractMemories(ctx: any, cwd: string): void {
     // Guard: prevent recursive extraction
     if (process.env.LSD_MEMORY_EXTRACT === '1') return;
 
-    // Guard: user opt-out
+    // Guard: user opt-out via env var
     if (process.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY) return;
+
+    // Guard: auto memory must be enabled in settings (default: disabled)
+    if (!readAutoMemoryEnabled()) return;
 
     const entries = ctx.sessionManager.getEntries();
 

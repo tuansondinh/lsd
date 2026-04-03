@@ -312,6 +312,7 @@ export function formatProgress(event: Record<string, unknown>, ctx: ProgressCont
         const statusKey = String(event.statusKey ?? '')
         const msg = String(event.message ?? '')
         if (!statusKey && !msg) return null  // suppress empty status lines
+        if (statusKey.trim().toLowerCase() === 'cache-timer') return null // never emit cache timer chatter in headless logs
         // Show meaningful phase transitions
         if (statusKey) {
           const label = parsePhaseLabel(statusKey, msg)

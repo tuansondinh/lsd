@@ -58,47 +58,51 @@ export class AssistantMessageComponent extends Container {
 		// Clear content container
 		this.contentContainer.clear();
 
-		const hasVisibleContent = message.content.some(
-			(c) => (c.type === "text" && c.text.trim()) || (c.type === "thinking" && c.thinking.trim()),
-		);
+		const hasVisibleContent = message.content.some((c) => {
+			if (c.type === "text") return Boolean(c.text.trim());
+			if (c.type === "thinking") return !this.hideThinkingBlock && Boolean(c.thinking.trim());
+			return false;
+		});
 
 		if (hasVisibleContent) {
 			this.contentContainer.addChild(new Spacer(1));
 		}
 
 		// Render content in order
+		let markerAdded = false;
+		const responseMarker = `${theme.fg("accent", "●")} `;
 		for (let i = 0; i < message.content.length; i++) {
 			const content = message.content[i];
 			if (content.type === "text" && content.text.trim()) {
 				// Assistant text messages with no background - trim the text
 				// Set paddingY=0 to avoid extra spacing before tool executions
-				this.contentContainer.addChild(new Markdown(content.text.trim(), 1, 0, this.markdownTheme));
+				const text = content.text.trim();
+				const withMarker = markerAdded ? text : `${responseMarker}${text}`;
+				this.contentContainer.addChild(new Markdown(withMarker, 1, 0, this.markdownTheme));
+				markerAdded = true;
 			} else if (content.type === "thinking" && content.thinking.trim()) {
+				if (this.hideThinkingBlock) {
+					// Hide thinking content entirely when hide-thinking is enabled.
+					continue;
+				}
+
 				// Add spacing only when another visible assistant content block follows.
 				// This avoids a superfluous blank line before separately-rendered tool execution blocks.
-				const hasVisibleContentAfter = message.content
-					.slice(i + 1)
-					.some((c) => (c.type === "text" && c.text.trim()) || (c.type === "thinking" && c.thinking.trim()));
+				const hasVisibleContentAfter = message.content.slice(i + 1).some((c) => {
+					if (c.type === "text") return Boolean(c.text.trim());
+					if (c.type === "thinking") return !this.hideThinkingBlock && Boolean(c.thinking.trim());
+					return false;
+				});
 
-				if (this.hideThinkingBlock) {
-					// Skip "Thinking..." label when thinking is disabled in settings
-					if (this.thinkingLevel === "off") continue;
-					// Show static "Thinking..." label when hidden
-					this.contentContainer.addChild(new Text(theme.italic(theme.fg("thinkingText", "Thinking...")), 1, 0));
-					if (hasVisibleContentAfter) {
-						this.contentContainer.addChild(new Spacer(1));
-					}
-				} else {
-					// Thinking traces in thinkingText color, italic
-					this.contentContainer.addChild(
-						new Markdown(content.thinking.trim(), 1, 0, this.markdownTheme, {
-							color: (text: string) => theme.fg("thinkingText", text),
-							italic: true,
-						}),
-					);
-					if (hasVisibleContentAfter) {
-						this.contentContainer.addChild(new Spacer(1));
-					}
+				// Thinking traces in thinkingText color, italic
+				this.contentContainer.addChild(
+					new Markdown(content.thinking.trim(), 1, 0, this.markdownTheme, {
+						color: (text: string) => theme.fg("thinkingText", text),
+						italic: true,
+					}),
+				);
+				if (hasVisibleContentAfter) {
+					this.contentContainer.addChild(new Spacer(1));
 				}
 			}
 		}

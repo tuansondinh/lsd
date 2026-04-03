@@ -163,6 +163,10 @@ export class Editor implements Component, Focusable {
 	private pastes: Map<number, string> = new Map();
 	private pasteCounter: number = 0;
 
+	// Drag-and-drop image path markers (visual only; expanded back on submit)
+	private droppedImagePaths: Map<number, string> = new Map();
+	private droppedImageCounter: number = 0;
+
 	// Bracketed paste mode buffering
 	private pasteBuffer: string = "";
 	private isInPaste: boolean = false;
@@ -877,7 +881,49 @@ export class Editor implements Component, Focusable {
 			const markerRegex = new RegExp(`\\[paste #${pasteId}( (\\+\\d+ lines|\\d+ chars))?\\]`, "g");
 			result = result.replace(markerRegex, pasteContent);
 		}
+		return this.expandDroppedImageMarkers(result);
+	}
+
+	private expandDroppedImageMarkers(text: string): string {
+		let result = text;
+		for (const [imageId, imagePath] of this.droppedImagePaths) {
+			const markerRegex = new RegExp(`<Image${imageId}>`, "g");
+			result = result.replace(markerRegex, imagePath);
+		}
 		return result;
+	}
+
+	private extractDroppedImagePath(pastedText: string): string | null {
+		const trimmed = pastedText.trim();
+		if (!trimmed || /[\n\r\t]/.test(trimmed)) return null;
+
+		const unquoted =
+			(trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+			(trimmed.startsWith("'") && trimmed.endsWith("'"))
+				? trimmed.slice(1, -1)
+				: trimmed;
+
+		let maybePath = unquoted;
+		if (unquoted.startsWith("file://")) {
+			try {
+				maybePath = decodeURI(unquoted.replace(/^file:\/\//, ""));
+			} catch {
+				return null;
+			}
+		}
+		const normalizedPath = maybePath.replace(/\\ /g, " ");
+
+		if (!/\.(png|jpe?g|gif|webp|bmp|tiff?|svg|heic|heif|avif)$/i.test(normalizedPath)) {
+			return null;
+		}
+
+		if (!normalizedPath.startsWith("/") && !normalizedPath.startsWith("~/") && !normalizedPath.startsWith("./") && !normalizedPath.startsWith("../")) {
+			return null;
+		}
+
+		// Return the normalized filesystem path (not the raw trimmed input)
+		// This ensures file:// URIs are decoded and escaped spaces are normalized
+		return normalizedPath;
 	}
 
 	getLines(): string[] {
@@ -1059,14 +1105,27 @@ export class Editor implements Component, Focusable {
 			.filter((char) => char === "\n" || char.charCodeAt(0) >= 32)
 			.join("");
 
-		// If pasting a file path (starts with /, ~, or .) and the character before
-		// the cursor is a word character, prepend a space for better readability
-		if (/^[/~.]/.test(filteredText)) {
+		// Check if we need a leading space for readability
+		// This applies to file:// URIs, absolute paths (~, /), or relative paths (., ..)
+		let needsLeadingSpace = false;
+		if (/^(file:\/\/|[/~.])/.test(filteredText)) {
 			const currentLine = this.state.lines[this.state.cursorLine] || "";
 			const charBeforeCursor = this.state.cursorCol > 0 ? currentLine[this.state.cursorCol - 1] : "";
 			if (charBeforeCursor && /\w/.test(charBeforeCursor)) {
+				needsLeadingSpace = true;
 				filteredText = ` ${filteredText}`;
 			}
+		}
+
+		const droppedImagePath = this.extractDroppedImagePath(filteredText);
+		if (droppedImagePath) {
+			this.droppedImageCounter++;
+			const imageId = this.droppedImageCounter;
+			this.droppedImagePaths.set(imageId, droppedImagePath);
+			// Preserve leading space for readability (e.g., "foo" -> "foo <Image1>" -> "foo /tmp/image.png")
+			const toInsert = needsLeadingSpace ? ` <Image${imageId}>` : `<Image${imageId}>`;
+			this.insertTextAtCursorInternal(toInsert);
+			return;
 		}
 
 		// Split into lines to check for large paste
@@ -1138,10 +1197,13 @@ export class Editor implements Component, Focusable {
 			const markerRegex = new RegExp(`\\[paste #${pasteId}( (\\+\\d+ lines|\\d+ chars))?\\]`, "g");
 			result = result.replace(markerRegex, pasteContent);
 		}
+		result = this.expandDroppedImageMarkers(result);
 
 		this.state = { lines: [""], cursorLine: 0, cursorCol: 0 };
 		this.pastes.clear();
 		this.pasteCounter = 0;
+		this.droppedImagePaths.clear();
+		this.droppedImageCounter = 0;
 		this.historyIndex = -1;
 		this.scrollOffset = 0;
 		this.undoStack.clear();

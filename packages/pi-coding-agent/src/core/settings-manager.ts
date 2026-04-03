@@ -176,6 +176,8 @@ export interface Settings {
 	lspInstalledServers?: string[]; // list of server names installed via the onboarding wizard
 	rtk?: boolean; // default: false — enable RTK shell-command compression (requires restart)
 	editorScheme?: "auto" | "vscode" | "cursor" | "zed" | "jetbrains" | "sublime" | "file"; // URI scheme for Cmd+click file links (default: "auto")
+	autoDream?: boolean; // default: false — enable automatic memory consolidation (dream) after sessions
+	autoMemory?: boolean; // default: false — enable automatic memory extraction from session transcripts
 }
 
 function isQualifiedProviderModelRef(value: unknown): value is string {
@@ -1302,5 +1304,21 @@ export class SettingsManager {
 
 	setEditorScheme(scheme: "auto" | "vscode" | "cursor" | "zed" | "jetbrains" | "sublime" | "file"): void {
 		this.setGlobalSetting("editorScheme", scheme);
+	}
+
+	getAutoDream(): boolean {
+		return this.settings.autoDream ?? false;
+	}
+
+	setAutoDream(enabled: boolean): void {
+		this.setGlobalSetting("autoDream", enabled);
+	}
+
+	getAutoMemory(): boolean {
+		return this.settings.autoMemory ?? false;
+	}
+
+	setAutoMemory(enabled: boolean): void {
+		this.setGlobalSetting("autoMemory", enabled);
 	}
 }

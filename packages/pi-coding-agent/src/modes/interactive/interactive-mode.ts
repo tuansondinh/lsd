@@ -2501,7 +2501,6 @@ export class InteractiveMode {
 							this.ui,
 						);
 						component.setExpanded(this.toolOutputExpanded);
-						this.chatContainer.addChild(new Spacer(1));
 						this.chatContainer.addChild(component);
 
 						if (message.stopReason === "aborted" || message.stopReason === "error") {
@@ -2533,7 +2532,6 @@ export class InteractiveMode {
 							this.ui,
 						);
 						component.setExpanded(this.toolOutputExpanded);
-						this.chatContainer.addChild(new Spacer(1));
 						this.chatContainer.addChild(component);
 						// Find matching webSearchResult in this message's content
 						const resultBlock = message.content.find(
@@ -2806,7 +2804,7 @@ export class InteractiveMode {
 	updateEditorExpandHint(): void {
 		const expandKey = appKey(this.keybindings, "expandTools");
 		const collapseHint = `${theme.fg("dim", expandKey)}${theme.fg("muted", " collapse")}`;
-		const expandHint = `${theme.fg("dim", expandKey)}${theme.fg("muted", " expand")}`;
+		const expandHint = `${theme.fg("dim", expandKey)}${theme.fg("muted", " : verbose")}`;
 		// The base hint set during agent_start
 		const enterKey = theme.fg("dim", "↵");
 		const followUpKey = theme.fg("dim", appKey(this.keybindings, "followUp"));
@@ -3191,6 +3189,8 @@ export class InteractiveMode {
 					toolOutputMode: this.settingsManager.getToolOutputMode(),
 					rtk: this.settingsManager.getRtk(),
 					editorScheme: this.settingsManager.getEditorScheme(),
+					autoDream: this.settingsManager.getAutoDream(),
+					autoMemory: this.settingsManager.getAutoMemory(),
 					sandboxEnabled: this.settingsManager.getSandboxSettings().enabled ?? true,
 					sandboxNetworkMode: this.settingsManager.getSandboxSettings().networkMode
 						?? (this.settingsManager.getSandboxSettings().networkEnabled === true ? "allow" : this.settingsManager.getSandboxSettings().networkEnabled === false ? "deny" : "ask"),
@@ -3285,6 +3285,14 @@ export class InteractiveMode {
 					onRtkChange: (enabled) => {
 						this.settingsManager.setRtk(enabled);
 						this.showStatus(`RTK: ${enabled ? "enabled" : "disabled"} (restart required)`);
+					},
+					onAutoDreamChange: (enabled) => {
+						this.settingsManager.setAutoDream(enabled);
+						this.showStatus(`Auto dream: ${enabled ? "enabled" : "disabled"}`);
+					},
+					onAutoMemoryChange: (enabled) => {
+						this.settingsManager.setAutoMemory(enabled);
+						this.showStatus(`Auto memory: ${enabled ? "enabled" : "disabled"}`);
 					},
 					onSteeringModeChange: (mode) => {
 						this.session.setSteeringMode(mode);
@@ -3690,7 +3698,7 @@ export class InteractiveMode {
 						this.chatContainer.addChild(new Spacer(1));
 						summaryLoader = new Loader(
 							this.ui,
-							(spinner) => theme.fg("accent", spinner),
+							(spinner) => theme.fg("text", spinner),
 							(text) => theme.fg("muted", text),
 							`Summarizing branch... (${appKey(this.keybindings, "interrupt")} to cancel)`,
 						);
@@ -4402,7 +4410,7 @@ export class InteractiveMode {
 		const label = isAuto ? `Auto-compacting context... ${cancelHint}` : `Compacting context... ${cancelHint}`;
 		const compactingLoader = new Loader(
 			this.ui,
-			(spinner) => theme.fg("accent", spinner),
+			(spinner) => theme.fg("text", spinner),
 			(text) => theme.fg("muted", text),
 			label,
 		);

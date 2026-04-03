@@ -1555,9 +1555,27 @@ export class AgentSession {
 		const preservedFollowUp = userMessages.followUp.map(extractText).filter((t) => t.length > 0);
 
 		// Session-level string arrays track what was queued for display purposes.
-		// Return the full set (session-tracked + any agent-only user messages).
-		const steering = [...this._steeringMessages, ...preservedSteering];
-		const followUp = [...this._followUpMessages, ...preservedFollowUp];
+		// Merge with any agent-only user messages, but avoid double-counting the
+		// same queued prompt when both structures still contain it (race during abort).
+		const mergeQueues = (sessionTracked: string[], preserved: string[]): string[] => {
+			const result = [...sessionTracked];
+			const sessionCounts = new Map<string, number>();
+			for (const text of sessionTracked) {
+				sessionCounts.set(text, (sessionCounts.get(text) ?? 0) + 1);
+			}
+			const preservedSeen = new Map<string, number>();
+			for (const text of preserved) {
+				const seen = (preservedSeen.get(text) ?? 0) + 1;
+				preservedSeen.set(text, seen);
+				if (seen > (sessionCounts.get(text) ?? 0)) {
+					result.push(text);
+				}
+			}
+			return result;
+		};
+
+		const steering = mergeQueues(this._steeringMessages, preservedSteering);
+		const followUp = mergeQueues(this._followUpMessages, preservedFollowUp);
 		this._steeringMessages = [];
 		this._followUpMessages = [];
 

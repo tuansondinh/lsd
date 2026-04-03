@@ -9,9 +9,7 @@
 import os from 'node:os'
 import chalk from 'chalk'
 import { GSD_LOGO_SEGMENTS } from './logo.js'
-import { brandNameChalk, LSD_BLUE, LSD_PINK, LSD_YELLOW } from './lsd-brand.js'
 import { accentHex } from './cli-theme.js'
-
 
 export interface WelcomeScreenOptions {
   version: string
@@ -35,6 +33,29 @@ function rpad(s: string, w: number): string {
   return s + ' '.repeat(Math.max(0, w - visLen(s)))
 }
 
+function parseHex(hex: string): [number, number, number] | null {
+  const raw = hex.trim().replace(/^#/, '')
+  const full = raw.length === 3 ? raw.split('').map((c) => c + c).join('') : raw
+  if (!/^[0-9a-fA-F]{6}$/.test(full)) return null
+  return [
+    parseInt(full.slice(0, 2), 16),
+    parseInt(full.slice(2, 4), 16),
+    parseInt(full.slice(4, 6), 16),
+  ]
+}
+
+function mixHex(baseHex: string, tintHex: string, tintWeight = 0.5): string {
+  const base = parseHex(baseHex)
+  const tint = parseHex(tintHex)
+  if (!base || !tint) return baseHex
+
+  const w = Math.min(1, Math.max(0, tintWeight))
+  const mix = (a: number, b: number): number => Math.round(a * (1 - w) + b * w)
+  const [r, g, b] = [mix(base[0], tint[0]), mix(base[1], tint[1]), mix(base[2], tint[2])]
+  const toHex = (n: number): string => n.toString(16).padStart(2, '0')
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`
+}
+
 export function printWelcomeScreen(opts: WelcomeScreenOptions): void {
   if (!process.stderr.isTTY) return
 
@@ -44,52 +65,60 @@ export function printWelcomeScreen(opts: WelcomeScreenOptions): void {
 
   // Narrow terminal fallback
   if (termWidth < 70) {
-    process.stderr.write(`\n  Lucent Software Developer v${version}\n  ${shortCwd}\n\n`)
+    process.stderr.write(`\n  Lucent Software Dev Cli v${version}\n  ${shortCwd}\n\n`)
     return
   }
 
-  // ── LSD vibrant colors ───────────────────────────────────────────────────
-  const YELLOW = LSD_YELLOW
-  const BLUE = LSD_BLUE
-  const PINK = LSD_PINK
+  // ── Theme-adaptive palette ───────────────────────────────────────────────
+  // Keep welcome colors anchored to the active CLI theme accent so the banner
+  // feels native regardless of custom themes.
   const ACCENT = accentHex()
+  const LOGO_EDGE = chalk.hex(mixHex(ACCENT, '#111111', 0.55))
+  const LOGO_CENTER = chalk.hex(mixHex(ACCENT, '#ffffff', 0.3))
+  const TITLE_BASE = chalk.bold
+  const TITLE_MARK = chalk.hex(mixHex(ACCENT, '#ffffff', 0.35)).bold
+  const VERSION = chalk.dim
+  const META = chalk.dim
+  const TOOLS = chalk.dim
 
   // ── Panel widths ────────────────────────────────────────────────────────────
   // Layout: 1 leading space + LEFT_INNER logo content + 1 inner divider + RIGHT_INNER info
   // Total: 1 + LEFT_INNER + 1 + RIGHT_INNER = termWidth
   const LEFT_INNER = 34
-  const RIGHT_INNER = termWidth - LEFT_INNER - 2  // 2 = leading space + inner divider
+  const RIGHT_INNER = termWidth - LEFT_INNER - 2 // 2 = leading space + inner divider
 
   // ── Bar/divider chars (matching GLYPH.separator + widget ui.bar() style) ────
-  const H = '─', DV = '│', DS = '├'
+  const H = '─'
+  const DV = '│'
+  const DS = '├'
 
   // ── Left rows: blank + 6 logo lines + blank (8 total) ───────────────────────
   const leftRows: (readonly [string, string, string] | null)[] = [null, ...GSD_LOGO_SEGMENTS, null]
 
   // ── Right rows (8 total, null = divider) ────────────────────────────────────
-  const titleLeft  = `  ${brandNameChalk()}`
-  const titleRight = chalk.hex(YELLOW)(`v${version}`)
-  const titleFill  = RIGHT_INNER - visLen(titleLeft) - visLen(titleRight)
-  const titleRow   = titleLeft + ' '.repeat(Math.max(1, titleFill)) + titleRight
+  const titleLeft = `  ${TITLE_MARK('L')}${TITLE_BASE('ucent ')}${TITLE_MARK('S')}${TITLE_BASE('oftware ')}${TITLE_MARK('D')}${TITLE_BASE('ev Cli')}`
+  const titleRight = VERSION(`v${version}`)
+  const titleFill = RIGHT_INNER - visLen(titleLeft) - visLen(titleRight)
+  const titleRow = titleLeft + ' '.repeat(Math.max(1, titleFill)) + titleRight
 
   const toolParts: string[] = []
-  if (process.env.BRAVE_API_KEY)      toolParts.push('Brave ✓')
-  if (process.env.BRAVE_ANSWERS_KEY)  toolParts.push('Answers ✓')
-  if (process.env.JINA_API_KEY)       toolParts.push('Jina ✓')
-  if (process.env.TAVILY_API_KEY)     toolParts.push('Tavily ✓')
-  if (process.env.CONTEXT7_API_KEY)   toolParts.push('Context7 ✓')
+  if (process.env.BRAVE_API_KEY) toolParts.push('Brave ✓')
+  if (process.env.BRAVE_ANSWERS_KEY) toolParts.push('Answers ✓')
+  if (process.env.JINA_API_KEY) toolParts.push('Jina ✓')
+  if (process.env.TAVILY_API_KEY) toolParts.push('Tavily ✓')
+  if (process.env.CONTEXT7_API_KEY) toolParts.push('Context7 ✓')
 
   // Tools summary row
-  const toolsLeft  = toolParts.length > 0 ? chalk.hex(PINK)('  ' + toolParts.join('  ·  ')) : ''
-  const footerRow  = rpad(toolsLeft, RIGHT_INNER)
+  const toolsLeft = toolParts.length > 0 ? TOOLS('  ' + toolParts.join('  ·  ')) : ''
+  const footerRow = rpad(toolsLeft, RIGHT_INNER)
 
   const DIVIDER = null
   const rightRows: (string | null)[] = [
     titleRow,
     DIVIDER,
-    modelName ? `  Model      ${chalk.hex(ACCENT)(modelName)}`  : '',
-    provider  ? `  Provider   ${chalk.hex(ACCENT)(provider)}`   : '',
-    `  Directory  ${chalk.hex(ACCENT)(shortCwd)}`,
+    modelName ? `  Model      ${META(modelName)}` : '',
+    provider ? `  Provider   ${META(provider)}` : '',
+    `  Directory  ${META(shortCwd)}`,
     DIVIDER,
     footerRow,
     '',
@@ -105,11 +134,11 @@ export function printWelcomeScreen(opts: WelcomeScreenOptions): void {
     const row = leftRows[i]
     const lContent = row
       ? rpad(
-          chalk.hex(YELLOW)(row[0]) + chalk.hex(BLUE)(row[1]) + chalk.hex(PINK)(row[2]),
+          LOGO_EDGE(row[0]) + LOGO_CENTER(row[1]) + LOGO_EDGE(row[2]),
           LEFT_INNER,
         )
       : ' '.repeat(LEFT_INNER)
-    const rRow     = rightRows[i]
+    const rRow = rightRows[i]
 
     if (rRow === null) {
       // Section divider: left logo area + accent ├────... extending right
