@@ -1,8 +1,8 @@
 # LSD
 
-![LSD Screenshot](./lsd.png)
+**Looks Sort of Done** — a standalone coding-agent CLI built on the Pi SDK. Use all your AI providers and all your loved features from other Claude Code, Codex and Gemini in one place. 
 
-**Looks Sort of Done** — a standalone coding-agent CLI built on the Pi SDK. Use all your providers and all your loved features from other Claude Code, Codex and Gemini in one place. 
+![LSD Screenshot](./lsd.png)
 
 It is a **fork of GSD 2**, but positioned differently:
 
