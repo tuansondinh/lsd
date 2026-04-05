@@ -6,6 +6,23 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.1.7] - 2026-04-05
+
+### Added
+- **skills**: add bundled `lsd-guide` skill for comprehensive LSD documentation and feature guidance
+- **skills**: add bundled `lsd-models` skill for discovering available LLM models and their capabilities
+- **usage**: add bundled `usage-tips` extension with helpful usage tips and tricks
+- **tests**: add remote-questions command unit tests
+
+### Changed
+- **docs**: update README, configuration docs, and mintlify documentation for consistency and accuracy
+- **core**: improve agent session, settings manager, and slash command handling
+- **ui**: enhance footer component, settings selector, and chat controller
+- **interactive**: improve interactive mode and slash command handlers
+- **editor**: improve editor component handling
+- **extensions**: improve background shell lifecycle, MCP client, remote questions, and subagent extensions
+- **testing**: improve test coverage for footer component, headless progress, and plan mode state machine
+
 ## [1.1.6] - 2026-04-03
 
 ### Changed

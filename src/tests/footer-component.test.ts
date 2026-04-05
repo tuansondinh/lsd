@@ -34,7 +34,7 @@ test("FooterComponent keeps hotkeys and cache timer on the first line right end"
   );
   assert.match(
     footerSource,
-    /filter\(\(\[key\]\) => key !== "cache-timer"\)/,
-    "cache-timer should be excluded from the extension status line",
+    /filter\(\(\[key\]\) => key !== "cache-timer" && key !== "usage-tips"\)/,
+    "cache-timer and usage-tips should be excluded from the extension status line",
   );
 });

@@ -29,6 +29,7 @@ export interface SettingsConfig {
 	classifierModel: string;
 	budgetSubagentModel: string;
 	planModeReasoningModel: string;
+	planModeReviewModel: string;
 	showImages: boolean;
 	autoResizeImages: boolean;
 	blockImages: boolean;
@@ -66,6 +67,7 @@ export interface SettingsConfig {
 	classifierModelSubmenu?: (currentValue: string, done: (selectedValue?: string) => void) => Component;
 	budgetSubagentModelSubmenu?: (currentValue: string, done: (selectedValue?: string) => void) => Component;
 	planModeReasoningModelSubmenu?: (currentValue: string, done: (selectedValue?: string) => void) => Component;
+	planModeReviewModelSubmenu?: (currentValue: string, done: (selectedValue?: string) => void) => Component;
 }
 
 export interface SettingsCallbacks {
@@ -74,6 +76,7 @@ export interface SettingsCallbacks {
 	onClassifierModelChange: (modelRef: string) => void;
 	onBudgetSubagentModelChange: (modelRef: string) => void;
 	onPlanModeReasoningModelChange: (modelRef: string) => void;
+	onPlanModeReviewModelChange: (modelRef: string) => void;
 	onAutoDreamChange: (enabled: boolean) => void;
 	onAutoMemoryChange: (enabled: boolean) => void;
 	onSandboxEnabledChange?: (enabled: boolean) => void;
@@ -217,6 +220,13 @@ export class SettingsSelectorComponent extends Container {
 				description: "Optional provider/id model to switch to after plan approval",
 				currentValue: config.planModeReasoningModel,
 				submenu: config.planModeReasoningModelSubmenu,
+			},
+			{
+				id: "plan-mode-review-model",
+				label: "Plan review model",
+				description: "Optional provider/id model for the other-agent plan review step",
+				currentValue: config.planModeReviewModel,
+				submenu: config.planModeReviewModelSubmenu,
 			},
 			{
 				id: "steering-mode",
@@ -566,6 +576,9 @@ export class SettingsSelectorComponent extends Container {
 						break;
 					case "plan-mode-reasoning-model":
 						callbacks.onPlanModeReasoningModelChange(newValue);
+						break;
+					case "plan-mode-review-model":
+						callbacks.onPlanModeReviewModelChange(newValue);
 						break;
 					case "show-images":
 						callbacks.onShowImagesChange(newValue === "true");

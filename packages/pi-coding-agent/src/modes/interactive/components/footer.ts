@@ -269,7 +269,7 @@ export class FooterComponent implements Component {
 
 		// Add extension statuses on a single line, sorted by key alphabetically.
 		// cache-timer is surfaced on the first line instead of this extension-status line.
-		const nonTimerStatuses = Array.from(extensionStatuses.entries()).filter(([key]) => key !== "cache-timer");
+		const nonTimerStatuses = Array.from(extensionStatuses.entries()).filter(([key]) => key !== "cache-timer" && key !== "usage-tips");
 		if (nonTimerStatuses.length > 0) {
 			const sortedStatuses = nonTimerStatuses
 				.sort(([a], [b]) => a.localeCompare(b))

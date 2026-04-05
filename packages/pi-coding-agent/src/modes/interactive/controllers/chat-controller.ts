@@ -26,6 +26,8 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 	updateAgentPtyComponent: (sessionId: string, options?: { command?: string; screenText?: string; completed?: boolean; cancelled?: boolean; exitCode?: number }) => void;
 	clearAgentPtyComponents: () => void;
 	pendingMessagesContainer: { clear: () => void };
+	startLoadingTips: () => void;
+	stopLoadingTips: () => void;
 }, event: InteractiveModeEvent): Promise<void> {
 	if (!host.isInitialized) {
 		await host.init();
@@ -85,6 +87,7 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 			);
 			host.loadingAnimation.setCycleMessages(host.workingMessages, 3000);
 			host.statusContainer.addChild(host.loadingAnimation);
+			host.startLoadingTips();
 			// Show steer/queue + expand hint in editor bottom border while agent is running
 			host.updateEditorExpandHint();
 			if (host.pendingWorkingMessage !== undefined) {
@@ -412,3 +415,4 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 			break;
 	}
 }
+

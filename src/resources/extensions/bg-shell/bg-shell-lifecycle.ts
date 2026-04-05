@@ -225,23 +225,33 @@ export function registerBgShellLifecycle(pi: ExtensionAPI, state: BgShellSharedS
 					if (sessionName) pwd = `${pwd} • ${sessionName}`;
 
 					const bgStatus = buildBgStatusText(th);
+					const headerExtensionStatuses = footerData.getExtensionStatuses();
+					const usageTipsStatusRaw = headerExtensionStatuses.get("usage-tips");
+					const usageTipsStatus = usageTipsStatusRaw
+						? usageTipsStatusRaw.replace(/[\r\n\t]/g, " ").replace(/ +/g, " ").trim()
+						: "";
+					const rightParts = [
+						...(bgStatus ? [bgStatus] : []),
+						...(usageTipsStatus ? [th.fg("dim", usageTipsStatus)] : []),
+					];
+					const rightSide = rightParts.join(th.fg("dim", "  ·  "));
 					const leftPwd = th.fg("dim", pwd);
 					const leftWidth = visibleWidth(leftPwd);
-					const rightWidth = visibleWidth(bgStatus);
+					const rightWidth = visibleWidth(rightSide);
 
 					let pwdLine: string;
 					const minGap = 2;
-					if (bgStatus && leftWidth + minGap + rightWidth <= width) {
+					if (rightSide && leftWidth + minGap + rightWidth <= width) {
 						const pad = " ".repeat(width - leftWidth - rightWidth);
-						pwdLine = leftPwd + pad + bgStatus;
-					} else if (bgStatus) {
+						pwdLine = leftPwd + pad + rightSide;
+					} else if (rightSide) {
 						// Truncate pwd to make room for bg status
 						const availForPwd = width - rightWidth - minGap;
 						if (availForPwd > 10) {
 							const truncPwd = truncateToWidth(leftPwd, availForPwd, th.fg("dim", "…"));
 							const truncWidth = visibleWidth(truncPwd);
 							const pad = " ".repeat(Math.max(0, width - truncWidth - rightWidth));
-							pwdLine = truncPwd + pad + bgStatus;
+							pwdLine = truncPwd + pad + rightSide;
 						} else {
 							pwdLine = truncateToWidth(leftPwd, width, th.fg("dim", "…"));
 						}
@@ -302,27 +312,27 @@ export function registerBgShellLifecycle(pi: ExtensionAPI, state: BgShellSharedS
 					}
 
 					const modelName = ctx?.model?.id || "no-model";
-					let rightSide = modelName;
+					let statsRightSide = modelName;
 					if (ctx?.model?.reasoning) {
 						const thinkingLevel = (ctx as any).getThinkingLevel?.() || "off";
-						rightSide = thinkingLevel === "off" ? `${modelName} • thinking off` : `${modelName} • ${thinkingLevel}`;
+						statsRightSide = thinkingLevel === "off" ? `${modelName} • thinking off` : `${modelName} • ${thinkingLevel}`;
 					}
 					if (footerData.getAvailableProviderCount() > 1 && ctx?.model) {
-						const withProvider = `(${ctx.model.provider}) ${rightSide}`;
+						const withProvider = `(${ctx.model.provider}) ${statsRightSide}`;
 						if (statsLeftWidth + 2 + visibleWidth(withProvider) <= width) {
-							rightSide = withProvider;
+							statsRightSide = withProvider;
 						}
 					}
 
-					const rightSideWidth = visibleWidth(rightSide);
+					const rightSideWidth = visibleWidth(statsRightSide);
 					let statsLine: string;
 					if (statsLeftWidth + 2 + rightSideWidth <= width) {
 						const pad = " ".repeat(width - statsLeftWidth - rightSideWidth);
-						statsLine = statsLeft + pad + rightSide;
+						statsLine = statsLeft + pad + statsRightSide;
 					} else {
 						const avail = width - statsLeftWidth - 2;
 						if (avail > 0) {
-							const truncRight = truncateToWidth(rightSide, avail, "");
+							const truncRight = truncateToWidth(statsRightSide, avail, "");
 							const truncRightWidth = visibleWidth(truncRight);
 							const pad = " ".repeat(Math.max(0, width - statsLeftWidth - truncRightWidth));
 							statsLine = statsLeft + pad + truncRight;
@@ -339,9 +349,9 @@ export function registerBgShellLifecycle(pi: ExtensionAPI, state: BgShellSharedS
 
 					// ── Line 3 (optional): other extension statuses ──
 					const extensionStatuses = footerData.getExtensionStatuses();
-					// Filter out our own bg-shell status since it's already on line 1
+					// Filter out statuses surfaced on line 1
 					const otherStatuses = Array.from(extensionStatuses.entries())
-						.filter(([key]) => key !== "bg-shell")
+						.filter(([key]) => key !== "bg-shell" && key !== "usage-tips")
 						.sort(([a], [b]) => a.localeCompare(b))
 						.map(([, text]) => text.replace(/[\r\n\t]/g, " ").replace(/ +/g, " ").trim());
 					if (otherStatuses.length > 0) {

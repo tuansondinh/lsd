@@ -107,7 +107,7 @@ If both files exist, server names are merged and the first definition found wins
 | Transport | Config shape | Use when |
 |-----------|--------------|----------|
 | `stdio` | `command` + optional `args`, `env`, `cwd` | Launching a local MCP server process |
-| `http` | `url` | Connecting to an already-running MCP server over HTTP |
+| `http` | `url` + optional `headers` | Connecting to an already-running MCP server over HTTP |
 
 ### Example: stdio server
 
@@ -132,7 +132,10 @@ If both files exist, server names are merged and the first definition found wins
 {
   "mcpServers": {
     "my-http-server": {
-      "url": "http://localhost:8080/mcp"
+      "url": "http://localhost:8080/mcp",
+      "headers": {
+        "Authorization": "Bearer ${MCP_API_TOKEN}"
+      }
     }
   }
 }

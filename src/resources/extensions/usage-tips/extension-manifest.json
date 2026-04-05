@@ -1,0 +1,12 @@
+{
+  "id": "usage-tips",
+  "name": "Usage Tips",
+  "version": "1.0.0",
+  "description": "Shows rotating LSD usage tips in the footer while the agent is working",
+  "tier": "bundled",
+  "defaultEnabled": true,
+  "requires": { "platform": ">=2.29.0" },
+  "provides": {
+    "hooks": ["agent_start", "agent_end", "session_shutdown"]
+  }
+}

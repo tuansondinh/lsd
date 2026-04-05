@@ -818,6 +818,7 @@ const SubagentParams = Type.Object({
 export default function(pi: ExtensionAPI) {
     let bgManager: BackgroundJobManager | null = null;
     let activeForegroundSubagent: ForegroundSubagentControl | null = null;
+    let currentSessionCtx: any = null;
 
     function getBgManager(): BackgroundJobManager {
         if (!bgManager) throw new Error("BackgroundJobManager not initialized.");
@@ -825,6 +826,7 @@ export default function(pi: ExtensionAPI) {
     }
 
     pi.on("session_start", async (_event, ctx) => {
+        currentSessionCtx = ctx;
         bgManager = new BackgroundJobManager({
             onJobComplete: (job) => {
                 if (job.awaited) return;
@@ -836,19 +838,22 @@ export default function(pi: ExtensionAPI) {
                     : `Error: ${job.stderr ?? "unknown error"}`;
                 const modelInfo = job.model ? ` · ${job.model}` : "";
 
-                pi.sendMessage(
-                    {
-                        customType: "background_subagent_result",
-                        content: [
-                            `**Background subagent ${statusEmoji}: ${job.id}** (${job.agentName}, ${elapsed}s${modelInfo})`,
-                            `> ${taskPreview}`,
-                            "",
-                            output,
-                        ].join("\n"),
-                        display: true,
-                    },
-                    { deliverAs: "followUp" },
-                );
+                // Use the captured session context to ensure the message is delivered
+                if (currentSessionCtx) {
+                    currentSessionCtx.sendMessage(
+                        {
+                            customType: "background_subagent_result",
+                            content: [
+                                `**Background subagent ${statusEmoji}: ${job.id}** (${job.agentName}, ${elapsed}s${modelInfo})`,
+                                `> ${taskPreview}`,
+                                "",
+                                output,
+                            ].join("\n"),
+                            display: true,
+                        },
+                        { deliverAs: "followUp" },
+                    );
+                }
             },
         });
     });
@@ -872,6 +877,7 @@ export default function(pi: ExtensionAPI) {
 
     pi.on("session_before_switch", async () => {
         activeForegroundSubagent = null;
+        currentSessionCtx = null;
         if (bgManager) {
             for (const job of bgManager.getRunningJobs()) {
                 bgManager.cancel(job.id);
@@ -881,6 +887,7 @@ export default function(pi: ExtensionAPI) {
 
     pi.on("session_shutdown", async () => {
         activeForegroundSubagent = null;
+        currentSessionCtx = null;
         await stopLiveSubagents();
         if (bgManager) {
             bgManager.shutdown();

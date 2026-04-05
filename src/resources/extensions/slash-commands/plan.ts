@@ -1,9 +1,18 @@
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
-import { getAgentDir, getPermissionMode, isToolCallEventType, setPermissionMode, type ExtensionAPI, type ExtensionCommandContext, type PermissionMode } from "@gsd/pi-coding-agent";
+import {
+  getAgentDir,
+  getPermissionMode,
+  isToolCallEventType,
+  setPermissionMode,
+  type ExtensionAPI,
+  type ExtensionCommandContext,
+  type PermissionMode,
+} from "@gsd/pi-coding-agent";
 import { join } from "node:path";
 
 const PLAN_ENTRY_TYPE = "plan-mode-state";
-const PLAN_APPROVAL_QUESTION_ID = "plan_mode_approval";
+const PLAN_APPROVAL_ACTION_QUESTION_ID = "plan_mode_approval_action";
+const PLAN_APPROVAL_PERMISSION_QUESTION_ID = "plan_mode_approval_permission";
 const PLAN_DIR_RE = /(^|[/\\])\.(?:lsd|gsd)[/\\]plan([/\\]|$)/;
 const BASH_READ_ONLY_RE = /^\s*(cat|head|tail|less|more|wc|file|stat|du|df|which|type|echo|printf|ls|find|grep|rg|awk|sed\b(?!.*-i)|sort|uniq|diff|comm|tr|cut|tee\s+-a\s+\/dev\/null|git\s+(log|show|diff|status|branch|tag|remote|rev-parse|ls-files|blame|shortlog|describe|stash\s+list|config\s+--get|cat-file)|gh\s+(issue|pr|api|repo|release)\s+(view|list|diff|status|checks)|mkdir\s+-p\s+\.(?:lsd|gsd)(?:[\\/]+plan)?|rtk\s)/;
 const SAFE_TOOLS = new Set([
@@ -58,14 +67,22 @@ const BLOCKED_TOOLS = new Set([
   "edit",
 ]);
 const DEFAULT_APPROVAL_PERMISSION_MODE: RestorablePermissionMode = "auto";
-const APPROVE_AUTO_LABEL = "Approve & switch to Auto mode";
-const APPROVE_BYPASS_LABEL = "Approve & switch to Bypass mode";
+const APPROVE_LABEL = "Approve plan";
+const APPROVE_AUTO_LABEL = "Auto mode";
+const APPROVE_BYPASS_LABEL = "Bypass mode";
+const REVIEW_LABEL = "Let other agent review";
 const REVISE_LABEL = "Revise plan";
 const CANCEL_LABEL = "Cancel";
+const DEFAULT_PLAN_REVIEW_AGENT = "generic";
 
 type PlanApprovalStatus = "pending" | "approved" | "revising" | "cancelled";
 type RestorablePermissionMode = Exclude<PermissionMode, "plan">;
 type ModelRef = { provider: string; id: string };
+
+type AskUserAnswer = {
+  selected: string | string[];
+  notes?: string;
+};
 
 interface PlanModeState {
   active: boolean;
@@ -105,17 +122,32 @@ function parseQualifiedModelRef(value: unknown): ModelRef | undefined {
   return { provider, id };
 }
 
-export function readPlanModeReasoningModel(): string | undefined {
+function readPlanModeSettings(): { reasoningModel?: string; reviewModel?: string } {
   try {
     const settingsPath = join(getAgentDir(), "settings.json");
-    if (!existsSync(settingsPath)) return undefined;
+    if (!existsSync(settingsPath)) return {};
     const raw = readFileSync(settingsPath, "utf-8");
-    const parsed = JSON.parse(raw) as { planModeReasoningModel?: unknown };
-    const model = parseQualifiedModelRef(parsed.planModeReasoningModel);
-    return model ? `${model.provider}/${model.id}` : undefined;
+    const parsed = JSON.parse(raw) as {
+      planModeReasoningModel?: unknown;
+      planModeReviewModel?: unknown;
+    };
+    const reasoningModel = parseQualifiedModelRef(parsed.planModeReasoningModel);
+    const reviewModel = parseQualifiedModelRef(parsed.planModeReviewModel);
+    return {
+      reasoningModel: reasoningModel ? `${reasoningModel.provider}/${reasoningModel.id}` : undefined,
+      reviewModel: reviewModel ? `${reviewModel.provider}/${reviewModel.id}` : undefined,
+    };
   } catch {
-    return undefined;
+    return {};
   }
+}
+
+export function readPlanModeReasoningModel(): string | undefined {
+  return readPlanModeSettings().reasoningModel;
+}
+
+export function readPlanModeReviewModel(): string | undefined {
+  return readPlanModeSettings().reviewModel;
 }
 
 function sameModel(left: ModelRef | undefined, right: ModelRef | undefined): boolean {
@@ -264,30 +296,116 @@ function buildPlanModeSystemPrompt(): string {
   return details.join(" ");
 }
 
-function buildApprovalSteeringMessage(planPath: string): string {
+function readPlanArtifact(planPath: string): string | undefined {
+  try {
+    if (!existsSync(planPath)) return undefined;
+    return readFileSync(planPath, "utf-8").trim();
+  } catch {
+    return undefined;
+  }
+}
+
+function buildApprovalDialogInstructions(): string {
   return [
-    `Plan artifact saved at ${planPath}.`,
-    "Present approval options now using ask_user_questions with exactly one single-select question.",
-    `Use question id \"${PLAN_APPROVAL_QUESTION_ID}\" and ask the user what to do next.`,
-    "Important: ask_user_questions single-select supports only 2-3 explicit options.",
-    "Use exactly these 3 options:",
+    "Present approval options now using ask_user_questions with exactly two single-select questions.",
+    `First question id: \"${PLAN_APPROVAL_ACTION_QUESTION_ID}\". Ask what to do next with the plan.`,
+    "Use exactly these 3 options for the first question:",
+    `1. ${APPROVE_LABEL} (Recommended)`,
+    `2. ${REVIEW_LABEL}`,
+    `3. ${REVISE_LABEL}`,
+    `Second question id: \"${PLAN_APPROVAL_PERMISSION_QUESTION_ID}\". Ask which execution mode to use if the plan is approved.`,
+    "Use exactly these 2 options for the second question:",
     `1. ${APPROVE_AUTO_LABEL} (Recommended)`,
     `2. ${APPROVE_BYPASS_LABEL}`,
-    `3. ${REVISE_LABEL}`,
-    `Do not include \"${CANCEL_LABEL}\" as an explicit option. If the user wants to cancel, they should choose \"None of the above\" and type \"${CANCEL_LABEL}\" in the free-text note.`,
+    `Do not include \"${CANCEL_LABEL}\" as an explicit option. If the user wants to cancel, they should choose \"None of the above\" on the first question and type \"${CANCEL_LABEL}\" in the free-text note.`,
+    `If the user selects \"${REVIEW_LABEL}\" or \"${REVISE_LABEL}\", ignore the second answer for now.`,
     "If the dialog is dismissed or the user gives no answer, continue planning.",
   ].join(" ");
 }
 
-function approvalSelectionToPermissionMode(selected: string): RestorablePermissionMode | undefined {
+function buildApprovalSteeringMessage(planPath: string): string {
+  const details = [
+    `Plan artifact saved at ${planPath}.`,
+    "The plan preview has already been shown to the user.",
+    "Do not repeat the plan contents in a normal assistant response.",
+    "Proceed directly to the approval questions.",
+    buildApprovalDialogInstructions(),
+  ];
+
+  return details.join("\n\n");
+}
+
+function buildPlanPreviewMessage(planPath: string, planMarkdown?: string): string {
+  const details = [
+    `Current plan artifact: ${planPath}`,
+    "Here is the current saved plan:",
+  ];
+
+  if (planMarkdown) {
+    details.push(
+      "```markdown",
+      planMarkdown,
+      "```",
+    );
+  } else {
+    details.push(`Unable to read ${planPath} right now.`);
+  }
+
+  details.push("Hint: run /execute to approve and start implementation, or keep planning and revise the file.");
+  return details.join("\n\n");
+}
+
+function buildReviewSteeringMessage(planPath: string, planMarkdown?: string): string {
+  const reviewModel = readPlanModeReviewModel();
+  const modelInstruction = reviewModel
+    ? `Use the subagent tool with agent \"${DEFAULT_PLAN_REVIEW_AGENT}\" and set model to \"${reviewModel}\".`
+    : `Use the subagent tool with agent \"${DEFAULT_PLAN_REVIEW_AGENT}\" and do not pass a model override so it uses the default/current model.`;
+
+  const details = [
+    `The user selected \"${REVIEW_LABEL}\" for ${planPath}.`,
+    "Delegate a read-only plan review to another agent now.",
+    modelInstruction,
+    "Subagent task requirements: review the proposed plan only, identify missing steps, risks, edge cases, sequencing issues, and unclear acceptance criteria, and do not edit files or implement anything.",
+  ];
+
+  if (planMarkdown) {
+    details.push(
+      "Provide the subagent this exact plan markdown as context:",
+      "```markdown",
+      planMarkdown,
+      "```",
+    );
+  } else {
+    details.push(`Have the subagent read ${planPath} before reviewing it.`);
+  }
+
+  details.push(
+    "After the subagent responds, summarize its feedback for the user, present the current plan again, and then ask for approval again.",
+    buildApprovalDialogInstructions(),
+  );
+
+  return details.join("\n\n");
+}
+
+function approvalSelectionToPermissionMode(selected: string | undefined): RestorablePermissionMode | undefined {
+  if (!selected) return undefined;
   if (selected.includes(APPROVE_AUTO_LABEL)) return "auto";
   if (selected.includes(APPROVE_BYPASS_LABEL)) return "danger-full-access";
   return undefined;
 }
 
-function selectionRequestsCancel(selected: string | string[]): boolean {
-  const values = Array.isArray(selected) ? selected : [selected];
-  return values.some((value) => {
+function getAnswerValues(answer: AskUserAnswer | undefined): string[] {
+  if (!answer) return [];
+  const selected = Array.isArray(answer.selected) ? answer.selected : [answer.selected];
+  const values = selected.filter((value): value is string => typeof value === "string");
+  if (typeof answer.notes === "string" && answer.notes.trim()) {
+    values.push(`user_note: ${answer.notes.trim()}`);
+  }
+  return values;
+}
+
+function selectionRequestsCancel(selected: string[]): boolean {
+  return selected.some((value) => {
     if (typeof value !== "string") return false;
     if (value.includes(CANCEL_LABEL)) return true;
     const normalized = value.replace(/^user_note:\s*/i, "").trim().toLowerCase();
@@ -305,6 +423,9 @@ export const __testing = {
   },
   parseQualifiedModelRef,
   approvalSelectionToPermissionMode,
+  buildApprovalSteeringMessage,
+  buildPlanPreviewMessage,
+  buildReviewSteeringMessage,
 };
 
 export default function planCommand(pi: ExtensionAPI) {
@@ -392,6 +513,13 @@ export default function planCommand(pi: ExtensionAPI) {
           return;
         }
 
+        const planMarkdown = readPlanArtifact(path);
+        pi.sendMessage({
+          customType: "plan-mode-preview",
+          content: buildPlanPreviewMessage(path, planMarkdown),
+          display: true,
+        });
+        ctx.ui?.notify?.("/plan to show plan", "info");
         pi.sendUserMessage(buildApprovalSteeringMessage(path), { deliverAs: "steer" });
       }
       return;
@@ -401,18 +529,27 @@ export default function planCommand(pi: ExtensionAPI) {
 
     const details = event.details as {
       cancelled?: boolean;
-      response?: { answers?: Record<string, { selected: string | string[]; notes?: string }> };
+      response?: { answers?: Record<string, AskUserAnswer> };
     } | undefined;
     if (details?.cancelled || !details?.response?.answers) return;
 
-    const answer = details.response.answers[PLAN_APPROVAL_QUESTION_ID];
-    if (!answer) return;
+    const actionAnswer = details.response.answers[PLAN_APPROVAL_ACTION_QUESTION_ID];
+    const permissionAnswer = details.response.answers[PLAN_APPROVAL_PERMISSION_QUESTION_ID];
+    const actionValues = getAnswerValues(actionAnswer);
+    const permissionValues = getAnswerValues(permissionAnswer);
 
-    const selected = Array.isArray(answer.selected) ? answer.selected : [answer.selected];
-    if (!selected.every((value) => typeof value === "string")) return;
+    if (actionValues.length === 0 && permissionValues.length === 0) return;
 
-    const targetPermissionMode = approvalSelectionToPermissionMode(selected[0]);
-    if (targetPermissionMode) {
+    if (selectionRequestsCancel([...actionValues, ...permissionValues])) {
+      await cancelPlan(pi, ctx, true);
+      return;
+    }
+
+    const actionSelection = actionValues[0];
+    if (!actionSelection) return;
+
+    if (actionSelection.includes(APPROVE_LABEL)) {
+      const targetPermissionMode = approvalSelectionToPermissionMode(permissionValues[0]) ?? DEFAULT_APPROVAL_PERMISSION_MODE;
       state = {
         ...state,
         targetPermissionMode,
@@ -421,24 +558,42 @@ export default function planCommand(pi: ExtensionAPI) {
       return;
     }
 
-    if (selected.some((value) => value.includes(REVISE_LABEL))) {
-      enablePlanMode(pi, ctx.model ? { provider: ctx.model.provider, id: ctx.model.id } : undefined, {
-        approvalStatus: "revising",
+    if (actionSelection.includes(REVIEW_LABEL)) {
+      setState(pi, {
+        ...state,
+        approvalStatus: "pending",
+        targetPermissionMode: undefined,
+      });
+      pi.sendUserMessage(buildReviewSteeringMessage(state.latestPlanPath ?? "the latest plan", readPlanArtifact(state.latestPlanPath ?? "")), {
+        deliverAs: "steer",
       });
       return;
     }
 
-    if (selectionRequestsCancel(selected)) {
-      await cancelPlan(pi, ctx, true);
+    if (actionSelection.includes(REVISE_LABEL)) {
+      enablePlanMode(pi, ctx.model ? { provider: ctx.model.provider, id: ctx.model.id } : undefined, {
+        approvalStatus: "revising",
+      });
     }
   });
 
   pi.registerCommand("plan", {
-    description: "Toggle plan mode. While active, only investigative tools and writes under .lsd/plan/ are allowed",
+    description: "Enable plan mode, or if already active re-show the current saved plan for review",
     async handler(args: string, ctx: ExtensionCommandContext) {
       if (isPlanModeActive()) {
-        await cancelPlan(pi, ctx, true);
-        ctx.ui.notify("Plan mode disabled.", "info");
+        const planPath = state.latestPlanPath;
+        const planMarkdown = planPath ? readPlanArtifact(planPath) : undefined;
+        if (planPath && planMarkdown) {
+          pi.sendMessage({
+            customType: "plan-mode-preview",
+            content: buildPlanPreviewMessage(planPath, planMarkdown),
+            display: true,
+          });
+          ctx.ui.notify("Presented the current plan again.", "info");
+          return;
+        }
+
+        ctx.ui.notify("Plan mode is already active. No saved plan artifact is available yet.", "info");
         return;
       }
 

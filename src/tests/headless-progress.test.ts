@@ -159,6 +159,16 @@ describe('formatProgress', () => {
       assert.equal(result, null)
     })
 
+    it('suppresses usage-tips setStatus chatter', () => {
+      const result = formatProgress({
+        type: 'extension_ui_request',
+        method: 'setStatus',
+        statusKey: 'usage-tips',
+        message: '💡 Tip: Run /help for commands.',
+      }, ctx())
+      assert.equal(result, null)
+    })
+
     it('shows setStatus with statusKey as phase', () => {
       const result = formatProgress({
         type: 'extension_ui_request',

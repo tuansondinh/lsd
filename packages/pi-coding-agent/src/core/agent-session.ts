@@ -15,6 +15,7 @@
 
 import { readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import { Text } from "@gsd/pi-tui";
 import type {
 	Agent,
 	AgentEvent,
@@ -1343,6 +1344,33 @@ export class AgentSession {
 			description: tool.description,
 			parameters: tool.parameters,
 			execute: async () => ({ content: [], details: undefined }),
+			renderCall:
+				tool.name === "Skill"
+					? (args, theme) => {
+						const input = args as { skill?: string; args?: string };
+						let text = theme.fg("toolTitle", theme.bold("Skill "));
+						text += theme.fg("accent", input.skill || "(unknown)");
+						if (input.args?.trim()) {
+							text += theme.fg("dim", ` — ${input.args.trim()}`);
+						}
+						return new Text(text, 0, 0);
+					}
+					: undefined,
+			renderResult:
+				tool.name === "Skill"
+					? (result, options, theme) => {
+						if (!options.expanded) {
+							return new Text(theme.fg("success", "✓ Skill loaded"), 0, 0);
+						}
+
+						const text = result.content
+							.filter((part): part is TextContent => part.type === "text")
+							.map((part) => part.text)
+							.join("\n");
+
+						return new Text(text, 0, 0);
+					}
+					: undefined,
 		}));
 	}
 

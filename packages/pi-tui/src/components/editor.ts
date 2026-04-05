@@ -143,6 +143,10 @@ export class Editor implements Component, Focusable {
 	// Border color (can be changed dynamically)
 	public borderColor: (str: string) => string;
 
+	// Optional hint rendered in the top border line (right-aligned, already styled)
+	public topHint: string = "";
+	public topHintProvider?: () => string;
+
 	// Optional hint rendered in the bottom border line (right-aligned, already styled)
 	public bottomHint: string = "";
 
@@ -343,6 +347,7 @@ export class Editor implements Component, Focusable {
 		this.lastWidth = layoutWidth;
 
 		const horizontal = this.borderColor("─");
+		const topHint = this.topHintProvider ? this.topHintProvider() : this.topHint;
 
 		// Layout the text
 		const layoutLines = this.getLayoutLines(layoutWidth);
@@ -378,6 +383,18 @@ export class Editor implements Component, Focusable {
 			const indicator = `─── ↑ ${this.scrollOffset} more `;
 			const remaining = width - visibleWidth(indicator);
 			result.push(this.borderColor(indicator + "─".repeat(Math.max(0, remaining))));
+		} else if (topHint) {
+			const hintVisible = visibleWidth(topHint);
+			const separatorWidth = 1;
+			const minDashes = 1;
+			const totalFixed = hintVisible + separatorWidth + minDashes;
+			if (width >= totalFixed) {
+				const leftDashes = Math.max(minDashes, width - hintVisible - separatorWidth);
+				const line = this.borderColor("─".repeat(leftDashes)) + " " + topHint;
+				result.push(line);
+			} else {
+				result.push(horizontal.repeat(width));
+			}
 		} else {
 			result.push(horizontal.repeat(width));
 		}

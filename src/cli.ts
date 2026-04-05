@@ -57,7 +57,7 @@ interface CliFlags {
   tools?: string[]
   messages: string[]
 
-  /** Set by `gsd sessions` when the user picks a specific session to resume */
+  /** Set by `lsd sessions` when the user picks a specific session to resume */
   _selectedSessionPath?: string
 }
 
@@ -159,7 +159,7 @@ async function ensureRtkBootstrap(): Promise<void> {
   }
 }
 
-// `gsd update` — update to the latest version via npm
+// `lsd update` — update to the latest version via npm
 if (cliFlags.messages[0] === 'update') {
   const { runUpdate } = await import('./update-cmd.js')
   await runUpdate()
@@ -174,15 +174,15 @@ const hasSubcommand = cliFlags.messages.length > 0
 if (!process.stdin.isTTY && !isPrintMode && !hasSubcommand && !cliFlags.listModels) {
   process.stderr.write('[lsd] Error: Interactive mode requires a terminal (TTY).\n')
   process.stderr.write('[lsd] Non-interactive alternatives:\n')
-  process.stderr.write('[lsd]   gsd auto                       Auto-mode (pipeable, no TUI)\n')
-  process.stderr.write('[lsd]   gsd --print "your message"     Single-shot prompt\n')
-  process.stderr.write('[lsd]   gsd --mode rpc                 JSON-RPC over stdin/stdout\n')
-  process.stderr.write('[lsd]   gsd --mode mcp                 MCP server over stdin/stdout\n')
-  process.stderr.write('[lsd]   gsd --mode text "message"      Text output mode\n')
+  process.stderr.write('[lsd]   lsd auto                       Auto-mode (pipeable, no TUI)\n')
+  process.stderr.write('[lsd]   lsd --print "your message"     Single-shot prompt\n')
+  process.stderr.write('[lsd]   lsd --mode rpc                 JSON-RPC over stdin/stdout\n')
+  process.stderr.write('[lsd]   lsd --mode mcp                 MCP server over stdin/stdout\n')
+  process.stderr.write('[lsd]   lsd --mode text "message"      Text output mode\n')
   process.exit(1)
 }
 
-// `gsd <subcommand> --help` — show subcommand-specific help
+// `lsd <subcommand> --help` — show subcommand-specific help
 const subcommand = cliFlags.messages[0]
 if (subcommand && process.argv.includes('--help')) {
   if (printSubcommandHelp(subcommand, process.env.GSD_VERSION || '0.0.0')) {
@@ -191,7 +191,7 @@ if (subcommand && process.argv.includes('--help')) {
 }
 
 const packageCommand = await runPackageCommand({
-  appName: 'gsd',
+  appName: 'lsd',
   args: process.argv.slice(2),
   cwd: process.cwd(),
   agentDir,
@@ -203,7 +203,7 @@ if (packageCommand.handled) {
   process.exit(packageCommand.exitCode)
 }
 
-// `gsd sessions` — list past sessions and pick one to resume
+// `lsd sessions` — list past sessions and pick one to resume
 if (cliFlags.messages[0] === 'sessions') {
   const cwd = process.cwd()
   const safePath = `--${cwd.replace(/^[/\\]/, '').replace(/[/\\:]/g, '-')}--`
@@ -260,7 +260,7 @@ if (cliFlags.messages[0] === 'sessions') {
   cliFlags._selectedSessionPath = selected.path
 }
 
-// `gsd headless` — run auto-mode without TUI
+// `lsd headless` — run auto-mode without TUI
 if (cliFlags.messages[0] === 'headless') {
   await ensureRtkBootstrap()
   const { runHeadless, parseHeadlessArgs } = await import('./headless.js')
@@ -268,13 +268,13 @@ if (cliFlags.messages[0] === 'headless') {
   process.exit(0)
 }
 
-// `gsd auto [args...]` — shorthand for `gsd headless auto [args...]` (#2732)
-// Without this, `gsd auto` falls through to the interactive TUI which hangs
+// `lsd auto [args...]` — shorthand for `lsd headless auto [args...]` (#2732)
+// Without this, `lsd auto` falls through to the interactive TUI which hangs
 // when stdin/stdout are piped (non-TTY environments).
 if (cliFlags.messages[0] === 'auto') {
   await ensureRtkBootstrap()
   const { runHeadless, parseHeadlessArgs } = await import('./headless.js')
-  // Rewrite argv so parseHeadlessArgs sees: [node, gsd, headless, auto, ...rest]
+  // Rewrite argv so parseHeadlessArgs sees: [node, lsd, headless, auto, ...rest]
   const rewrittenArgv = [
     process.argv[0],
     process.argv[1],
@@ -317,7 +317,7 @@ if (configuredClassifierModel) {
   delete process.env.LUCENT_CODE_CLASSIFIER_MODEL
 }
 
-// `gsd config` — replay the setup wizard and exit
+// `lsd config` — replay the setup wizard and exit
 if (cliFlags.messages[0] === 'config') {
   await runOnboarding(authStorage, settingsManager)
   process.exit(0)
@@ -391,7 +391,7 @@ if (cliFlags.listModels !== undefined) {
   process.exit(0)
 }
 
-// GSD always uses quiet startup — the gsd extension renders its own branded header
+// LSD always uses quiet startup — the lsd extension renders its own branded header
 if (!settingsManager.getQuietStartup()) {
   settingsManager.setQuietStartup(true)
 }
@@ -494,7 +494,7 @@ if (isPrintMode) {
 }
 
 // ---------------------------------------------------------------------------
-// Worktree subcommand — `gsd worktree <list|merge|clean|remove>`
+// Worktree subcommand — `lsd worktree <list|merge|clean|remove>`
 // ---------------------------------------------------------------------------
 if (cliFlags.messages[0] === 'worktree' || cliFlags.messages[0] === 'wt') {
   const { handleList, handleMerge, handleClean, handleRemove } = await import('./worktree-cli.js')
@@ -535,8 +535,8 @@ if (!cliFlags.worktree && !isPrintMode) {
 }
 
 // ---------------------------------------------------------------------------
-// Auto-redirect: `gsd auto` with piped stdout → headless mode (#2732)
-// When stdout is not a TTY (e.g. `gsd auto | cat`, `gsd auto > file`),
+// Auto-redirect: `lsd auto` with piped stdout → headless mode (#2732)
+// When stdout is not a TTY (e.g. `lsd auto | cat`, `lsd auto > file`),
 // the TUI cannot render and the process hangs. Redirect to headless mode
 // which handles non-interactive output gracefully.
 // ---------------------------------------------------------------------------
@@ -544,7 +544,7 @@ if (cliFlags.messages[0] === 'auto' && !process.stdout.isTTY) {
   await ensureRtkBootstrap()
   const { runHeadless, parseHeadlessArgs } = await import('./headless.js')
   process.stderr.write('[lsd] stdout is not a terminal — running auto-mode in headless mode.\n')
-  await runHeadless(parseHeadlessArgs(['node', 'gsd', 'headless', ...cliFlags.messages.slice(1)]))
+  await runHeadless(parseHeadlessArgs(['node', 'lsd', 'headless', ...cliFlags.messages.slice(1)]))
   process.exit(0)
 }
 
@@ -653,12 +653,12 @@ if (!process.stdin.isTTY || !process.stdout.isTTY) {
       : 'stdout is'
   process.stderr.write(`[lsd] Error: Interactive mode requires a terminal (TTY) but ${missing} not a TTY.\n`)
   process.stderr.write('[lsd] Non-interactive alternatives:\n')
-  process.stderr.write('[lsd]   gsd auto                       Auto-mode (pipeable, no TUI)\n')
-  process.stderr.write('[lsd]   gsd --print "your message"     Single-shot prompt\n')
-  process.stderr.write('[lsd]   gsd --mode rpc                 JSON-RPC over stdin/stdout\n')
-  process.stderr.write('[lsd]   gsd --mode mcp                 MCP server over stdin/stdout\n')
-  process.stderr.write('[lsd]   gsd --mode text "message"      Text output mode\n')
-  process.stderr.write('[lsd]   gsd headless                   Auto-mode without TUI\n')
+  process.stderr.write('[lsd]   lsd auto                       Auto-mode (pipeable, no TUI)\n')
+  process.stderr.write('[lsd]   lsd --print "your message"     Single-shot prompt\n')
+  process.stderr.write('[lsd]   lsd --mode rpc                 JSON-RPC over stdin/stdout\n')
+  process.stderr.write('[lsd]   lsd --mode mcp                 MCP server over stdin/stdout\n')
+  process.stderr.write('[lsd]   lsd --mode text "message"      Text output mode\n')
+  process.stderr.write('[lsd]   lsd headless                   Auto-mode without TUI\n')
   process.exit(1)
 }
 

@@ -10,12 +10,14 @@ interface MockPi {
   commands: Record<string, { handler: (args: string, ctx: any) => Promise<void> }>
   entries: Array<{ type: string; data: unknown }>
   sentMessages: string[]
+  customMessages: Array<{ customType: string; content: string; display?: boolean }>
   modelSwitches: string[]
   flagValue: boolean
   on(event: string, handler: Function): void
   registerCommand(name: string, command: { handler: (args: string, ctx: any) => Promise<void> }): void
   registerFlag(_name: string, _config: unknown): void
   appendEntry<T>(type: string, data?: T): void
+  sendMessage(message: { customType: string; content: string; display?: boolean }): void
   sendUserMessage(content: string | Array<{ type: string; text?: string }>): void
   getFlag(_name: string): boolean
   setModel(model: { provider: string; id: string }): Promise<boolean>
@@ -27,6 +29,7 @@ function makeMockPi(): MockPi {
     commands: {},
     entries: [],
     sentMessages: [],
+    customMessages: [],
     modelSwitches: [],
     flagValue: false,
     on(event, handler) {
@@ -38,6 +41,9 @@ function makeMockPi(): MockPi {
     registerFlag() {},
     appendEntry(type, data) {
       this.entries.push({ type, data })
+    },
+    sendMessage(message) {
+      this.customMessages.push(message)
     },
     sendUserMessage(content) {
       if (typeof content === 'string') {
@@ -61,6 +67,7 @@ function makeCtx(overrides: Partial<any> = {}): any {
     { provider: 'openai', id: 'gpt-5.4' },
     { provider: 'openai', id: 'gpt-5.4-mini' },
     { provider: 'anthropic', id: 'claude-sonnet-4-6' },
+    { provider: 'google', id: 'gemini-2.5-pro' },
   ]
 
   return {
@@ -82,19 +89,143 @@ function makeCtx(overrides: Partial<any> = {}): any {
   }
 }
 
-function makeAskUserDetails(selected?: string | string[], cancelled = false) {
+function makeAskUserDetails(
+  action?: string | string[],
+  permission?: string | string[],
+  cancelled = false,
+  actionNotes?: string,
+) {
   if (cancelled) return { cancelled: true }
-  if (!selected) return { response: { answers: {} } }
+  if (!action && !permission) return { response: { answers: {} } }
   return {
     response: {
       answers: {
-        plan_mode_approval: {
-          selected,
-        },
+        ...(action
+          ? {
+              plan_mode_approval_action: {
+                selected: action,
+                ...(actionNotes ? { notes: actionNotes } : {}),
+              },
+            }
+          : {}),
+        ...(permission
+          ? {
+              plan_mode_approval_permission: {
+                selected: permission,
+              },
+            }
+          : {}),
       },
     },
   }
 }
+
+test('plan mode presents the saved plan and approval options before approval', async (t) => {
+  const tmp = mkdtempSync(join(tmpdir(), 'plan-mode-test-'))
+  t.after(() => rmSync(tmp, { recursive: true, force: true }))
+
+  const oldAgentDir = process.env.LSD_CODING_AGENT_DIR
+  process.env.LSD_CODING_AGENT_DIR = tmp
+  mkdirSync(tmp, { recursive: true })
+  writeFileSync(join(tmp, 'settings.json'), JSON.stringify({}))
+  t.after(() => {
+    if (oldAgentDir === undefined) delete process.env.LSD_CODING_AGENT_DIR
+    else process.env.LSD_CODING_AGENT_DIR = oldAgentDir
+  })
+
+  const planModule = await import('../resources/extensions/slash-commands/plan.ts')
+  const planCommand = planModule.default
+  const testing = planModule.__testing
+  testing.resetState()
+  setPermissionMode('accept-on-edit')
+
+  const pi = makeMockPi()
+  planCommand(pi as any)
+
+  const preplanModel = { provider: 'openai', id: 'gpt-5.4' }
+  const ctx = makeCtx({ model: preplanModel })
+  await pi.commands.plan.handler('Ship phase 4', ctx)
+
+  const planPath = '.lsd/plan/PLAN-3.md'
+  mkdirSync('.lsd/plan', { recursive: true })
+  writeFileSync(planPath, '# Plan\n\n- Step 1\n- Step 2\n')
+
+  await pi.handlers.tool_result(
+    { toolName: 'write', input: { path: planPath } },
+    ctx,
+  )
+
+  assert.equal(pi.customMessages.length, 1)
+  assert.equal(pi.customMessages[0]?.customType, 'plan-mode-preview')
+  assert.match(pi.customMessages[0]?.content ?? '', /Current plan artifact: \.lsd\/plan\/PLAN-3\.md/)
+  assert.match(pi.customMessages[0]?.content ?? '', /# Plan/)
+  assert.match(pi.customMessages[0]?.content ?? '', /run \/execute to approve/i)
+
+  const lastMessage = pi.sentMessages.at(-1) ?? ''
+  assert.match(lastMessage, /plan preview has already been shown to the user/i)
+  assert.match(lastMessage, /do not repeat the plan contents/i)
+  assert.match(lastMessage, /Approve plan \(Recommended\)/)
+  assert.match(lastMessage, /Let other agent review/)
+  assert.match(lastMessage, /Revise plan/)
+  assert.match(lastMessage, /Auto mode \(Recommended\)/)
+  assert.match(lastMessage, /Bypass mode/)
+  assert.doesNotMatch(lastMessage, /# Plan/)
+  assert.doesNotMatch(lastMessage, /4\./)
+  assert.deepEqual(ctx.ui.notifyCalls.at(-1), {
+    message: '/plan to show plan',
+    type: 'info',
+  })
+})
+
+test('re-running /plan while plan mode is active re-shows the saved plan instead of disabling plan mode', async (t) => {
+  const tmp = mkdtempSync(join(tmpdir(), 'plan-mode-test-'))
+  t.after(() => rmSync(tmp, { recursive: true, force: true }))
+
+  const oldAgentDir = process.env.LSD_CODING_AGENT_DIR
+  process.env.LSD_CODING_AGENT_DIR = tmp
+  mkdirSync(tmp, { recursive: true })
+  writeFileSync(join(tmp, 'settings.json'), JSON.stringify({}))
+  t.after(() => {
+    if (oldAgentDir === undefined) delete process.env.LSD_CODING_AGENT_DIR
+    else process.env.LSD_CODING_AGENT_DIR = oldAgentDir
+  })
+
+  const planModule = await import('../resources/extensions/slash-commands/plan.ts')
+  const planCommand = planModule.default
+  const testing = planModule.__testing
+  testing.resetState()
+  setPermissionMode('accept-on-edit')
+
+  const pi = makeMockPi()
+  planCommand(pi as any)
+
+  const preplanModel = { provider: 'openai', id: 'gpt-5.4' }
+  const ctx = makeCtx({ model: preplanModel })
+  await pi.commands.plan.handler('Ship phase 4', ctx)
+
+  const planPath = '.lsd/plan/PLAN-7.md'
+  mkdirSync('.lsd/plan', { recursive: true })
+  writeFileSync(planPath, '# Current Plan\n\n- Step A\n')
+
+  await pi.handlers.tool_result(
+    { toolName: 'write', input: { path: planPath } },
+    ctx,
+  )
+
+  const messageCountBefore = pi.sentMessages.length
+  await pi.commands.plan.handler('', ctx)
+
+  assert.equal(getPermissionMode(), 'plan')
+  assert.equal(testing.getState().active, true)
+  assert.equal(pi.sentMessages.length, messageCountBefore)
+  assert.equal(pi.customMessages.length, 2)
+  assert.equal(pi.customMessages[0]?.customType, 'plan-mode-preview')
+  assert.match(pi.customMessages[0]?.content ?? '', /# Current Plan/)
+  assert.equal(pi.customMessages[1]?.customType, 'plan-mode-preview')
+  assert.match(pi.customMessages[1]?.content ?? '', /# Current Plan/)
+  assert.match(pi.customMessages[1]?.content ?? '', /run \/execute to approve/i)
+  assert.deepEqual(ctx.ui.notifyCalls.at(-1), { message: 'Presented the current plan again.', type: 'info' })
+})
 
 test('plan mode pending → approved switches to configured reasoning model and auto mode', async (t) => {
   const tmp = mkdtempSync(join(tmpdir(), 'plan-mode-test-'))
@@ -123,17 +254,20 @@ test('plan mode pending → approved switches to configured reasoning model and 
   assert.equal(getPermissionMode(), 'plan')
   assert.deepEqual(testing.getState().preplanModel, preplanModel)
 
-  await pi.handlers.tool_result(
-    { toolName: 'write', input: { path: '.lsd/plan/PLAN-3.md' } },
-    makeCtx({ model: preplanModel }),
-  )
-  assert.match(pi.sentMessages.at(-1) ?? '', /Approve & switch to Auto mode/)
-  assert.match(pi.sentMessages.at(-1) ?? '', /ask_user_questions/)
-  assert.match(pi.sentMessages.at(-1) ?? '', /single-select supports only 2-3 explicit options/)
-  assert.doesNotMatch(pi.sentMessages.at(-1) ?? '', /4\. Cancel/)
+  const planPath = '.lsd/plan/PLAN-3.md'
+  mkdirSync('.lsd/plan', { recursive: true })
+  writeFileSync(planPath, '# Plan\n')
 
   await pi.handlers.tool_result(
-    { toolName: 'ask_user_questions', details: makeAskUserDetails('Approve & switch to Auto mode') },
+    { toolName: 'write', input: { path: planPath } },
+    makeCtx({ model: preplanModel }),
+  )
+
+  await pi.handlers.tool_result(
+    {
+      toolName: 'ask_user_questions',
+      details: makeAskUserDetails('Approve plan', 'Auto mode'),
+    },
     makeCtx({ model: preplanModel }),
   )
 
@@ -145,6 +279,57 @@ test('plan mode pending → approved switches to configured reasoning model and 
   assert.match(pi.sentMessages.at(-1) ?? '', /Plan approved\. Exit plan mode and start implementation immediately\./)
   assert.match(pi.sentMessages.at(-1) ?? '', /Original task: Ship phase 4/)
   assert.match(pi.sentMessages.at(-1) ?? '', /\.lsd\/plan\/PLAN-3\.md/)
+})
+
+test('plan mode review option delegates to another agent with configured review model', async (t) => {
+  const tmp = mkdtempSync(join(tmpdir(), 'plan-mode-test-'))
+  t.after(() => rmSync(tmp, { recursive: true, force: true }))
+
+  const oldAgentDir = process.env.LSD_CODING_AGENT_DIR
+  process.env.LSD_CODING_AGENT_DIR = tmp
+  mkdirSync(tmp, { recursive: true })
+  writeFileSync(join(tmp, 'settings.json'), JSON.stringify({ planModeReviewModel: 'google/gemini-2.5-pro' }))
+  t.after(() => {
+    if (oldAgentDir === undefined) delete process.env.LSD_CODING_AGENT_DIR
+    else process.env.LSD_CODING_AGENT_DIR = oldAgentDir
+  })
+
+  const planModule = await import('../resources/extensions/slash-commands/plan.ts')
+  const planCommand = planModule.default
+  const testing = planModule.__testing
+  testing.resetState()
+  setPermissionMode('accept-on-edit')
+
+  const pi = makeMockPi()
+  planCommand(pi as any)
+
+  const preplanModel = { provider: 'openai', id: 'gpt-5.4-mini' }
+  await pi.commands.plan.handler('Review plan flow', makeCtx({ model: preplanModel }))
+
+  const planPath = '.lsd/plan/PLAN-9.md'
+  mkdirSync('.lsd/plan', { recursive: true })
+  writeFileSync(planPath, '# Review Plan\n\n- Validate steps\n')
+
+  await pi.handlers.tool_result(
+    { toolName: 'write', input: { path: planPath } },
+    makeCtx({ model: preplanModel }),
+  )
+
+  await pi.handlers.tool_result(
+    {
+      toolName: 'ask_user_questions',
+      details: makeAskUserDetails('Let other agent review', 'Auto mode'),
+    },
+    makeCtx({ model: preplanModel }),
+  )
+
+  const lastMessage = pi.sentMessages.at(-1) ?? ''
+  assert.equal(getPermissionMode(), 'plan')
+  assert.equal(testing.getState().approvalStatus, 'pending')
+  assert.match(lastMessage, /Delegate a read-only plan review to another agent now\./)
+  assert.match(lastMessage, /agent "generic" and set model to "google\/gemini-2\.5-pro"/)
+  assert.match(lastMessage, /# Review Plan/)
+  assert.match(lastMessage, /ask for approval again/i)
 })
 
 test('plan mode pending → revising → pending → approved keeps preplan model and switches to bypass mode', async (t) => {
@@ -170,12 +355,20 @@ test('plan mode pending → revising → pending → approved keeps preplan mode
 
   const preplanModel = { provider: 'openai', id: 'gpt-5.4-mini' }
   await pi.commands.plan.handler('Revise plan flow', makeCtx({ model: preplanModel }))
+
+  const planPath = '.lsd/plan/PLAN-3.md'
+  mkdirSync('.lsd/plan', { recursive: true })
+  writeFileSync(planPath, '# Plan\n')
+
   await pi.handlers.tool_result(
-    { toolName: 'write', input: { path: '.lsd/plan/PLAN-3.md' } },
+    { toolName: 'write', input: { path: planPath } },
     makeCtx({ model: preplanModel }),
   )
   await pi.handlers.tool_result(
-    { toolName: 'ask_user_questions', details: makeAskUserDetails('Revise plan') },
+    {
+      toolName: 'ask_user_questions',
+      details: makeAskUserDetails('Revise plan', 'Auto mode'),
+    },
     makeCtx({ model: preplanModel }),
   )
 
@@ -184,13 +377,16 @@ test('plan mode pending → revising → pending → approved keeps preplan mode
   assert.equal(getPermissionMode(), 'plan')
 
   await pi.handlers.tool_result(
-    { toolName: 'edit', input: { path: '.lsd/plan/PLAN-3.md' } },
+    { toolName: 'edit', input: { path: planPath } },
     makeCtx({ model: preplanModel }),
   )
   assert.equal(testing.getState().approvalStatus, 'pending')
 
   await pi.handlers.tool_result(
-    { toolName: 'ask_user_questions', details: makeAskUserDetails('Approve & switch to Bypass mode') },
+    {
+      toolName: 'ask_user_questions',
+      details: makeAskUserDetails('Approve plan', 'Bypass mode'),
+    },
     makeCtx({ model: preplanModel }),
   )
 
@@ -224,13 +420,21 @@ test('plan mode pending → cancelled restores preplan model and original permis
 
   const preplanModel = { provider: 'openai', id: 'gpt-5.4' }
   await pi.commands.plan.handler('Cancel plan', makeCtx({ model: preplanModel }))
+
+  const planPath = '.lsd/plan/PLAN-3.md'
+  mkdirSync('.lsd/plan', { recursive: true })
+  writeFileSync(planPath, '# Plan\n')
+
   await pi.handlers.tool_result(
-    { toolName: 'write', input: { path: '.lsd/plan/PLAN-3.md' } },
+    { toolName: 'write', input: { path: planPath } },
     makeCtx({ model: preplanModel }),
   )
 
   await pi.handlers.tool_result(
-    { toolName: 'ask_user_questions', details: makeAskUserDetails(['None of the above', 'user_note: Cancel']) },
+    {
+      toolName: 'ask_user_questions',
+      details: makeAskUserDetails(['None of the above'], 'Auto mode', false, 'Cancel'),
+    },
     makeCtx({ model: { provider: 'anthropic', id: 'claude-sonnet-4-6' } }),
   )
 
@@ -264,8 +468,13 @@ test('plan mode non-interactive plan write auto-approves with default auto mode 
 
   const currentModel = { provider: 'openai', id: 'gpt-5.4' }
   await pi.commands.plan.handler('Headless approve', makeCtx({ model: currentModel }))
+
+  const planPath = '.lsd/plan/PLAN-3.md'
+  mkdirSync('.lsd/plan', { recursive: true })
+  writeFileSync(planPath, '# Plan\n')
+
   await pi.handlers.tool_result(
-    { toolName: 'write', input: { path: '.lsd/plan/PLAN-3.md' } },
+    { toolName: 'write', input: { path: planPath } },
     makeCtx({ hasUI: false, model: currentModel }),
   )
 

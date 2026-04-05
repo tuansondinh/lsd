@@ -1,0 +1,30 @@
+{
+  "name": "lsd-guide",
+  "version": "1.0.0",
+  "author": "LSD Core Team",
+  "description": "Comprehensive guide to LSD — covers installation, CLI usage, configuration, auto-mode, permissions, remote questions, extensions, skills, subagents, worktrees, sessions, and internals.",
+  "keywords": [
+    "lsd",
+    "guide",
+    "documentation",
+    "reference",
+    "tutorial",
+    "getting-started",
+    "cli",
+    "agent"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/vercel/lsd",
+  "repository": "https://github.com/vercel/lsd",
+  "tags": ["system", "reference", "documentation"],
+  "categories": ["guide", "documentation"],
+  "references": [
+    "getting-started.md",
+    "commands.md",
+    "auto-mode.md",
+    "skills.md",
+    "subagents.md",
+    "configuration.md",
+    "troubleshooting.md"
+  ]
+}

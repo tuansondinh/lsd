@@ -1,0 +1,19 @@
+{
+  "name": "lsd-models",
+  "version": "1.0.0",
+  "author": "LSD Core Team",
+  "description": "List available LLM models and their capabilities. Use to discover models, check context windows, and choose the right model for subagents.",
+  "keywords": [
+    "models",
+    "llm",
+    "claude",
+    "gpt",
+    "gemini",
+    "providers",
+    "capabilities",
+    "context-window"
+  ],
+  "license": "MIT",
+  "tags": ["reference", "configuration", "models"],
+  "categories": ["guide", "reference"]
+}

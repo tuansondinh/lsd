@@ -125,6 +125,7 @@ export interface Settings {
 	defaultModel?: string;
 	budgetSubagentModel?: string;
 	planModeReasoningModel?: string;
+	planModeReviewModel?: string;
 	permissionMode?: "danger-full-access" | "accept-on-edit" | "auto" | "plan";
 	classifierModel?: string;
 	defaultThinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
@@ -447,6 +448,14 @@ export class SettingsManager {
 			delete settings.planModeReasoningModel;
 		}
 
+		if (
+			"planModeReviewModel" in settings &&
+			settings.planModeReviewModel !== undefined &&
+			!isQualifiedProviderModelRef(settings.planModeReviewModel)
+		) {
+			delete settings.planModeReviewModel;
+		}
+
 		return settings as Settings;
 	}
 
@@ -708,6 +717,12 @@ export class SettingsManager {
 			: undefined;
 	}
 
+	getPlanModeReviewModel(): string | undefined {
+		return isQualifiedProviderModelRef(this.settings.planModeReviewModel)
+			? this.settings.planModeReviewModel.trim()
+			: undefined;
+	}
+
 	getPermissionMode(): "danger-full-access" | "accept-on-edit" | "auto" | "plan" {
 		return this.settings.permissionMode ?? "accept-on-edit";
 	}
@@ -745,6 +760,19 @@ export class SettingsManager {
 			throw new Error(`planModeReasoningModel must be in provider/id format. Received: ${modelRef}`);
 		}
 		this.setGlobalSetting("planModeReasoningModel", modelRef.trim());
+	}
+
+	setPlanModeReviewModel(modelRef: string | undefined): void {
+		if (modelRef === undefined) {
+			delete this.globalSettings.planModeReviewModel;
+			this.markModified("planModeReviewModel");
+			this.save();
+			return;
+		}
+		if (!isQualifiedProviderModelRef(modelRef)) {
+			throw new Error(`planModeReviewModel must be in provider/id format. Received: ${modelRef}`);
+		}
+		this.setGlobalSetting("planModeReviewModel", modelRef.trim());
 	}
 
 	setPermissionMode(mode: "danger-full-access" | "accept-on-edit" | "auto" | "plan"): void {

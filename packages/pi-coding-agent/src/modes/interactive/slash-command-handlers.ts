@@ -37,6 +37,7 @@ import { getChangelogPath, parseChangelog } from "../../utils/changelog.js";
 import { ArminComponent } from "./components/armin.js";
 import { BorderedLoader } from "./components/bordered-loader.js";
 import { DynamicBorder } from "./components/dynamic-border.js";
+import { BUILTIN_SLASH_COMMANDS } from "../../core/slash-commands.js";
 import { appKey, editorKey, formatKeyForDisplay } from "./components/keybinding-hints.js";
 import { SelectSubmenu, THINKING_DESCRIPTIONS } from "./components/settings-selector.js";
 import { theme } from "./theme/theme.js";
@@ -126,6 +127,11 @@ export async function dispatchSlashCommand(
 	text: string,
 	ctx: SlashCommandContext,
 ): Promise<boolean> {
+	if (text === "/help" || text.startsWith("/help ")) {
+		const arg = text.startsWith("/help ") ? text.slice(6).trim() : undefined;
+		showHelpCommand(arg, ctx);
+		return true;
+	}
 	if (text === "/settings") {
 		ctx.showSettingsSelector();
 		return true;
@@ -457,6 +463,185 @@ function handleChangelogCommand(ctx: SlashCommandContext): void {
 	ctx.chatContainer.addChild(new Markdown(changelogMarkdown, 1, 1, ctx.getMarkdownThemeWithSettings()));
 	ctx.chatContainer.addChild(new DynamicBorder());
 	ctx.requestRender();
+}
+
+interface HelpCommandInfo {
+	name: string;
+	description?: string;
+	source: "builtin" | "extension" | "prompt" | "skill";
+	path?: string;
+	location?: string;
+}
+
+function collectHelpCommands(ctx: SlashCommandContext): HelpCommandInfo[] {
+	const builtins: HelpCommandInfo[] = BUILTIN_SLASH_COMMANDS.map((command) => ({
+		name: command.name,
+		description: command.description,
+		source: "builtin",
+	}));
+	const reserved = new Set(builtins.map((command) => command.name));
+
+	const extensions: HelpCommandInfo[] = (ctx.session.extensionRunner?.getRegisteredCommandsWithPaths() ?? [])
+		.filter(({ command }) => !reserved.has(command.name))
+		.map(({ command, extensionPath }) => ({
+			name: command.name,
+			description: command.description,
+			source: "extension",
+			path: extensionPath,
+		}));
+
+	const prompts: HelpCommandInfo[] = ctx.session.promptTemplates.map((template) => ({
+		name: template.name,
+		description: template.description,
+		source: "prompt",
+		location: template.source,
+		path: template.filePath,
+	}));
+
+	const skills = ctx.settingsManager.getEnableSkillCommands()
+		? ctx.session.resourceLoader.getSkills().skills.map((skill) => ({
+			name: `skill:${skill.name}`,
+			description: skill.description,
+			source: "skill" as const,
+			location: skill.source,
+			path: skill.filePath,
+		}))
+		: [];
+
+	return [...builtins, ...extensions, ...prompts, ...skills].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function showHelpCommand(arg: string | undefined, ctx: SlashCommandContext): void {
+	const commands = collectHelpCommands(ctx);
+	if (arg) {
+		showHelpCommandDetail(arg, commands, ctx);
+		return;
+	}
+
+	const groups: Array<{ title: string; items: HelpCommandInfo[] }> = [
+		{ title: "Built-in", items: commands.filter((command) => command.source === "builtin") },
+		{ title: "Extensions", items: commands.filter((command) => command.source === "extension") },
+		{ title: "Prompt Templates", items: commands.filter((command) => command.source === "prompt") },
+		{ title: "Skills", items: commands.filter((command) => command.source === "skill") },
+	].filter((group) => group.items.length > 0);
+
+	const lines = [
+		"Commands below are generated from the current session, so they stay up to date after /reload.",
+		"",
+		...groups.flatMap((group) => [
+			`**${group.title}**`,
+			"| Command | Description |",
+			"|---------|-------------|",
+			...group.items.map((command) => `| \`/${command.name}\` | ${command.description ?? "—"} |`),
+			"",
+		]),
+		"Try `/help <command>` for details, for example `/help terminal` or `/help plan`.",
+	].filter((line, index, arr) => !(line === "" && arr[index - 1] === ""));
+
+	ctx.chatContainer.addChild(new Spacer(1));
+	ctx.chatContainer.addChild(new DynamicBorder());
+	ctx.chatContainer.addChild(new Text(theme.bold(theme.fg("accent", "Help")), 1, 0));
+	ctx.chatContainer.addChild(new Spacer(1));
+	ctx.chatContainer.addChild(new Markdown(lines.join("\n"), 1, 1, ctx.getMarkdownThemeWithSettings()));
+	ctx.chatContainer.addChild(new DynamicBorder());
+	ctx.requestRender();
+}
+
+function showHelpCommandDetail(rawArg: string, commands: HelpCommandInfo[], ctx: SlashCommandContext): void {
+	const arg = rawArg.replace(/^\//, "").trim();
+	const matches = commands.filter((command) => command.name === arg || command.name.startsWith(`${arg}:`));
+
+	if (matches.length === 0) {
+		ctx.showWarning(`No help found for /${arg}. Run /help to see available commands.`);
+		return;
+	}
+
+	const command = matches[0]!;
+	const usage = getHelpUsage(command);
+	const lines = [
+		`**Command:** \`/${command.name}\``,
+		`**Source:** ${formatHelpSource(command)}`,
+		`**Description:** ${command.description ?? "No description available."}`,
+		`**Usage:** \`${usage}\``,
+	];
+
+	if (command.path) {
+		lines.push(`**Path:** \`${command.path}\``);
+	}
+
+	const examples = getHelpExamples(command);
+	if (examples.length > 0) {
+		lines.push("", "**Examples**");
+		for (const example of examples) {
+			lines.push(`- \`${example}\``);
+		}
+	}
+
+	if (matches.length > 1) {
+		lines.push("", "**Related commands**");
+		for (const match of matches.slice(1, 6)) {
+			lines.push(`- \`/${match.name}\` — ${match.description ?? "No description available."}`);
+		}
+	}
+
+	ctx.chatContainer.addChild(new Spacer(1));
+	ctx.chatContainer.addChild(new DynamicBorder());
+	ctx.chatContainer.addChild(new Text(theme.bold(theme.fg("accent", `Help: /${command.name}`)), 1, 0));
+	ctx.chatContainer.addChild(new Spacer(1));
+	ctx.chatContainer.addChild(new Markdown(lines.join("\n"), 1, 1, ctx.getMarkdownThemeWithSettings()));
+	ctx.chatContainer.addChild(new DynamicBorder());
+	ctx.requestRender();
+}
+
+function formatHelpSource(command: HelpCommandInfo): string {
+	switch (command.source) {
+		case "builtin":
+			return "built-in";
+		case "extension":
+			return "extension";
+		case "prompt":
+			return command.location ? `prompt template (${command.location})` : "prompt template";
+		case "skill":
+			return command.location ? `skill (${command.location})` : "skill";
+	}
+}
+
+function getHelpUsage(command: HelpCommandInfo): string {
+	if (command.source === "prompt" || command.source === "skill") {
+		return `/${command.name} [args]`;
+	}
+
+	const optionalArgCommands = new Set(["compact", "edit-mode", "help", "model", "name", "sandbox", "thinking"]);
+	if (optionalArgCommands.has(command.name)) {
+		return `/${command.name} [args]`;
+	}
+	if (command.name === "terminal") {
+		return "/terminal <command>";
+	}
+	return `/${command.name}`;
+}
+
+function getHelpExamples(command: HelpCommandInfo): string[] {
+	switch (command.name) {
+		case "help":
+			return ["/help", "/help terminal", "/help plan"];
+		case "model":
+			return ["/model", "/model claude"];
+		case "thinking":
+			return ["/thinking", "/thinking high"];
+		case "terminal":
+			return ["/terminal git status", "/terminal npm test"];
+		case "edit-mode":
+			return ["/edit-mode", "/edit-mode hashline"];
+		case "sandbox":
+			return ["/sandbox", "/sandbox on", "/sandbox off"];
+		case "compact":
+			return ["/compact", "/compact focus on the API redesign"];
+		case "name":
+			return ["/name release prep"];
+		default:
+			return [];
+	}
 }
 
 // ---------------------------------------------------------------------------

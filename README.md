@@ -104,7 +104,7 @@ LSD supports different permission modes controlling how aggressively it acts in 
 | **auto** | Uses a classifier model to approve low-risk tool calls automatically; still asks for high-risk ones |
 | **bypass** | Runs without asking (used internally by headless/subagent workers) |
 
-Switch modes with `/gsd auto` inside a session or pass flags to headless commands.
+Switch modes with `/permission` inside a session or pass flags to headless commands.
 
 ---
 
@@ -156,8 +156,11 @@ The default `lsd` experience is a full terminal UI with:
 
 ### TUI slash commands
 
+Use `/help` inside LSD to see the live command list for your current session, including built-ins, extension commands, prompt templates, and skill commands.
+
 | Command | Description |
 |---------|-------------|
+| `/help [command]` | Show available commands or details for one command |
 | `/model` | Switch model |
 | `/login` | Add or switch provider credentials |
 | `/settings` | Open settings panel |
@@ -221,17 +224,9 @@ The default `lsd` experience is a full terminal UI with:
 | `/audit` | Run a codebase audit |
 | `/search-provider` | Switch web search provider |
 
-### Legacy `/gsd` commands (still usable)
+### Compatibility note
 
-```
-/gsd auto        — start auto mode
-/gsd status      — show auto-mode queue status
-/gsd config      — open config
-/gsd doctor      — run diagnostics
-/gsd update      — update LSD
-/gsd queue       — manage the auto-mode queue
-/gsd remote ...  — alias for /lsd remote
-```
+LSD is LSD-first. Some legacy `/gsd` aliases may still exist for compatibility, but the recommended commands and docs use `/lsd` and the standard slash commands shown above.
 
 ### TUI settings
 
@@ -444,6 +439,106 @@ LSD includes full browser automation via Playwright:
 
 ---
 
+## LSP code intelligence
+
+LSD includes a first-class `lsp` tool for semantic code navigation in typed codebases.
+
+Use it for:
+
+- go-to-definition
+- find references and implementations
+- hover/type info
+- workspace and file symbols
+- incoming/outgoing calls
+- diagnostics and quick fixes
+- formatting and safe rename operations
+
+### Why LSP is good
+
+Unlike raw text search, LSP understands symbols, types, scopes, and project structure. That means the agent can:
+
+- jump to the right definition instead of matching the wrong string
+- find real references across the codebase
+- inspect function signatures and docs without reading huge files
+- catch type errors immediately after edits
+- apply safer refactors like rename and format
+
+In practice this makes the agent faster, more accurate, and less likely to break typed projects during navigation or refactors.
+
+### Typical LSP usage
+
+```text
+lsp definition      # jump to a symbol definition
+lsp references      # find where a symbol is used
+lsp hover           # inspect type/docs at a position
+lsp diagnostics     # check errors in a file or workspace
+lsp rename          # perform a semantic rename
+lsp format          # format a file with the language server
+lsp status          # show installed/active language servers
+```
+
+### In LSD sessions
+
+LSD prefers `lsp` over grep/find for typed codebases when a language server is available.
+
+If a server is missing, run:
+
+```bash
+/setup
+```
+
+or inspect status with:
+
+```text
+lsp status
+```
+
+---
+
+## RTK shell compression
+
+LSD supports **RTK** for shell-command compression.
+
+RTK rewrites certain shell commands into a more compact representation before they run, which helps reduce repetitive terminal output in agent context.
+
+### Why RTK is good
+
+RTK is useful when the agent or a background shell runs lots of repetitive commands like:
+
+- `git status`
+- `git diff`
+- test runs
+- package-manager commands
+- other high-noise shell commands
+
+Benefits:
+
+- saves context tokens
+- reduces noisy terminal output
+- keeps long sessions cleaner
+- lets the agent spend more context on code and reasoning instead of duplicated shell text
+
+When active, LSD can also surface session savings like how many tokens RTK saved.
+
+### Enable RTK
+
+Turn it on in `/settings` by enabling **RTK**.
+
+You can also enable it in preferences:
+
+```yaml
+experimental:
+  rtk: true
+```
+
+RTK requires a restart after toggling.
+
+### Where RTK helps most
+
+RTK is most valuable in long-running sessions, background shell workflows, and repos where the agent repeatedly checks git state, runs tests, or invokes build tooling.
+
+---
+
 ## Web research
 
 - Google-backed search (`google_search`)
@@ -562,12 +657,15 @@ lsd headless [cmd] [flags]   # headless mode (see above)
 
 ## Naming note
 
-LSD evolved from GSD 2. Some internal commands and compatibility surfaces still use `/gsd` — these remain usable. For new work, prefer:
+LSD evolved from GSD 2, but the product, docs, and recommended workflows are LSD-first. Prefer:
 
 - `lsd` — binary
 - `.lsd/` — project state
 - `~/.lsd/` — global state
 - `/lsd remote` — remote questions
+- `/help` — live in-session command reference
+
+Any remaining `/gsd` surfaces should be treated as compatibility aliases, not the primary workflow.
 
 ---
 

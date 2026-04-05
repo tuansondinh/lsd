@@ -195,6 +195,9 @@ export class InteractiveMode {
 	private isInitialized = false;
 	private onInputCallback?: (text: string) => void;
 	private loadingAnimation: Loader | undefined = undefined;
+	private loadingTipText: Text | undefined = undefined;
+	private loadingTipsInterval: ReturnType<typeof setInterval> | undefined = undefined;
+	private loadingTipIndex = 0;
 	private pendingWorkingMessage: string | undefined = undefined;
 	private readonly defaultWorkingMessage = "Cooking…";
 	private readonly workingMessages = [
@@ -213,6 +216,14 @@ export class InteractiveMode {
 		"Consulting the void…",
 		"Doing the thing…",
 		"Almost maybe…",
+	];
+	private readonly loadingTips = [
+		"Tip: Run /help for commands and built-in workflows.",
+		"Tip: Run /hotkeys to see keyboard shortcuts.",
+		"Tip: Say ‘plan first’ if you want a design before edits.",
+		"Tip: Mention file paths directly, like src/cli.ts.",
+		"Tip: Say ‘remember this’ to save a workflow preference.",
+		"Tip: Use --print for one-shot prompts in scripts.",
 	];
 
 	private lastSigintTime = 0;
@@ -257,6 +268,7 @@ export class InteractiveMode {
 	private pendingBashComponents: InteractiveBashComponent[] = [];
 	private focusedEmbeddedTerminal?: EmbeddedTerminalComponent;
 	private lastEmbeddedTerminalSize?: { cols: number; rows: number };
+	private readonly planBadgeBgToken = (["selectedBg", "userMessageBg", "customMessageBg", "toolPendingBg", "toolSuccessBg", "toolErrorBg"] as const)[crypto.randomInt(6)];
 
 	// Auto-compaction state
 	private autoCompactionLoader: Loader | undefined = undefined;
@@ -328,6 +340,7 @@ export class InteractiveMode {
 			paddingX: editorPaddingX,
 			autocompleteMaxVisible,
 		});
+		this.defaultEditor.topHintProvider = () => this.getPlanModeEditorBadge();
 		this.editor = this.defaultEditor;
 		this.editorContainer = new Container();
 		this.editorContainer.addChild(this.editor as Component);
@@ -1490,6 +1503,34 @@ export class InteractiveMode {
 		this.ui.requestRender();
 	}
 
+	private startLoadingTips(): void {
+		this.stopLoadingTips();
+		const tip = this.loadingTips[this.loadingTipIndex % this.loadingTips.length];
+		if (!tip) return;
+		this.loadingTipText = new Text(theme.fg("dim", `  ${tip}`), 1, 0);
+		this.statusContainer.addChild(this.loadingTipText);
+		this.loadingTipIndex = (this.loadingTipIndex + 1) % this.loadingTips.length;
+		this.loadingTipsInterval = setInterval(() => {
+			if (!this.loadingTipText) return;
+			const nextTip = this.loadingTips[this.loadingTipIndex % this.loadingTips.length];
+			if (!nextTip) return;
+			this.loadingTipText.setText(theme.fg("dim", `  ${nextTip}`));
+			this.loadingTipIndex = (this.loadingTipIndex + 1) % this.loadingTips.length;
+			this.ui.requestRender();
+		}, 10_000);
+	}
+
+	private stopLoadingTips(): void {
+		if (this.loadingTipsInterval) {
+			clearInterval(this.loadingTipsInterval);
+			this.loadingTipsInterval = undefined;
+		}
+		if (this.loadingTipText) {
+			this.statusContainer.removeChild(this.loadingTipText);
+			this.loadingTipText = undefined;
+		}
+	}
+
 	private renderWidgetContainer(
 		container: Container,
 		widgets: Map<string, Component & { dispose?(): void }>,
@@ -2200,6 +2241,30 @@ export class InteractiveMode {
 
 	private async handleEvent(event: AgentSessionEvent): Promise<void> {
 		await handleAgentEvent(this as any, event);
+	}
+
+	private getLatestPlanModeState(): { active?: boolean; latestPlanPath?: string } | undefined {
+		try {
+			const entries = this.session.sessionManager.getEntries();
+			for (let i = entries.length - 1; i >= 0; i--) {
+				const entry = entries[i];
+				if (entry.type === "custom" && entry.customType === "plan-mode-state" && entry.data && typeof entry.data === "object") {
+					return entry.data as { active?: boolean; latestPlanPath?: string };
+				}
+			}
+		} catch {
+			// Best-effort UI hint only.
+		}
+		return undefined;
+	}
+
+	private getPlanModeEditorBadge(): string {
+		const planState = this.getLatestPlanModeState();
+		if (!planState?.active || !planState.latestPlanPath) return "";
+
+		const planName = path.basename(planState.latestPlanPath).replace(/\.md$/i, "");
+		const badgeText = ` plan ${planName} · /plan to show plan `;
+		return theme.bg(this.planBadgeBgToken, theme.fg("text", theme.bold(badgeText)));
 	}
 
 	/** Extract text content from a user message */
@@ -3159,6 +3224,7 @@ export class InteractiveMode {
 					classifierModel: this.settingsManager.getClassifierModel() ?? "default",
 					budgetSubagentModel: this.settingsManager.getBudgetSubagentModel() ?? "default",
 					planModeReasoningModel: this.settingsManager.getPlanModeReasoningModel() ?? "default",
+					planModeReviewModel: this.settingsManager.getPlanModeReviewModel() ?? "default",
 					showImages: this.settingsManager.getShowImages(),
 					autoResizeImages: this.settingsManager.getImageAutoResize(),
 					blockImages: this.settingsManager.getBlockImages(),
@@ -3224,6 +3290,16 @@ export class InteractiveMode {
 							(model) => submenuDone(`${model.provider}/${model.id}`),
 							() => submenuDone(),
 						),
+					planModeReviewModelSubmenu: (_currentValue, submenuDone) =>
+						new ModelSelectorComponent(
+							this.ui,
+							undefined,
+							this.settingsManager,
+							this.session.modelRegistry,
+							[],
+							(model) => submenuDone(`${model.provider}/${model.id}`),
+							() => submenuDone(),
+						),
 				},
 				{
 					onAutoCompactChange: (enabled) => {
@@ -3248,6 +3324,12 @@ export class InteractiveMode {
 						this.settingsManager.setPlanModeReasoningModel(modelRef === "default" ? undefined : modelRef);
 						this.showStatus(
 							`Plan reasoning model: ${modelRef === "default" ? "use current model" : modelRef}`,
+						);
+					},
+					onPlanModeReviewModelChange: (modelRef) => {
+						this.settingsManager.setPlanModeReviewModel(modelRef === "default" ? undefined : modelRef);
+						this.showStatus(
+							`Plan review model: ${modelRef === "default" ? "use current/default model" : modelRef}`,
 						);
 					},
 					onShowImagesChange: (enabled) => {
@@ -4460,6 +4542,7 @@ export class InteractiveMode {
 	}
 
 	stop(): void {
+		this.stopLoadingTips();
 		if (this.loadingAnimation) {
 			this.loadingAnimation.stop();
 			this.loadingAnimation = undefined;

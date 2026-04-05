@@ -65,7 +65,7 @@ Anthropic models have built-in web search — no extra keys needed.
 GSD connects to external MCP servers configured in project files:
 
 - `.mcp.json` — repo-shared config
-- `.gsd/mcp.json` — local-only config
+- `.lsd/mcp.json` — local-only config
 
 <Tabs>
   <Tab title="stdio server">
@@ -89,7 +89,10 @@ GSD connects to external MCP servers configured in project files:
     {
       "mcpServers": {
         "my-http-server": {
-          "url": "http://localhost:8080/mcp"
+          "url": "http://localhost:8080/mcp",
+          "headers": {
+            "Authorization": "Bearer ${MCP_API_TOKEN}"
+          }
         }
       }
     }
