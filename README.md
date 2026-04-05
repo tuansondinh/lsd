@@ -14,7 +14,7 @@ npm install -g lsd-pi@latest
 
 LSD is a general-purpose coding agent CLI. It combines:
 
-- **Interactive TUI** inspired by Gemini CLI
+- **Interactive TUI** inspired by Gemini CLI — including an embedded interactive terminal inside the LSD CLI that both you and the agent can use, so the agent is not blocked by commands or tools that require terminal interaction
 - **Memory system and permission modes** inspired by Claude Code
 - **Sandbox isolation** inspired by Codex
 - **Auto mode** — a classifier-based autonomous execution mode
@@ -150,6 +150,9 @@ The default `lsd` experience is a full terminal UI with:
 - session management
 - background process management
 - settings panel (`/settings`)
+- an embedded interactive terminal inside the LSD CLI
+- user interaction with that terminal directly from the TUI
+- agent interaction with terminal programs and commands that require prompts, input, or other interactive flows without getting blocked
 
 ### TUI slash commands
 
