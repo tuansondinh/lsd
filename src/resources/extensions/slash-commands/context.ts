@@ -60,21 +60,25 @@ export default function contextCommand(pi: ExtensionAPI) {
                 const descLen = t.description?.length ?? 0;
                 const schemaLen = JSON.stringify(t.parameters ?? {}).length;
                 const totalChars = nameLen + descLen + schemaLen;
+                const isActive = activeToolNames.has(t.name ?? "");
                 const tokens = Math.ceil(totalChars / 4);
                 return {
                     name: t.name ?? "(unnamed)",
+                    totalChars,
                     tokens,
                     descTokens: Math.ceil(descLen / 4),
                     schemaTokens: Math.ceil((nameLen + schemaLen) / 4),
-                    isActive: activeToolNames.has(t.name ?? ""),
+                    isActive,
                 };
             });
 
-            const totalSchemaBytes = allTools.reduce((sum, t) => {
-                return sum + (t.name?.length ?? 0) + (t.description?.length ?? 0) + JSON.stringify(t.parameters ?? {}).length;
-            }, 0);
+            const activeSchemaBytes = toolSizes
+                .filter((t) => t.isActive)
+                .reduce((sum, t) => sum + t.totalChars, 0);
+            const registeredSchemaBytes = toolSizes.reduce((sum, t) => sum + t.totalChars, 0);
 
-            const toolsTokens = Math.ceil(totalSchemaBytes / 4);
+            const activeToolsTokens = Math.ceil(activeSchemaBytes / 4);
+            const registeredToolsTokens = Math.ceil(registeredSchemaBytes / 4);
 
             const largestActiveTools = toolSizes
                 .filter((t) => t.isActive)
@@ -109,7 +113,7 @@ export default function contextCommand(pi: ExtensionAPI) {
             const usedTokens = contextUsage?.tokens ?? null;
             const percentUsed = contextUsage?.percent ?? null;
 
-            const fallbackUsedTokens = systemPromptTokens + toolsTokens + historyTokens;
+            const fallbackUsedTokens = systemPromptTokens + activeToolsTokens + historyTokens;
             const effectiveUsedTokens = usedTokens ?? fallbackUsedTokens;
             const estimatedLabel = usedTokens === null ? " (estimated)" : "";
 
@@ -161,8 +165,11 @@ export default function contextCommand(pi: ExtensionAPI) {
             lines.push("");
 
             lines.push(`Tools                    ${activeToolsCount} active / ${totalToolsCount} registered`);
-            lines.push(`  Total schema bytes:    ${totalSchemaBytes.toLocaleString()}`);
-            lines.push(`  Est. tokens:           ~${toolsTokens.toLocaleString()}`);
+            lines.push(`  Active schema bytes:   ${activeSchemaBytes.toLocaleString()}`);
+            lines.push(`  Est. tokens:           ~${activeToolsTokens.toLocaleString()}`);
+            if (activeToolsCount !== totalToolsCount) {
+                lines.push(`  Registered total:      ${registeredSchemaBytes.toLocaleString()} bytes · ~${registeredToolsTokens.toLocaleString()} tok`);
+            }
 
             if (largestActiveTools.length > 0) {
                 lines.push("  Largest active tools:");

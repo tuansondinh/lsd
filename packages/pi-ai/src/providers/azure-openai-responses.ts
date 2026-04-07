@@ -118,7 +118,8 @@ export const streamSimpleAzureOpenAIResponses: StreamFunction<"azure-openai-resp
 	}
 
 	const base = buildBaseOptions(model, options, apiKey);
-	const reasoningEffort = supportsXhigh(model) ? options?.reasoning : clampReasoning(options?.reasoning);
+	const rawReasoning = options?.reasoning === "adaptive" ? "high" : options?.reasoning;
+	const reasoningEffort = supportsXhigh(model) ? rawReasoning : clampReasoning(rawReasoning);
 
 	return streamAzureOpenAIResponses(model, context, {
 		...base,

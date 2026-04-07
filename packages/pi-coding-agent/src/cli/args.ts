@@ -53,7 +53,7 @@ export interface Args {
 	bare?: boolean;
 }
 
-const VALID_THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"] as const;
+const VALID_THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "adaptive"] as const;
 
 export function isValidThinkingLevel(level: string): level is ThinkingLevel {
 	return VALID_THINKING_LEVELS.includes(level as ThinkingLevel);

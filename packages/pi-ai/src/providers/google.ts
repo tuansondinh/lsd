@@ -398,7 +398,7 @@ function buildParams(
 	return params;
 }
 
-type ClampedThinkingLevel = Exclude<ThinkingLevel, "xhigh">;
+type ClampedThinkingLevel = Exclude<ThinkingLevel, "xhigh" | "adaptive">;
 
 function isGemini3ProModel(model: Model<"google-generative-ai">): boolean {
 	return /gemini-3(?:\.\d+)?-pro/.test(model.id.toLowerCase());
@@ -430,6 +430,8 @@ function getGemini3ThinkingLevel(
 		case "medium":
 			return "MEDIUM";
 		case "high":
+			return "HIGH";
+		default:
 			return "HIGH";
 	}
 }

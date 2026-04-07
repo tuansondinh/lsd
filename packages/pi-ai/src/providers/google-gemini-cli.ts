@@ -949,7 +949,7 @@ function buildRequest(
 	};
 }
 
-type ClampedThinkingLevel = Exclude<ThinkingLevel, "xhigh">;
+type ClampedThinkingLevel = Exclude<ThinkingLevel, "xhigh" | "adaptive">;
 
 function getGeminiCliThinkingLevel(effort: ClampedThinkingLevel, modelId: string): GoogleThinkingLevel {
 	if (isGemini3ProModel(modelId)) {
@@ -970,6 +970,8 @@ function getGeminiCliThinkingLevel(effort: ClampedThinkingLevel, modelId: string
 		case "medium":
 			return "MEDIUM";
 		case "high":
+			return "HIGH";
+		default:
 			return "HIGH";
 	}
 }

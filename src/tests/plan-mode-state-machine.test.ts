@@ -483,3 +483,119 @@ test('plan mode non-interactive plan write auto-approves with default auto mode 
   assert.equal(testing.getState().approvalStatus, 'approved')
   assert.match(pi.sentMessages.at(-1) ?? '', /Plan approved\. Exit plan mode and start implementation immediately\./)
 })
+
+test('plan mode subagent-auto approval embeds planModeCodingModel in the worker invocation instruction', async (t) => {
+  const tmp = mkdtempSync(join(tmpdir(), 'plan-mode-test-'))
+  t.after(() => rmSync(tmp, { recursive: true, force: true }))
+
+  const oldAgentDir = process.env.LSD_CODING_AGENT_DIR
+  process.env.LSD_CODING_AGENT_DIR = tmp
+  mkdirSync(tmp, { recursive: true })
+  writeFileSync(join(tmp, 'settings.json'), JSON.stringify({ planModeCodingModel: 'anthropic/claude-sonnet-4-6' }))
+  t.after(() => {
+    if (oldAgentDir === undefined) delete process.env.LSD_CODING_AGENT_DIR
+    else process.env.LSD_CODING_AGENT_DIR = oldAgentDir
+  })
+
+  const planModule = await import('../resources/extensions/slash-commands/plan.ts')
+  const planCommand = planModule.default
+  const testing = planModule.__testing
+  testing.resetState()
+  setPermissionMode('accept-on-edit')
+
+  const pi = makeMockPi()
+  planCommand(pi as any)
+
+  const preplanModel = { provider: 'openai', id: 'gpt-5.4' }
+  await pi.commands.plan.handler('Implement sum function', makeCtx({ model: preplanModel }))
+
+  const planPath = '.lsd/plan/PLAN-subagent-auto.md'
+  mkdirSync('.lsd/plan', { recursive: true })
+  writeFileSync(planPath, '# Plan\n\n- Step 1\n')
+
+  await pi.handlers.tool_result(
+    { toolName: 'write', input: { path: planPath } },
+    makeCtx({ model: preplanModel }),
+  )
+
+  await pi.handlers.tool_result(
+    {
+      toolName: 'ask_user_questions',
+      details: makeAskUserDetails('Approve plan', 'Execute with subagent in auto mode'),
+    },
+    makeCtx({ model: preplanModel }),
+  )
+
+  assert.equal(getPermissionMode(), 'auto')
+  assert.equal(testing.getState().active, false)
+  assert.equal(testing.getState().approvalStatus, 'approved')
+  assert.equal(testing.getState().targetPermissionMode, 'auto')
+
+  const kickoff = pi.sentMessages.at(-1) ?? ''
+  assert.match(kickoff, /Plan approved\. Exit plan mode and execute the approved plan with a subagent now\./)
+  // codingModel must be embedded directly in the invocation instruction as a tool parameter
+  assert.match(kickoff, /agent "worker" and model="anthropic\/claude-sonnet-4-6"/)
+  // must NOT fall back to the old loose "Set model to" pattern
+  assert.doesNotMatch(kickoff, /Set model to/)
+  assert.match(kickoff, /Execution permission mode is now "auto"/)
+  assert.match(kickoff, /PLAN-subagent-auto\.md/)
+  assert.ok(pi.sentMessages.some(m => m.includes('worker')))
+})
+
+test('plan mode subagent-bypass approval embeds planModeCodingModel in the worker invocation instruction', async (t) => {
+  const tmp = mkdtempSync(join(tmpdir(), 'plan-mode-test-'))
+  t.after(() => rmSync(tmp, { recursive: true, force: true }))
+
+  const oldAgentDir = process.env.LSD_CODING_AGENT_DIR
+  process.env.LSD_CODING_AGENT_DIR = tmp
+  mkdirSync(tmp, { recursive: true })
+  writeFileSync(join(tmp, 'settings.json'), JSON.stringify({ planModeCodingModel: 'anthropic/claude-sonnet-4-6' }))
+  t.after(() => {
+    if (oldAgentDir === undefined) delete process.env.LSD_CODING_AGENT_DIR
+    else process.env.LSD_CODING_AGENT_DIR = oldAgentDir
+  })
+
+  const planModule = await import('../resources/extensions/slash-commands/plan.ts')
+  const planCommand = planModule.default
+  const testing = planModule.__testing
+  testing.resetState()
+  setPermissionMode('accept-on-edit')
+
+  const pi = makeMockPi()
+  planCommand(pi as any)
+
+  const preplanModel = { provider: 'openai', id: 'gpt-5.4' }
+  await pi.commands.plan.handler('Implement sum function', makeCtx({ model: preplanModel }))
+
+  const planPath = '.lsd/plan/PLAN-subagent-bypass.md'
+  mkdirSync('.lsd/plan', { recursive: true })
+  writeFileSync(planPath, '# Plan\n\n- Step 1\n')
+
+  await pi.handlers.tool_result(
+    { toolName: 'write', input: { path: planPath } },
+    makeCtx({ model: preplanModel }),
+  )
+
+  await pi.handlers.tool_result(
+    {
+      toolName: 'ask_user_questions',
+      details: makeAskUserDetails('Approve plan', 'Execute with subagent in bypass mode'),
+    },
+    makeCtx({ model: preplanModel }),
+  )
+
+  assert.equal(getPermissionMode(), 'danger-full-access')
+  assert.equal(testing.getState().active, false)
+  assert.equal(testing.getState().approvalStatus, 'approved')
+  assert.equal(testing.getState().targetPermissionMode, 'danger-full-access')
+
+  const kickoff = pi.sentMessages.at(-1) ?? ''
+  assert.match(kickoff, /Plan approved\. Exit plan mode and execute the approved plan with a subagent now\./)
+  // codingModel must be embedded directly in the invocation instruction as a tool parameter
+  assert.match(kickoff, /agent "worker" and model="anthropic\/claude-sonnet-4-6"/)
+  // must NOT fall back to the old loose "Set model to" pattern
+  assert.doesNotMatch(kickoff, /Set model to/)
+  assert.match(kickoff, /Execution permission mode is now "danger-full-access"/)
+  assert.match(kickoff, /PLAN-subagent-bypass\.md/)
+  assert.ok(pi.sentMessages.some(m => m.includes('worker')))
+})

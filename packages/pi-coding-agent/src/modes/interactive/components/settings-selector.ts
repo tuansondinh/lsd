@@ -16,6 +16,7 @@ import { DynamicBorder } from "./dynamic-border.js";
 
 export const THINKING_DESCRIPTIONS: Record<ThinkingLevel, string> = {
 	off: "No reasoning",
+	adaptive: "Claude decides when and how much to think (Claude 4.6+ only)",
 	minimal: "Very brief reasoning (~1k tokens)",
 	low: "Light reasoning (~2k tokens)",
 	medium: "Moderate reasoning (~8k tokens)",
@@ -36,6 +37,8 @@ export interface SettingsConfig {
 	autoResizeImages: boolean;
 	blockImages: boolean;
 	enableSkillCommands: boolean;
+	toolSearch: boolean;
+	toolProfile: "minimal" | "balanced";
 	codexRotate: boolean;
 	cacheTimer: boolean;
 	pinLastPrompt: boolean;
@@ -93,6 +96,8 @@ export interface SettingsCallbacks {
 	onAutoResizeImagesChange: (enabled: boolean) => void;
 	onBlockImagesChange: (blocked: boolean) => void;
 	onEnableSkillCommandsChange: (enabled: boolean) => void;
+	onToolSearchChange: (enabled: boolean) => void;
+	onToolProfileChange: (profile: "minimal" | "balanced") => void;
 	onCodexRotateChange: (enabled: boolean) => void;
 	onCacheTimerChange: (enabled: boolean) => void;
 	onPinLastPromptChange: (enabled: boolean) => void;
@@ -445,9 +450,19 @@ export class SettingsSelectorComponent extends Container {
 			values: ["true", "false"],
 		});
 
-		// Hardware cursor toggle (insert after skill-commands)
+		// Tool profile selector (insert after skill-commands)
 		const skillCommandsIndex = items.findIndex((item) => item.id === "skill-commands");
 		items.splice(skillCommandsIndex + 1, 0, {
+			id: "tool-profile",
+			label: "Tool profile",
+			description: "Choose the default active tool set: balanced for day-to-day coding, minimal for lazy tool-search mode",
+			currentValue: config.toolProfile,
+			values: ["balanced", "minimal"],
+		});
+
+		// Codex rotate toggle (insert after tool-profile)
+		const toolProfileIndex = items.findIndex((item) => item.id === "tool-profile");
+		items.splice(toolProfileIndex + 1, 0, {
 			id: "codex-rotate",
 			label: "Codex rotate",
 			description: "Enable automatic Codex account rotation extension",
@@ -629,6 +644,12 @@ export class SettingsSelectorComponent extends Container {
 						break;
 					case "skill-commands":
 						callbacks.onEnableSkillCommandsChange(newValue === "true");
+						break;
+					case "tool-search":
+						callbacks.onToolSearchChange(newValue === "true");
+						break;
+					case "tool-profile":
+						callbacks.onToolProfileChange(newValue as "minimal" | "balanced");
 						break;
 					case "codex-rotate":
 						callbacks.onCodexRotateChange(newValue === "true");

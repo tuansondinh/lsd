@@ -129,7 +129,7 @@ export interface Settings {
 	planModeCodingModel?: string;
 	permissionMode?: "danger-full-access" | "accept-on-edit" | "auto" | "plan";
 	classifierModel?: string;
-	defaultThinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+	defaultThinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "adaptive";
 	transport?: TransportSetting; // default: "sse"
 	steeringMode?: "all" | "one-at-a-time";
 	followUpMode?: "all" | "one-at-a-time";
@@ -149,7 +149,8 @@ export interface Settings {
 	prompts?: string[]; // Array of local prompt template paths or directories
 	themes?: string[]; // Array of local theme file paths or directories
 	enableSkillCommands?: boolean; // default: true - register skills as /skill:name commands
-	toolSearch?: boolean; // default: false - start with a minimal tool set and use tool_search/tool_enable to lazily activate tools
+	toolSearch?: boolean; // legacy boolean toggle for lazy tool-search mode; superseded by toolProfile
+	toolProfile?: "minimal" | "balanced"; // default: "balanced"
 	terminal?: TerminalSettings;
 	images?: ImageSettings;
 	enabledModels?: string[]; // Model patterns for cycling (same format as --models CLI flag)
@@ -873,11 +874,11 @@ export class SettingsManager {
 		this.setGlobalSetting("themeAccent", accent);
 	}
 
-	getDefaultThinkingLevel(): "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined {
+	getDefaultThinkingLevel(): "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "adaptive" | undefined {
 		return this.settings.defaultThinkingLevel;
 	}
 
-	setDefaultThinkingLevel(level: "off" | "minimal" | "low" | "medium" | "high" | "xhigh"): void {
+	setDefaultThinkingLevel(level: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "adaptive"): void {
 		this.setGlobalSetting("defaultThinkingLevel", level);
 	}
 
@@ -1066,12 +1067,24 @@ export class SettingsManager {
 		this.setGlobalSetting("enableSkillCommands", enabled);
 	}
 
+	getToolProfile(): "minimal" | "balanced" {
+		const profile = this.settings.toolProfile;
+		if (profile === "minimal" || profile === "balanced") return profile;
+		if (this.settings.toolSearch !== undefined) return this.settings.toolSearch ? "minimal" : "balanced";
+		return "balanced";
+	}
+
+	setToolProfile(profile: "minimal" | "balanced"): void {
+		this.setGlobalSetting("toolProfile", profile);
+		this.setGlobalSetting("toolSearch", profile === "minimal");
+	}
+
 	getToolSearch(): boolean {
-		return this.settings.toolSearch ?? false;
+		return this.getToolProfile() === "minimal";
 	}
 
 	setToolSearch(enabled: boolean): void {
-		this.setGlobalSetting("toolSearch", enabled);
+		this.setToolProfile(enabled ? "minimal" : "balanced");
 	}
 
 	getThinkingBudgets(): ThinkingBudgetsSettings | undefined {

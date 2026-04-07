@@ -281,7 +281,8 @@ export const streamSimpleOpenAICodexResponses: StreamFunction<"openai-codex-resp
 	}
 
 	const base = buildBaseOptions(model, options, apiKey);
-	const reasoningEffort = supportsXhigh(model) ? options?.reasoning : clampReasoning(options?.reasoning);
+	const rawReasoning = options?.reasoning === "adaptive" ? "high" : options?.reasoning;
+	const reasoningEffort = supportsXhigh(model) ? rawReasoning : clampReasoning(rawReasoning);
 
 	return streamOpenAICodexResponses(model, context, {
 		...base,

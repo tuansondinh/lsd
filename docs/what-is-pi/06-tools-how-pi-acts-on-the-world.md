@@ -4,7 +4,7 @@ Tools are functions the LLM can call to interact with your system. The LLM sees 
 
 ### Built-in Tools
 
-Pi ships with 7 built-in tools (4 active by default):
+Pi ships with 7 built-in tools (tool-search mode keeps a smaller core set active by default):
 
 | Tool | Default | What it does |
 |------|---------|-------------|
@@ -37,5 +37,8 @@ The system prompt includes an "Available tools" section listing each active tool
 ### Output Truncation
 
 **All tools truncate output** to 50KB / 2000 lines (whichever is hit first). This prevents a single tool call from consuming the entire context window. When truncated, the full output is saved to a temp file and the LLM is told where to find it.
+
+---
+ output is saved to a temp file and the LLM is told where to find it.
 
 ---

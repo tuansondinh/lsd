@@ -275,14 +275,13 @@ function buildExecutionKickoffMessage(options: { permissionMode: RestorablePermi
   }
 
   const codingModel = readPlanModeCodingModel();
-  const modelInstruction = codingModel
-    ? `Set model to \"${codingModel}\" for that subagent.`
-    : "Do not pass a model override for that subagent unless needed.";
+  const agentInvocationInstruction = codingModel
+    ? `Invoke the subagent tool with agent "worker" and model="${codingModel}" to implement the plan end-to-end.`
+    : `Invoke the subagent tool with agent "worker" to implement the plan end-to-end.`;
 
   const details: string[] = [
     "Plan approved. Exit plan mode and execute the approved plan with a subagent now.",
-    "Invoke the subagent tool with agent \"generic\" to implement the plan end-to-end.",
-    modelInstruction,
+    agentInvocationInstruction,
     `Execution permission mode is now \"${permissionMode}\".`,
   ];
   if (task) details.push(`Original task: ${task}`);

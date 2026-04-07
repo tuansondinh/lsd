@@ -118,7 +118,8 @@ export const streamSimpleOpenAIResponses: StreamFunction<"openai-responses", Sim
 	}
 
 	const base = buildBaseOptions(model, options, apiKey);
-	const reasoningEffort = supportsXhigh(model) ? options?.reasoning : clampReasoning(options?.reasoning);
+	const rawReasoning = options?.reasoning === "adaptive" ? "high" : options?.reasoning;
+	const reasoningEffort = supportsXhigh(model) ? rawReasoning : clampReasoning(rawReasoning);
 
 	return streamOpenAIResponses(model, context, {
 		...base,

@@ -258,26 +258,14 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
     }
 
     const editMode = settingsManager.getEditMode();
-    const toolSearchEnabled = settingsManager.getToolSearch();
-    const defaultActiveToolNames: string[] = toolSearchEnabled
+    const toolProfile = settingsManager.getToolProfile();
+    const defaultActiveToolNames: string[] = toolProfile === "minimal"
         ? (editMode === "hashline"
             ? ["hashline_read", "bash", "lsp", "tool_search", "tool_enable"]
             : ["read", "bash", "lsp", "tool_search", "tool_enable"])
         : editMode === "hashline"
-            ? [
-                "hashline_read",
-                "bash",
-                "hashline_edit",
-                "write",
-                "lsp",
-                "pty_start",
-                "pty_send",
-                "pty_read",
-                "pty_wait",
-                "pty_resize",
-                "pty_kill",
-            ]
-            : ["read", "bash", "edit", "write", "lsp", "pty_start", "pty_send", "pty_read", "pty_wait", "pty_resize", "pty_kill"];
+            ? ["hashline_read", "bash", "hashline_edit", "write", "lsp", "bg_shell", "tool_search", "tool_enable", "Skill", "subagent", "await_subagent"]
+            : ["read", "bash", "edit", "write", "lsp", "bg_shell", "tool_search", "tool_enable", "Skill", "subagent", "await_subagent"];
     const initialActiveToolNames: string[] = options.tools
         ? options.tools.map((t) => t.name).filter((n): n is string => typeof n === "string" && n in allTools)
         : defaultActiveToolNames;

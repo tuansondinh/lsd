@@ -25,7 +25,7 @@ import type {
 	ThinkingLevel,
 } from "@gsd/pi-agent-core";
 import type { AssistantMessage, ImageContent, Message, Model, TextContent } from "@gsd/pi-ai";
-import { modelsAreEqual, resetApiProviders, supportsXhigh } from "@gsd/pi-ai";
+import { modelsAreEqual, resetApiProviders, supportsAdaptiveThinking, supportsXhigh } from "@gsd/pi-ai";
 import { Type } from "@sinclair/typebox";
 import { getDocsPath } from "../config.js";
 import { getErrorMessage } from "../utils/error.js";
@@ -237,6 +237,12 @@ const THINKING_LEVELS: ThinkingLevel[] = ["off", "minimal", "low", "medium", "hi
 /** Thinking levels including xhigh (for supported models) */
 const THINKING_LEVELS_WITH_XHIGH: ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh"];
 
+/** Thinking levels for models supporting adaptive thinking (Claude Opus/Sonnet 4.6+) */
+const THINKING_LEVELS_WITH_ADAPTIVE: ThinkingLevel[] = ["off", "adaptive", "minimal", "low", "medium", "high"];
+
+/** Thinking levels for models supporting both adaptive and xhigh */
+const THINKING_LEVELS_WITH_ADAPTIVE_AND_XHIGH: ThinkingLevel[] = ["off", "adaptive", "minimal", "low", "medium", "high", "xhigh"];
+
 // ============================================================================
 // AgentSession Class
 // ============================================================================
@@ -257,6 +263,8 @@ export class AgentSession {
 	private _steeringMessages: string[] = [];
 	/** Tracks pending follow-up messages for UI display. Removed when delivered. */
 	private _followUpMessages: string[] = [];
+	/** Tracks texts of extension-injected steer messages that should be hidden from UI. */
+	private _hiddenSteeringTexts = new Set<string>();
 	/** Messages queued to be included with the next user prompt as context ("asides"). */
 	private _pendingNextTurnMessages: CustomMessage[] = [];
 
@@ -367,8 +375,12 @@ export class AgentSession {
 
 		this._buildRuntime({
 			activeToolNames: this._initialActiveToolNames,
-			includeAllExtensionTools: true,
+			includeAllExtensionTools: this._shouldIncludeAllExtensionTools(),
 		});
+	}
+
+	private _shouldIncludeAllExtensionTools(): boolean {
+		return !this.settingsManager.getToolSearch();
 	}
 
 	private async _waitForAutomatedFollowUps(): Promise<void> {
@@ -1118,10 +1130,11 @@ export class AgentSession {
 					"Agent is already processing. Specify streamingBehavior ('steer' or 'followUp') to queue the message.",
 				);
 			}
+			const isExtensionSteer = options.streamingBehavior === "steer" && options.source === "extension";
 			if (options.streamingBehavior === "followUp") {
 				await this._queueFollowUp(expandedText, currentImages);
 			} else {
-				await this._queueSteer(expandedText, currentImages);
+				await this._queueSteer(expandedText, currentImages, isExtensionSteer);
 			}
 			return;
 		}
@@ -1180,6 +1193,10 @@ export class AgentSession {
 		const userContent: (TextContent | ImageContent)[] = [{ type: "text", text: expandedText }];
 		if (currentImages) {
 			userContent.push(...currentImages);
+		}
+		// Track extension-injected messages so the UI can hide them
+		if (options?.source === "extension") {
+			this._hiddenSteeringTexts.add(expandedText);
 		}
 		messages.push({
 			role: "user",
@@ -1422,9 +1439,13 @@ export class AgentSession {
 
 	/**
 	 * Internal: Queue a steering message (already expanded, no extension command check).
+	 * @param hidden If true, the message will be hidden from the UI (used for extension-injected steers).
 	 */
-	private async _queueSteer(text: string, images?: ImageContent[]): Promise<void> {
+	private async _queueSteer(text: string, images?: ImageContent[], hidden?: boolean): Promise<void> {
 		this._steeringMessages.push(text);
+		if (hidden) {
+			this._hiddenSteeringTexts.add(text);
+		}
 		const content: (TextContent | ImageContent)[] = [{ type: "text", text }];
 		if (images) {
 			content.push(...images);
@@ -1617,6 +1638,11 @@ export class AgentSession {
 		return this._steeringMessages.length + this._followUpMessages.length;
 	}
 
+	/** Returns true if the given message text was injected by an extension and should be hidden from the UI. */
+	isHiddenSteeringMessage(text: string): boolean {
+		return this._hiddenSteeringTexts.has(text);
+	}
+
 	/** Get pending steering messages (read-only) */
 	getSteeringMessages(): readonly string[] {
 		return this._steeringMessages;
@@ -1687,6 +1713,7 @@ export class AgentSession {
 		this._steeringMessages = [];
 		this._followUpMessages = [];
 		this._pendingNextTurnMessages = [];
+		this._hiddenSteeringTexts = new Set();
 
 		this.sessionManager.appendThinkingLevelChange(this.thinkingLevel);
 
@@ -1697,7 +1724,7 @@ export class AgentSession {
 		if (this._cwd !== previousCwd) {
 			this._buildRuntime({
 				activeToolNames: this.getActiveToolNames(),
-				includeAllExtensionTools: true,
+				includeAllExtensionTools: this._shouldIncludeAllExtensionTools(),
 			});
 		}
 
@@ -1885,7 +1912,18 @@ export class AgentSession {
 	 */
 	getAvailableThinkingLevels(): ThinkingLevel[] {
 		if (!this.supportsThinking()) return ["off"];
-		return this.supportsXhighThinking() ? THINKING_LEVELS_WITH_XHIGH : THINKING_LEVELS;
+		const adaptive = this.supportsAdaptiveThinking();
+		const xhigh = this.supportsXhighThinking();
+		if (adaptive && xhigh) return THINKING_LEVELS_WITH_ADAPTIVE_AND_XHIGH;
+		if (adaptive) return THINKING_LEVELS_WITH_ADAPTIVE;
+		return xhigh ? THINKING_LEVELS_WITH_XHIGH : THINKING_LEVELS;
+	}
+
+	/**
+	 * Check if current model supports adaptive thinking (Claude Opus/Sonnet 4.6+).
+	 */
+	supportsAdaptiveThinking(): boolean {
+		return this.model ? supportsAdaptiveThinking(this.model.id) : false;
 	}
 
 	/**
@@ -1913,7 +1951,7 @@ export class AgentSession {
 	}
 
 	private _clampThinkingLevel(level: ThinkingLevel, availableLevels: ThinkingLevel[]): ThinkingLevel {
-		const ordered = THINKING_LEVELS_WITH_XHIGH;
+		const ordered = THINKING_LEVELS_WITH_ADAPTIVE_AND_XHIGH;
 		const available = new Set(availableLevels);
 		const requestedIndex = ordered.indexOf(level);
 		if (requestedIndex === -1) {
@@ -2375,7 +2413,7 @@ export class AgentSession {
 		this._buildRuntime({
 			activeToolNames: this.getActiveToolNames(),
 			flagValues: previousFlagValues,
-			includeAllExtensionTools: true,
+			includeAllExtensionTools: this._shouldIncludeAllExtensionTools(),
 		});
 
 		const hasBindings =
@@ -2585,6 +2623,7 @@ export class AgentSession {
 		this._steeringMessages = [];
 		this._followUpMessages = [];
 		this._pendingNextTurnMessages = [];
+		this._hiddenSteeringTexts = new Set();
 
 		// Set new session
 		this.sessionManager.setSessionFile(sessionPath);

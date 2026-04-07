@@ -300,7 +300,8 @@ export const streamSimpleOpenAICompletions: StreamFunction<"openai-completions",
 	}
 
 	const base = buildBaseOptions(model, options, apiKey);
-	const reasoningEffort = supportsXhigh(model) ? options?.reasoning : clampReasoning(options?.reasoning);
+	const rawReasoning = options?.reasoning === "adaptive" ? "high" : options?.reasoning;
+	const reasoningEffort = supportsXhigh(model) ? rawReasoning : clampReasoning(rawReasoning);
 	const toolChoice = (options as OpenAICompletionsOptions | undefined)?.toolChoice;
 
 	return streamOpenAICompletions(model, context, {

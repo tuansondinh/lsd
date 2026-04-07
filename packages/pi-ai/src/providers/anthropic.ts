@@ -23,7 +23,7 @@ import {
 
 // Re-export types used by other modules
 export type { AnthropicEffort, AnthropicOptions };
-export { extractRetryAfterMs };
+export { extractRetryAfterMs, supportsAdaptiveThinking };
 
 let _AnthropicClass: typeof Anthropic | undefined;
 async function getAnthropicClass(): Promise<typeof Anthropic> {
@@ -197,7 +197,7 @@ export const streamSimpleAnthropic: StreamFunction<"anthropic-messages", SimpleS
 		return streamAnthropic(model, context, { ...base, thinkingEnabled: false } satisfies AnthropicOptions);
 	}
 
-	// For Opus 4.6 and Sonnet 4.6: use adaptive thinking with effort level
+	// For Opus 4.6 and Sonnet 4.6: use adaptive thinking (effort may be undefined to let Claude decide)
 	// For older models: use budget-based thinking
 	if (supportsAdaptiveThinking(model.id)) {
 		const effort = mapThinkingLevelToEffort(options.reasoning, model.id);

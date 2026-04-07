@@ -397,8 +397,11 @@ function supportsAdaptiveThinking(modelId: string): boolean {
 function mapThinkingLevelToEffort(
 	level: SimpleStreamOptions["reasoning"],
 	modelId: string,
-): "low" | "medium" | "high" | "max" {
+): "low" | "medium" | "high" | "max" | undefined {
 	switch (level) {
+		case "adaptive":
+			// No effort override — let Claude decide based on request complexity
+			return undefined;
 		case "minimal":
 		case "low":
 			return "low";
@@ -685,13 +688,17 @@ function buildAdditionalModelRequestFields(
 	}
 
 	if (model.id.includes("anthropic.claude") || model.id.includes("anthropic/claude")) {
+		const adaptiveEffort = supportsAdaptiveThinking(model.id)
+			? mapThinkingLevelToEffort(options.reasoning, model.id)
+			: undefined;
 		const result: Record<string, any> = supportsAdaptiveThinking(model.id)
 			? {
 					thinking: { type: "adaptive" },
-					output_config: { effort: mapThinkingLevelToEffort(options.reasoning, model.id) },
+					...(adaptiveEffort != null ? { output_config: { effort: adaptiveEffort } } : {}),
 				}
 			: (() => {
 					const defaultBudgets: Record<ThinkingLevel, number> = {
+						adaptive: 16384, // Fallback for old models that don't support adaptive
 						minimal: 1024,
 						low: 2048,
 						medium: 8192,
@@ -699,8 +706,8 @@ function buildAdditionalModelRequestFields(
 						xhigh: 16384, // Claude doesn't support xhigh, clamp to high
 					};
 
-					// Custom budgets override defaults (xhigh not in ThinkingBudgets, use high)
-					const level = options.reasoning === "xhigh" ? "high" : options.reasoning;
+					// Custom budgets override defaults (xhigh/adaptive not in ThinkingBudgets, use high)
+					const level = options.reasoning === "xhigh" || options.reasoning === "adaptive" ? "high" : options.reasoning;
 					const budget = options.thinkingBudgets?.[level] ?? defaultBudgets[options.reasoning];
 
 					return {

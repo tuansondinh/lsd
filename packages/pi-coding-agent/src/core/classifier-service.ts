@@ -110,6 +110,39 @@ const BUILT_IN_BASH_ALLOW_PATTERNS = [
 	"more *",
 ] as const;
 
+const CLASSIFIER_SYSTEM_PROMPT = `You are a security classifier for an autonomous coding agent. Your job is to decide ALLOW or DENY for a pending tool call.
+
+DEFAULT: ALLOW. The user enabled auto mode because they trust the agent. Only deny clear security violations.
+
+ALWAYS ALLOW:
+- Read-only commands: find, grep, ls, cat, head, tail, wc, stat, file, du, df, echo, pwd, env, which, sort, awk, sed -n
+- Git read operations: status, log, diff, show, branch, blame, remote
+- Build/test/lint: npm run *, npx *, tsc, eslint, jest, vitest, cargo, make
+- Writing or editing files inside the project directory
+- Installing packages: npm install, pip install, cargo add
+- Operations clearly implied by the user's recent messages
+
+DENY only these specific violations:
+- Deleting files with rm, unlink, rmdir (unless user explicitly asked to delete/remove)
+- Commands targeting system paths outside the project (/etc, /usr, /bin, /System, ~/.ssh)
+- sudo, su, chmod, chown on system paths
+- curl/wget piped directly to sh/bash/zsh
+- curl/wget sending local files or env vars to external hosts (e.g. -d @~/.ssh/id_rsa, -d "$(env)")
+- ssh, scp, sftp — remote shell/file access is out of scope
+- nc/ncat in listen/server mode (-l flag)
+- kill -9, killall
+- crontab modifications
+- dd, mkfs — disk/filesystem writes
+- sed -i — in-place editing that can silently corrupt files
+- npm publish, pip publish, twine upload
+- git push --force / git push -f
+- Accessing credential files unrelated to the task (~/.aws, ~/.ssh/id_rsa, /etc/passwd)
+- Commands that clearly contradict the user's stated intent
+
+Use the user's recent messages to judge intent. If the user asked for something and the tool call implements it, ALLOW.
+
+Output exactly one word: ALLOW or DENY.`;
+
 export interface ClassifierContext {
 	userMessages: string[];
 	projectInstructions?: string;
@@ -259,46 +292,13 @@ export class ClassifierService {
 		argsJson: string,
 		context: ClassifierContext,
 	): Promise<boolean> {
-		const systemPrompt = `You are a security classifier for an autonomous coding agent. Your job is to decide ALLOW or DENY for a pending tool call.
-
-DEFAULT: ALLOW. The user enabled auto mode because they trust the agent. Only deny clear security violations.
-
-ALWAYS ALLOW:
-- Any read-only operation: find, grep, ls, cat, head, tail, wc, stat, file, du, df, echo, pwd, env, which, sort, awk, sed -n
-- Any git read operation: git status, git log, git diff, git show, git branch, git blame, git remote
-- Build/test/lint: npm run *, npx *, tsc, eslint, jest, vitest, cargo, make
-- Writing or editing files inside the project directory
-- Installing packages: npm install, pip install, cargo add
-- Operations clearly implied by the user's recent messages
-
-DENY only these specific violations:
-- Deleting files with rm, unlink, rmdir (unless user explicitly said "delete" or "remove" that file)
-- Commands outside the project directory targeting system paths (/etc, /usr, /bin, /System, ~/.ssh)
-- sudo, su, chmod/chown on system paths
-- curl/wget piped directly to sh/bash (arbitrary code execution)
-- curl/wget sending local files or env vars to external hosts (e.g. -d @~/.ssh/id_rsa, -d "$(env)")
-- ssh, scp, sftp — remote shell/file access is out of scope for a coding agent
-- nc/ncat in listen/server mode (-l flag) — reverse shell risk
-- kill -9, killall — terminating arbitrary processes
-- crontab — modifying scheduled jobs
-- dd, mkfs — disk/filesystem writes
-- sed -i — in-place file editing that can silently corrupt files; agent should use proper edit tools
-- npm publish, pip publish, twine upload — publishing packages requires explicit user action
-- git push --force / git push -f — destructive remote history rewrite
-- Accessing credential files unrelated to the current task (~/.aws, ~/.ssh/id_rsa, /etc/passwd)
-- Commands that clearly contradict the user's stated intent
-
-Use the user's recent messages to judge intent. If the user asked for something and the tool call implements it, ALLOW.
-
-Output exactly one word: ALLOW or DENY.`;
-
 		const userPrompt = this.buildUserPrompt(toolName, argsJson, context);
 
 		return new Promise<boolean>((resolve, reject) => {
 			const data = JSON.stringify({
 				model: modelId,
 				max_tokens: 10,
-				system: systemPrompt,
+				system: CLASSIFIER_SYSTEM_PROMPT,
 				messages: [{ role: "user", content: userPrompt }],
 			});
 			const headers: Record<string, string | number> = {
@@ -349,39 +349,11 @@ Output exactly one word: ALLOW or DENY.`;
 		argsJson: string,
 		context: ClassifierContext,
 	): Promise<boolean> {
-		const systemPrompt = `You are a security classifier for an autonomous coding agent. Decide ALLOW or DENY for a pending tool call.
-
-DEFAULT: ALLOW. The user enabled auto mode because they trust the agent. Only deny clear security violations.
-
-ALLOW:
-- Read-only commands
-- Git read commands
-- Build/test/lint commands
-- Writing/editing files inside the project
-- Commands clearly requested by the user
-
-DENY:
-- rm/unlink/rmdir unless the user explicitly asked to delete/remove that file
-- system-path modifications (/etc, /usr, /bin, /System, ~/.ssh)
-- sudo/su
-- curl/wget piped to shell
-- exfiltrating local secrets/files
-- ssh/scp/sftp
-- nc/ncat -l
-- kill -9 / killall
-- crontab
-- dd / mkfs
-- sed -i
-- npm/pip/twine publish
-- git push --force / -f
-
-Output exactly one word: ALLOW or DENY.`;
-
 		const userPrompt = this.buildUserPrompt(toolName, argsJson, context);
 
 		return new Promise<boolean>((resolve, reject) => {
 			const data = JSON.stringify({
-				system_instruction: { parts: [{ text: systemPrompt }] },
+				system_instruction: { parts: [{ text: CLASSIFIER_SYSTEM_PROMPT }] },
 				contents: [{ role: "user", parts: [{ text: userPrompt }] }],
 				generationConfig: { temperature: 0, maxOutputTokens: 8 },
 			});

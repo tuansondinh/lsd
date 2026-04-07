@@ -46,7 +46,7 @@ export type KnownProvider =
 	| "ollama-cloud";
 export type Provider = KnownProvider | string;
 
-export type ThinkingLevel = "minimal" | "low" | "medium" | "high" | "xhigh";
+export type ThinkingLevel = "minimal" | "low" | "medium" | "high" | "xhigh" | "adaptive";
 
 /** Token budgets for each thinking level (token-based providers only) */
 export interface ThinkingBudgets {

@@ -2649,7 +2649,7 @@ export class InteractiveMode {
 			}
 			case "user": {
 				const textContent = this.getUserMessageText(message);
-				if (textContent) {
+				if (textContent && !this.session.isHiddenSteeringMessage(textContent)) {
 					const skillBlock = parseSkillBlock(textContent);
 					if (skillBlock) {
 						// Render skill block (collapsible)
@@ -3411,6 +3411,8 @@ export class InteractiveMode {
 					autoResizeImages: this.settingsManager.getImageAutoResize(),
 					blockImages: this.settingsManager.getBlockImages(),
 					enableSkillCommands: this.settingsManager.getEnableSkillCommands(),
+					toolSearch: this.settingsManager.getToolSearch(),
+					toolProfile: this.settingsManager.getToolProfile(),
 					codexRotate: this.settingsManager.getCodexRotate(),
 					cacheTimer: this.settingsManager.getCacheTimer(),
 					pinLastPrompt: this.settingsManager.getPinLastPrompt(),
@@ -3569,6 +3571,31 @@ export class InteractiveMode {
 					onEnableSkillCommandsChange: (enabled) => {
 						this.settingsManager.setEnableSkillCommands(enabled);
 						this.setupAutocomplete();
+					},
+					onToolSearchChange: (enabled) => {
+						const profile = enabled ? "minimal" : "balanced";
+						this.settingsManager.setToolProfile(profile);
+						const nextActiveToolNames = profile === "minimal"
+							? (this.session.editMode === "hashline"
+								? ["hashline_read", "bash", "lsp", "tool_search", "tool_enable"]
+								: ["read", "bash", "lsp", "tool_search", "tool_enable"])
+							: (this.session.editMode === "hashline"
+								? ["hashline_read", "bash", "hashline_edit", "write", "lsp", "bg_shell", "tool_search", "tool_enable", "Skill", "subagent", "await_subagent"]
+								: ["read", "bash", "edit", "write", "lsp", "bg_shell", "tool_search", "tool_enable", "Skill", "subagent", "await_subagent"]);
+						this.session.setActiveToolsByName(nextActiveToolNames);
+						this.showStatus(`Tool profile: ${profile}`);
+					},
+					onToolProfileChange: (profile) => {
+						this.settingsManager.setToolProfile(profile);
+						const nextActiveToolNames = profile === "minimal"
+							? (this.session.editMode === "hashline"
+								? ["hashline_read", "bash", "lsp", "tool_search", "tool_enable"]
+								: ["read", "bash", "lsp", "tool_search", "tool_enable"])
+							: (this.session.editMode === "hashline"
+								? ["hashline_read", "bash", "hashline_edit", "write", "lsp", "bg_shell", "tool_search", "tool_enable", "Skill", "subagent", "await_subagent"]
+								: ["read", "bash", "edit", "write", "lsp", "bg_shell", "tool_search", "tool_enable", "Skill", "subagent", "await_subagent"]);
+						this.session.setActiveToolsByName(nextActiveToolNames);
+						this.showStatus(`Tool profile: ${profile}`);
 					},
 					onCodexRotateChange: (enabled) => {
 						this.settingsManager.setCodexRotate(enabled);

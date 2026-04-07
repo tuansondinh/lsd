@@ -5,6 +5,7 @@ import { DynamicBorder } from "./dynamic-border.js";
 
 const LEVEL_DESCRIPTIONS: Record<ThinkingLevel, string> = {
 	off: "No reasoning",
+	adaptive: "Claude decides when and how much to think (Claude 4.6+ only)",
 	minimal: "Very brief reasoning (~1k tokens)",
 	low: "Light reasoning (~2k tokens)",
 	medium: "Moderate reasoning (~8k tokens)",

@@ -157,8 +157,11 @@ export function supportsAdaptiveThinking(modelId: string): boolean {
 	);
 }
 
-export function mapThinkingLevelToEffort(level: string | undefined, modelId: string): AnthropicEffort {
+export function mapThinkingLevelToEffort(level: string | undefined, modelId: string): AnthropicEffort | undefined {
 	switch (level) {
+		case "adaptive":
+			// No effort override — let Claude decide based on request complexity
+			return undefined;
 		case "minimal":
 			return "low";
 		case "low":
@@ -463,7 +466,7 @@ export function buildParams(
 	if (options?.thinkingEnabled && model.reasoning) {
 		if (supportsAdaptiveThinking(model.id)) {
 			params.thinking = { type: "adaptive" };
-			if (options.effort) {
+			if (options.effort != null) {
 				params.output_config = { effort: options.effort };
 			}
 		} else {

@@ -15,8 +15,10 @@ export function buildBaseOptions(model: Model<Api>, options?: SimpleStreamOption
 	};
 }
 
-export function clampReasoning(effort: ThinkingLevel | undefined): Exclude<ThinkingLevel, "xhigh"> | undefined {
-	return effort === "xhigh" ? "high" : effort;
+export function clampReasoning(effort: ThinkingLevel | undefined): Exclude<ThinkingLevel, "xhigh" | "adaptive"> | undefined {
+	if (effort === "xhigh") return "high";
+	if (effort === "adaptive") return "high";
+	return effort;
 }
 
 export function adjustMaxTokensForThinking(
@@ -34,7 +36,7 @@ export function adjustMaxTokensForThinking(
 	const budgets = { ...defaultBudgets, ...customBudgets };
 
 	const minOutputTokens = 1024;
-	const level = clampReasoning(reasoningLevel)!;
+	const level = clampReasoning(reasoningLevel) ?? "high";
 	let thinkingBudget = budgets[level]!;
 	const maxTokens = Math.min(baseMaxTokens + thinkingBudget, modelMaxTokens);
 
