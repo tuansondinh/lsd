@@ -508,6 +508,17 @@ export class ToolExecutionComponent extends Container {
 						if (resultComponent !== undefined) {
 							this.contentBox.addChild(resultComponent);
 							customRendererHasContent = true;
+							// bg_shell: show /bg hint after start/list/digest actions
+							if (this.toolName === 'bg_shell' && this.result && !this.isPartial) {
+								const details = this.result.details as Record<string, unknown> | undefined;
+								const action = details?.action as string | undefined;
+								if (action === 'start' || action === 'list' || action === 'digest') {
+									this.contentBox.addChild(new Text(
+										'\n' + theme.fg('muted', 'Tip: run /bg to manage background processes'),
+										0, 0,
+									));
+								}
+							}
 						}
 					}
 				} catch {
