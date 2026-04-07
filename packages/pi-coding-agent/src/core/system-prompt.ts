@@ -143,89 +143,44 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions = {}): strin
 		guidelinesList.push(guideline);
 	};
 
-	const hasBash = tools.includes("bash");
 	const hasEdit = tools.includes("edit");
 	const hasWrite = tools.includes("write");
-	const hasGrep = tools.includes("grep");
-	const hasFind = tools.includes("find");
-	const hasLs = tools.includes("ls");
 	const hasRead = tools.includes("read");
 	const hasLsp = tools.includes("lsp");
 
-	// LSP guideline — must come FIRST so it outranks grep/bash in the model's priority
+	// Priority-ordered compact guidelines
+	addGuideline("Be concise. Prefer short, direct answers over preamble.");
+	addGuideline("For conceptual, product, or UX questions, answer first; inspect code only if implementation detail is needed.");
+
 	if (hasLsp) {
 		addGuideline(
-			`Use lsp as the primary tool for code navigation in typed codebases:
-- Navigation: definition, type_definition, implementation, references, incoming_calls, outgoing_calls
-- Understanding: hover (types + docs), signature (parameter info), symbols (file/workspace search)
-- Refactoring: rename (project-wide), code_actions (quick-fixes, imports, refactors), format (formatter)
-- Verification: diagnostics after edits to catch type errors immediately
-- Before choosing a code-navigation tool, classify your intent: symbol lookup (definition, references, type info, callers, rename, formatting, diagnostics) or text search. Symbols → lsp. Text patterns / non-code files → grep/find/ls
-- Tool selection — code navigation:
-  • Find where a symbol is defined → lsp definition (not grep)
-  • Find all usages of a symbol → lsp references (not grep)
-  • Find implementations of an interface or method → lsp implementation (not grep)
-  • Get type info or docs for a symbol → lsp hover/signature (not reading source first)
-  • Find all callers of a function → lsp incoming_calls (not grep)
-  • Search for a text pattern, TODO, log message, or non-code content → grep
-  • Search for filenames or directory structure → find/ls
-  • Rename a symbol across the codebase → lsp rename (not find-and-replace)
-  • Check typed errors after edits → lsp diagnostics (not manual scans)
-  • Format a file → lsp format when available (not shelling out)
-- When lsp is available, ALWAYS prefer it over grep/bash/find for: finding definitions, finding references, getting type info, renaming symbols, listing symbols in a file or workspace, checking diagnostics/errors, and formatting
-- Never grep for a symbol definition when lsp can resolve it semantically
-- Never shell out to a formatter when lsp format is available`,
+			"Code navigation in typed codebases: use lsp for symbols (definition, references, implementation, hover, diagnostics, rename, format). Use grep/find/ls for text patterns, filenames, and non-code files.",
 		);
+	} else {
+		addGuideline("Use grep/find/ls for code search and file exploration (faster than bash, respects .gitignore)");
 	}
 
-	// If the request is primarily conceptual or product/design oriented, answer the design or strategy question first and inspect the codebase only after confirming implementation detail is needed.
-	addGuideline(
-		"If the request is primarily conceptual, product, or UX/design oriented, answer the question first with concise recommendations and inspect the codebase only after confirming implementation detail is needed",
-	);
-
-	// Use subagents for broad reconnaissance before spending expensive-model tokens on discovery
-	if (tools.includes("subagent")) {
-		addGuideline(
-			"Use a scout subagent for broad repo reconnaissance when file ownership or architecture is unclear; keep the scout read-only, use a cheaper model when available, and ask it to return a high-signal handoff with exact files/symbols to inspect next",
-		);
-	}
-
-	addGuideline(
-		"Do not deep-dive backend schemas, migrations, or infrastructure for a conceptual/product request until you confirm that implementation constraints actually matter",
-	);
-
-	// File exploration guidelines (only for tasks lsp cannot do: raw text search, non-code files, etc.)
-	if (hasBash && !hasGrep && !hasFind && !hasLs) {
-		addGuideline("Use bash for file operations like ls, rg, find");
-	} else if (hasBash && (hasGrep || hasFind || hasLs)) {
-		if (hasLsp) {
-			addGuideline("Prefer grep/find/ls tools over bash for file exploration (faster, respects .gitignore) — but prefer lsp over grep/find when navigating typed code");
-		} else {
-			addGuideline("Prefer grep/find/ls tools over bash for file exploration (faster, respects .gitignore)");
-		}
-	}
-
-	// Read before edit guideline
 	if (hasRead && hasEdit) {
-		addGuideline("Use read to examine files before editing. You must use this tool instead of cat or sed.");
+		addGuideline("Read files before editing them. Never use cat or sed to inspect or modify files.");
 	}
 
-	// Edit guideline
 	if (hasEdit) {
-		addGuideline("Use edit for precise changes (old text must match exactly)");
+		addGuideline("edit requires exact text match; write is for new files or full rewrites.");
 	}
 
-	// Write guideline
-	if (hasWrite) {
-		addGuideline("Use write only for new files or complete rewrites");
+	if (hasWrite && !hasEdit) {
+		addGuideline("write is for new files or full rewrites.");
 	}
 
-	// Output guideline (only when actually writing or executing)
+	if (hasLsp && hasEdit) {
+		addGuideline("Run lsp diagnostics after edits to catch type errors.");
+	}
+
 	if (hasEdit || hasWrite) {
-		addGuideline(
-			"When summarizing your actions, output plain text directly - do NOT use cat or bash to display what you did",
-		);
+		addGuideline("Output plain text directly when summarizing your work — do not cat or echo to display what you did.");
 	}
+
+	addGuideline("Show file paths clearly when referencing files.");
 
 	for (const guideline of promptGuidelines ?? []) {
 		const normalized = guideline.trim();
@@ -233,10 +188,6 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions = {}): strin
 			addGuideline(normalized);
 		}
 	}
-
-	// Always include these
-	addGuideline("Be concise in your responses");
-	addGuideline("Show file paths clearly when working with files");
 
 	const guidelines = guidelinesList.map((g) => `- ${g}`).join("\n");
 
@@ -248,7 +199,7 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions = {}): strin
 - When working on pi topics, read the docs and follow .md cross-references before implementing`
 		: "";
 
-	let prompt = `You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.
+	let prompt = `You are an expert coding assistant operating inside pi, a coding agent harness.
 
 Available tools:
 ${toolsList}
