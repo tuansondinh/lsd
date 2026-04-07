@@ -6,6 +6,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.1.9] - 2026-04-07
+
+### Added
+- **interactive**: detect privilege escalation errors (sudo blocked, EPERM, root-owned files) in bash and tool execution components and display a clear warning with the exact command to run manually in the terminal
+
 ## [1.1.8] - 2026-04-06
 
 ### Changed
