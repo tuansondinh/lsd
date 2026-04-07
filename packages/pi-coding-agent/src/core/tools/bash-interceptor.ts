@@ -86,7 +86,7 @@ export function compileInterceptor(rules: BashInterceptorRule[]): CompiledInterc
 				if (regex.test(trimmed) && availableTools.includes(rule.tool)) {
 					return {
 						block: true,
-						message: `Blocked: ${rule.message}\n\nOriginal command: ${command}`,
+						message: `Tool routing: ${rule.message}\n\nThis is a routing suggestion, not a permission block. Use the suggested tool to perform this action.\n\nOriginal command: ${command}`,
 						suggestedTool: rule.tool,
 					};
 				}

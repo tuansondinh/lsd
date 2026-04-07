@@ -145,6 +145,12 @@ describe("checkBashInterception", () => {
 			assert.ok(r.message?.includes("cat README.md"), "message should contain original command");
 		});
 
+		it("uses 'Tool routing:' prefix to distinguish from permission blocks", () => {
+			const r = checkBashInterception("cat README.md", ALL_TOOLS);
+			assert.ok(r.message?.startsWith("Tool routing:"), "message should start with 'Tool routing:'");
+			assert.ok(r.message?.includes("not a permission block"), "message should clarify it's not a permission block");
+		});
+
 		it("returns block:false with no message when not blocked", () => {
 			const r = checkBashInterception("npm install", ALL_TOOLS);
 			assert.equal(r.block, false);
