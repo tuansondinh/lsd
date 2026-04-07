@@ -126,6 +126,7 @@ export interface Settings {
 	budgetSubagentModel?: string;
 	planModeReasoningModel?: string;
 	planModeReviewModel?: string;
+	planModeCodingModel?: string;
 	permissionMode?: "danger-full-access" | "accept-on-edit" | "auto" | "plan";
 	classifierModel?: string;
 	defaultThinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
@@ -148,6 +149,7 @@ export interface Settings {
 	prompts?: string[]; // Array of local prompt template paths or directories
 	themes?: string[]; // Array of local theme file paths or directories
 	enableSkillCommands?: boolean; // default: true - register skills as /skill:name commands
+	toolSearch?: boolean; // default: false - start with a minimal tool set and use tool_search/tool_enable to lazily activate tools
 	terminal?: TerminalSettings;
 	images?: ImageSettings;
 	enabledModels?: string[]; // Model patterns for cycling (same format as --models CLI flag)
@@ -179,6 +181,7 @@ export interface Settings {
 	editorScheme?: "auto" | "vscode" | "cursor" | "zed" | "jetbrains" | "sublime" | "file"; // URI scheme for Cmd+click file links (default: "auto")
 	autoDream?: boolean; // default: false — enable automatic memory consolidation (dream) after sessions
 	autoMemory?: boolean; // default: false — enable automatic memory extraction from session transcripts
+	telegramLiveRelayAutoConnect?: boolean; // default: false — auto-run /lsd telegram connect on startup
 }
 
 function isQualifiedProviderModelRef(value: unknown): value is string {
@@ -456,6 +459,14 @@ export class SettingsManager {
 			delete settings.planModeReviewModel;
 		}
 
+		if (
+			"planModeCodingModel" in settings &&
+			settings.planModeCodingModel !== undefined &&
+			!isQualifiedProviderModelRef(settings.planModeCodingModel)
+		) {
+			delete settings.planModeCodingModel;
+		}
+
 		return settings as Settings;
 	}
 
@@ -723,6 +734,12 @@ export class SettingsManager {
 			: undefined;
 	}
 
+	getPlanModeCodingModel(): string | undefined {
+		return isQualifiedProviderModelRef(this.settings.planModeCodingModel)
+			? this.settings.planModeCodingModel.trim()
+			: undefined;
+	}
+
 	getPermissionMode(): "danger-full-access" | "accept-on-edit" | "auto" | "plan" {
 		return this.settings.permissionMode ?? "accept-on-edit";
 	}
@@ -773,6 +790,19 @@ export class SettingsManager {
 			throw new Error(`planModeReviewModel must be in provider/id format. Received: ${modelRef}`);
 		}
 		this.setGlobalSetting("planModeReviewModel", modelRef.trim());
+	}
+
+	setPlanModeCodingModel(modelRef: string | undefined): void {
+		if (modelRef === undefined) {
+			delete this.globalSettings.planModeCodingModel;
+			this.markModified("planModeCodingModel");
+			this.save();
+			return;
+		}
+		if (!isQualifiedProviderModelRef(modelRef)) {
+			throw new Error(`planModeCodingModel must be in provider/id format. Received: ${modelRef}`);
+		}
+		this.setGlobalSetting("planModeCodingModel", modelRef.trim());
 	}
 
 	setPermissionMode(mode: "danger-full-access" | "accept-on-edit" | "auto" | "plan"): void {
@@ -1034,6 +1064,14 @@ export class SettingsManager {
 
 	setEnableSkillCommands(enabled: boolean): void {
 		this.setGlobalSetting("enableSkillCommands", enabled);
+	}
+
+	getToolSearch(): boolean {
+		return this.settings.toolSearch ?? false;
+	}
+
+	setToolSearch(enabled: boolean): void {
+		this.setGlobalSetting("toolSearch", enabled);
 	}
 
 	getThinkingBudgets(): ThinkingBudgetsSettings | undefined {
@@ -1348,5 +1386,13 @@ export class SettingsManager {
 
 	setAutoMemory(enabled: boolean): void {
 		this.setGlobalSetting("autoMemory", enabled);
+	}
+
+	getTelegramLiveRelayAutoConnect(): boolean {
+		return this.settings.telegramLiveRelayAutoConnect ?? false;
+	}
+
+	setTelegramLiveRelayAutoConnect(enabled: boolean): void {
+		this.setGlobalSetting("telegramLiveRelayAutoConnect", enabled);
 	}
 }

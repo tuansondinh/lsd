@@ -16,129 +16,128 @@ import { SettingsManager } from "./settings-manager.js";
 import { time } from "./timings.js";
 import { SandboxManager } from "./sandbox/index.js";
 import {
-	allTools,
-	bashTool,
-	codingTools,
-	createBashTool,
-	createCodingTools,
-	createEditTool,
-	createFindTool,
-	createGrepTool,
-	createLsTool,
-	createReadOnlyTools,
-	createReadTool,
-	createWriteTool,
-	editTool,
-	findTool,
-	grepTool,
-	hashlineCodingTools,
-	hashlineEditTool,
-	hashlineReadTool,
-	createHashlineCodingTools,
-	createHashlineEditTool,
-	createHashlineReadTool,
-	lsTool,
-	readOnlyTools,
-	readTool,
-	type Tool,
-	type ToolName,
-	writeTool,
+    allTools,
+    bashTool,
+    codingTools,
+    createBashTool,
+    createCodingTools,
+    createEditTool,
+    createFindTool,
+    createGrepTool,
+    createLsTool,
+    createReadOnlyTools,
+    createReadTool,
+    createWriteTool,
+    editTool,
+    findTool,
+    grepTool,
+    hashlineCodingTools,
+    hashlineEditTool,
+    hashlineReadTool,
+    createHashlineCodingTools,
+    createHashlineEditTool,
+    createHashlineReadTool,
+    lsTool,
+    readOnlyTools,
+    readTool,
+    type Tool,
+    writeTool,
 } from "./tools/index.js";
 
 export interface CreateAgentSessionOptions {
-	/** Working directory for project-local discovery. Default: process.cwd() */
-	cwd?: string;
-	/** Global config directory. Default: ~/.pi/agent */
-	agentDir?: string;
+    /** Working directory for project-local discovery. Default: process.cwd() */
+    cwd?: string;
+    /** Global config directory. Default: ~/.pi/agent */
+    agentDir?: string;
 
-	/** Auth storage for credentials. Default: AuthStorage.create(agentDir/auth.json) */
-	authStorage?: AuthStorage;
-	/** Model registry. Default: new ModelRegistry(authStorage, agentDir/models.json) */
-	modelRegistry?: ModelRegistry;
+    /** Auth storage for credentials. Default: AuthStorage.create(agentDir/auth.json) */
+    authStorage?: AuthStorage;
+    /** Model registry. Default: new ModelRegistry(authStorage, agentDir/models.json) */
+    modelRegistry?: ModelRegistry;
 
-	/** Model to use. Default: from settings, else first available */
-	model?: Model<any>;
-	/** Thinking level. Default: from settings, else 'medium' (clamped to model capabilities) */
-	thinkingLevel?: ThinkingLevel;
-	/** Models available for cycling (Ctrl+P in interactive mode) */
-	scopedModels?: Array<{ model: Model<any>; thinkingLevel?: ThinkingLevel }>;
+    /** Model to use. Default: from settings, else first available */
+    model?: Model<any>;
+    /** Thinking level. Default: from settings, else 'medium' (clamped to model capabilities) */
+    thinkingLevel?: ThinkingLevel;
+    /** Models available for cycling (Ctrl+P in interactive mode) */
+    scopedModels?: Array<{ model: Model<any>; thinkingLevel?: ThinkingLevel }>;
 
-	/** Built-in tools to use. Default: codingTools [read, bash, edit, write] */
-	tools?: Tool[];
-	/** Custom tools to register (in addition to built-in tools). */
-	customTools?: ToolDefinition[];
+    /** Built-in tools to use. Default: codingTools [read, bash, edit, write] */
+    tools?: Tool[];
+    /** Custom tools to register (in addition to built-in tools). */
+    customTools?: ToolDefinition[];
 
-	/** Resource loader. When omitted, DefaultResourceLoader is used. */
-	resourceLoader?: ResourceLoader;
+    /** Resource loader. When omitted, DefaultResourceLoader is used. */
+    resourceLoader?: ResourceLoader;
 
-	/** Session manager. Default: SessionManager.create(cwd) */
-	sessionManager?: SessionManager;
+    /** Session manager. Default: SessionManager.create(cwd) */
+    sessionManager?: SessionManager;
 
-	/** Settings manager. Default: SettingsManager.create(cwd, agentDir) */
-	settingsManager?: SettingsManager;
+    /** Settings manager. Default: SettingsManager.create(cwd, agentDir) */
+    settingsManager?: SettingsManager;
 }
 
 /** Result from createAgentSession */
 export interface CreateAgentSessionResult {
-	/** The created session */
-	session: AgentSession;
-	/** Extensions result (for UI context setup in interactive mode) */
-	extensionsResult: LoadExtensionsResult;
-	/** Warning if session was restored with a different model than saved */
-	modelFallbackMessage?: string;
+    /** The created session */
+    session: AgentSession;
+    /** Extensions result (for UI context setup in interactive mode) */
+    extensionsResult: LoadExtensionsResult;
+    /** Warning if session was restored with a different model than saved */
+    modelFallbackMessage?: string;
 }
 
 // Re-exports
 
 export type {
-	ExtensionAPI,
-	ExtensionCommandContext,
-	ExtensionContext,
-	ExtensionFactory,
-	SlashCommandInfo,
-	SlashCommandLocation,
-	SlashCommandSource,
-	ToolDefinition,
+    ExtensionAPI,
+    ExtensionCommandContext,
+    ExtensionContext,
+    ExtensionFactory,
+    SlashCommandInfo,
+    SlashCommandLocation,
+    SlashCommandSource,
+    ToolDefinition,
 } from "./extensions/index.js";
 export type { PromptTemplate } from "./prompt-templates.js";
 export type { Skill } from "./skills.js";
 export type { Tool } from "./tools/index.js";
 
 export {
-	// Pre-built tools (use process.cwd())
-	readTool,
-	bashTool,
-	editTool,
-	writeTool,
-	grepTool,
-	findTool,
-	lsTool,
-	codingTools,
-	readOnlyTools,
-	allTools as allBuiltInTools,
-	// Tool factories (for custom cwd)
-	createCodingTools,
-	createReadOnlyTools,
-	createReadTool,
-	createBashTool,
-	createEditTool,
-	createWriteTool,
-	createGrepTool,
-	createFindTool,
-	createLsTool,
-	// Hashline edit mode
-	hashlineCodingTools,
-	hashlineEditTool,
-	hashlineReadTool,
-	createHashlineCodingTools,
-	createHashlineEditTool,
-	createHashlineReadTool,
+    // Pre-built tools (use process.cwd())
+    readTool,
+    bashTool,
+    editTool,
+    writeTool,
+    grepTool,
+    findTool,
+    lsTool,
+    codingTools,
+    readOnlyTools,
+    allTools as allBuiltInTools,
+    // Tool factories (for custom cwd)
+    createCodingTools,
+    createReadOnlyTools,
+    createReadTool,
+    createBashTool,
+    createEditTool,
+    createWriteTool,
+    createGrepTool,
+    createFindTool,
+    createLsTool,
+    // Hashline edit mode
+    hashlineCodingTools,
+    hashlineEditTool,
+    hashlineReadTool,
+    createHashlineCodingTools,
+    createHashlineEditTool,
+    createHashlineReadTool,
 };
 
 // Helper Functions
 
 function getDefaultAgentDir(): string {
-	return getAgentDir();
+    return getAgentDir();
 }
 
 /**
@@ -177,272 +176,283 @@ function getDefaultAgentDir(): string {
  * ```
  */
 export async function createAgentSession(options: CreateAgentSessionOptions = {}): Promise<CreateAgentSessionResult> {
-	const cwd = options.cwd ?? process.cwd();
-	const agentDir = options.agentDir ?? getDefaultAgentDir();
-	let resourceLoader = options.resourceLoader;
+    const cwd = options.cwd ?? process.cwd();
+    const agentDir = options.agentDir ?? getDefaultAgentDir();
+    let resourceLoader = options.resourceLoader;
 
-	// Use provided or create AuthStorage and ModelRegistry
-	const authPath = options.agentDir ? join(agentDir, "auth.json") : undefined;
-	const modelsPath = options.agentDir ? join(agentDir, "models.json") : undefined;
-	const authStorage = options.authStorage ?? AuthStorage.create(authPath);
-	const modelRegistry = options.modelRegistry ?? new ModelRegistry(authStorage, modelsPath);
+    // Use provided or create AuthStorage and ModelRegistry
+    const authPath = options.agentDir ? join(agentDir, "auth.json") : undefined;
+    const modelsPath = options.agentDir ? join(agentDir, "models.json") : undefined;
+    const authStorage = options.authStorage ?? AuthStorage.create(authPath);
+    const modelRegistry = options.modelRegistry ?? new ModelRegistry(authStorage, modelsPath);
 
-	const settingsManager = options.settingsManager ?? SettingsManager.create(cwd, agentDir);
-	const sessionManager = options.sessionManager ?? SessionManager.create(cwd);
+    const settingsManager = options.settingsManager ?? SettingsManager.create(cwd, agentDir);
+    const sessionManager = options.sessionManager ?? SessionManager.create(cwd);
 
-	if (!resourceLoader) {
-		resourceLoader = new DefaultResourceLoader({ cwd, agentDir, settingsManager });
-		await resourceLoader.reload();
-		time("resourceLoader.reload");
-	}
+    if (!resourceLoader) {
+        resourceLoader = new DefaultResourceLoader({ cwd, agentDir, settingsManager });
+        await resourceLoader.reload();
+        time("resourceLoader.reload");
+    }
 
-	// Check if session has existing data to restore
-	const existingSession = sessionManager.buildSessionContext();
-	const hasExistingSession = existingSession.messages.length > 0;
-	const hasThinkingEntry = sessionManager.getBranch().some((entry) => entry.type === "thinking_level_change");
+    // Check if session has existing data to restore
+    const existingSession = sessionManager.buildSessionContext();
+    const hasExistingSession = existingSession.messages.length > 0;
+    const hasThinkingEntry = sessionManager.getBranch().some((entry) => entry.type === "thinking_level_change");
 
-	let model = options.model;
-	let modelFallbackMessage: string | undefined;
+    let model = options.model;
+    let modelFallbackMessage: string | undefined;
 
-	// If session has data, try to restore model from it
-	if (!model && hasExistingSession && existingSession.model) {
-		const restoredModel = modelRegistry.find(existingSession.model.provider, existingSession.model.modelId);
-		if (restoredModel && (await modelRegistry.getApiKey(restoredModel))) {
-			model = restoredModel;
-		}
-		if (!model) {
-			modelFallbackMessage = `Could not restore model ${existingSession.model.provider}/${existingSession.model.modelId}`;
-		}
-	}
+    // If session has data, try to restore model from it.
+    //
+    // Do NOT gate restoration on API key resolution here. Providers using
+    // external CLIs (or temporarily expired OAuth credentials) may not return
+    // a key at startup even though the model is still the correct user choice.
+    // In those cases we should preserve the last used model and surface auth
+    // errors only when a request is actually made.
+    if (!model && hasExistingSession && existingSession.model) {
+        const restoredModel = modelRegistry.find(existingSession.model.provider, existingSession.model.modelId);
+        if (restoredModel) {
+            model = restoredModel;
+        }
+        if (!model) {
+            modelFallbackMessage = `Could not restore model ${existingSession.model.provider}/${existingSession.model.modelId}`;
+        }
+    }
 
-	// If still no model, use findInitialModel (checks settings default, then provider defaults)
-	if (!model) {
-		const result = await findInitialModel({
-			scopedModels: [],
-			isContinuing: hasExistingSession,
-			defaultProvider: settingsManager.getDefaultProvider(),
-			defaultModelId: settingsManager.getDefaultModel(),
-			defaultThinkingLevel: settingsManager.getDefaultThinkingLevel(),
-			modelRegistry,
-		});
-		model = result.model;
-		if (!model) {
-			modelFallbackMessage = `No models available. Use /login or set an API key environment variable. See ${join(getDocsPath(), "providers.md")}. Then use /model to select a model.`;
-		} else if (modelFallbackMessage) {
-			modelFallbackMessage += `. Using ${model.provider}/${model.id}`;
-		}
-	}
+    // If still no model, use findInitialModel (checks settings default, then provider defaults)
+    if (!model) {
+        const result = await findInitialModel({
+            scopedModels: [],
+            isContinuing: hasExistingSession,
+            defaultProvider: settingsManager.getDefaultProvider(),
+            defaultModelId: settingsManager.getDefaultModel(),
+            defaultThinkingLevel: settingsManager.getDefaultThinkingLevel(),
+            modelRegistry,
+        });
+        model = result.model;
+        if (!model) {
+            modelFallbackMessage = `No models available. Use /login or set an API key environment variable. See ${join(getDocsPath(), "providers.md")}. Then use /model to select a model.`;
+        } else if (modelFallbackMessage) {
+            modelFallbackMessage += `. Using ${model.provider}/${model.id}`;
+        }
+    }
 
-	let thinkingLevel = options.thinkingLevel;
+    let thinkingLevel = options.thinkingLevel;
 
-	// If session has data, restore thinking level from it
-	if (thinkingLevel === undefined && hasExistingSession) {
-		thinkingLevel = hasThinkingEntry
-			? (existingSession.thinkingLevel as ThinkingLevel)
-			: (settingsManager.getDefaultThinkingLevel() ?? DEFAULT_THINKING_LEVEL);
-	}
+    // If session has data, restore thinking level from it
+    if (thinkingLevel === undefined && hasExistingSession) {
+        thinkingLevel = hasThinkingEntry
+            ? (existingSession.thinkingLevel as ThinkingLevel)
+            : (settingsManager.getDefaultThinkingLevel() ?? DEFAULT_THINKING_LEVEL);
+    }
 
-	// Fall back to settings default
-	if (thinkingLevel === undefined) {
-		thinkingLevel = settingsManager.getDefaultThinkingLevel() ?? DEFAULT_THINKING_LEVEL;
-	}
+    // Fall back to settings default
+    if (thinkingLevel === undefined) {
+        thinkingLevel = settingsManager.getDefaultThinkingLevel() ?? DEFAULT_THINKING_LEVEL;
+    }
 
-	// Clamp to model capabilities
-	if (!model || !model.reasoning) {
-		thinkingLevel = "off";
-	}
+    // Clamp to model capabilities
+    if (!model || !model.reasoning) {
+        thinkingLevel = "off";
+    }
 
-	const editMode = settingsManager.getEditMode();
-	const defaultActiveToolNames: ToolName[] = editMode === "hashline"
-		? [
-				"hashline_read",
-				"bash",
-				"hashline_edit",
-				"write",
-				"lsp",
-				"pty_start",
-				"pty_send",
-				"pty_read",
-				"pty_wait",
-				"pty_resize",
-				"pty_kill",
-			]
-		: ["read", "bash", "edit", "write", "lsp", "pty_start", "pty_send", "pty_read", "pty_wait", "pty_resize", "pty_kill"];
-	const initialActiveToolNames: ToolName[] = options.tools
-		? options.tools.map((t) => t.name).filter((n): n is ToolName => n in allTools)
-		: defaultActiveToolNames;
+    const editMode = settingsManager.getEditMode();
+    const toolSearchEnabled = settingsManager.getToolSearch();
+    const defaultActiveToolNames: string[] = toolSearchEnabled
+        ? (editMode === "hashline"
+            ? ["hashline_read", "bash", "lsp", "tool_search", "tool_enable"]
+            : ["read", "bash", "lsp", "tool_search", "tool_enable"])
+        : editMode === "hashline"
+            ? [
+                "hashline_read",
+                "bash",
+                "hashline_edit",
+                "write",
+                "lsp",
+                "pty_start",
+                "pty_send",
+                "pty_read",
+                "pty_wait",
+                "pty_resize",
+                "pty_kill",
+            ]
+            : ["read", "bash", "edit", "write", "lsp", "pty_start", "pty_send", "pty_read", "pty_wait", "pty_resize", "pty_kill"];
+    const initialActiveToolNames: string[] = options.tools
+        ? options.tools.map((t) => t.name).filter((n): n is string => typeof n === "string" && n in allTools)
+        : defaultActiveToolNames;
 
-	let agent: Agent;
+    let agent: Agent;
 
-	// Create convertToLlm wrapper that filters images if blockImages is enabled (defense-in-depth)
-	const convertToLlmWithBlockImages = (messages: AgentMessage[]): Message[] => {
-		const converted = convertToLlm(messages);
-		// Check setting dynamically so mid-session changes take effect
-		if (!settingsManager.getBlockImages()) {
-			return converted;
-		}
-		// Filter out ImageContent from all messages, replacing with text placeholder
-		return converted.map((msg) => {
-			if (msg.role === "user" || msg.role === "toolResult") {
-				const content = msg.content;
-				if (Array.isArray(content)) {
-					const hasImages = content.some((c) => c.type === "image");
-					if (hasImages) {
-						const filteredContent = content
-							.map((c) =>
-								c.type === "image" ? { type: "text" as const, text: "Image reading is disabled." } : c,
-							)
-							.filter(
-								(c, i, arr) =>
-									// Dedupe consecutive "Image reading is disabled." texts
-									!(
-										c.type === "text" &&
-										c.text === "Image reading is disabled." &&
-										i > 0 &&
-										arr[i - 1].type === "text" &&
-										(arr[i - 1] as { type: "text"; text: string }).text === "Image reading is disabled."
-									),
-							);
-						return { ...msg, content: filteredContent };
-					}
-				}
-			}
-			return msg;
-		});
-	};
+    // Create convertToLlm wrapper that filters images if blockImages is enabled (defense-in-depth)
+    const convertToLlmWithBlockImages = (messages: AgentMessage[]): Message[] => {
+        const converted = convertToLlm(messages);
+        // Check setting dynamically so mid-session changes take effect
+        if (!settingsManager.getBlockImages()) {
+            return converted;
+        }
+        // Filter out ImageContent from all messages, replacing with text placeholder
+        return converted.map((msg) => {
+            if (msg.role === "user" || msg.role === "toolResult") {
+                const content = msg.content;
+                if (Array.isArray(content)) {
+                    const hasImages = content.some((c) => c.type === "image");
+                    if (hasImages) {
+                        const filteredContent = content
+                            .map((c) =>
+                                c.type === "image" ? { type: "text" as const, text: "Image reading is disabled." } : c,
+                            )
+                            .filter(
+                                (c, i, arr) =>
+                                    // Dedupe consecutive "Image reading is disabled." texts
+                                    !(
+                                        c.type === "text" &&
+                                        c.text === "Image reading is disabled." &&
+                                        i > 0 &&
+                                        arr[i - 1].type === "text" &&
+                                        (arr[i - 1] as { type: "text"; text: string }).text === "Image reading is disabled."
+                                    ),
+                            );
+                        return { ...msg, content: filteredContent };
+                    }
+                }
+            }
+            return msg;
+        });
+    };
 
-	const extensionRunnerRef: { current?: ExtensionRunner } = {};
+    const extensionRunnerRef: { current?: ExtensionRunner } = {};
 
-	agent = new Agent({
-		initialState: {
-			systemPrompt: "",
-			model,
-			thinkingLevel,
-			tools: [],
-		},
-		convertToLlm: convertToLlmWithBlockImages,
-		onPayload: async (payload, currentModel) => {
-			const runner = extensionRunnerRef.current;
-			if (!runner?.hasHandlers("before_provider_request")) {
-				return payload;
-			}
-			return runner.emitBeforeProviderRequest(payload, currentModel);
-		},
-		sessionId: sessionManager.getSessionId(),
-		transformContext: async (messages) => {
-			const runner = extensionRunnerRef.current;
-			if (!runner) return messages;
-			return runner.emitContext(messages);
-		},
-		steeringMode: settingsManager.getSteeringMode(),
-		followUpMode: settingsManager.getFollowUpMode(),
-		transport: settingsManager.getTransport(),
-		thinkingBudgets: settingsManager.getThinkingBudgets(),
-		maxRetryDelayMs: settingsManager.getRetrySettings().maxDelayMs,
-		externalToolExecution: (m) => modelRegistry.getProviderAuthMode(m.provider) === "externalCli",
-		getApiKey: async (provider) => {
-			// Use the provider argument from the in-flight request;
-			// agent.state.model may already be switched mid-turn.
-			const resolvedProvider = provider || agent.state.model?.provider;
-			if (!resolvedProvider) {
-				throw new Error("No model selected");
-			}
-			const authMode = modelRegistry.getProviderAuthMode(resolvedProvider);
-			if (authMode === "externalCli" || authMode === "none") {
-				return undefined;
-			}
+    agent = new Agent({
+        initialState: {
+            systemPrompt: "",
+            model,
+            thinkingLevel,
+            tools: [],
+        },
+        convertToLlm: convertToLlmWithBlockImages,
+        onPayload: async (payload, currentModel) => {
+            const runner = extensionRunnerRef.current;
+            if (!runner?.hasHandlers("before_provider_request")) {
+                return payload;
+            }
+            return runner.emitBeforeProviderRequest(payload, currentModel);
+        },
+        sessionId: sessionManager.getSessionId(),
+        transformContext: async (messages) => {
+            const runner = extensionRunnerRef.current;
+            if (!runner) return messages;
+            return runner.emitContext(messages);
+        },
+        steeringMode: settingsManager.getSteeringMode(),
+        followUpMode: settingsManager.getFollowUpMode(),
+        transport: settingsManager.getTransport(),
+        thinkingBudgets: settingsManager.getThinkingBudgets(),
+        maxRetryDelayMs: settingsManager.getRetrySettings().maxDelayMs,
+        externalToolExecution: (m) => modelRegistry.getProviderAuthMode(m.provider) === "externalCli",
+        getApiKey: async (provider) => {
+            // Use the provider argument from the in-flight request;
+            // agent.state.model may already be switched mid-turn.
+            const resolvedProvider = provider || agent.state.model?.provider;
+            if (!resolvedProvider) {
+                throw new Error("No model selected");
+            }
+            const authMode = modelRegistry.getProviderAuthMode(resolvedProvider);
+            if (authMode === "externalCli" || authMode === "none") {
+                return undefined;
+            }
 
-			// Retry key resolution with backoff to handle transient network failures
-			// (e.g., OAuth token refresh failing due to brief connectivity loss).
-			const maxAttempts = 3;
-			const baseDelayMs = 2000;
-			const sid = sessionManager.getSessionId();
-			for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-				const key = await modelRegistry.getApiKeyForProvider(resolvedProvider, sid);
-				if (key) return key;
+            // Retry key resolution with backoff to handle transient network failures
+            // (e.g., OAuth token refresh failing due to brief connectivity loss).
+            const maxAttempts = 3;
+            const baseDelayMs = 2000;
+            const sid = sessionManager.getSessionId();
+            for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+                const key = await modelRegistry.getApiKeyForProvider(resolvedProvider, sid);
+                if (key) return key;
 
-				// On the last attempt, fall through to error handling below
-				if (attempt >= maxAttempts) break;
+                // On the last attempt, fall through to error handling below
+                if (attempt >= maxAttempts) break;
 
-				// Only retry if credentials exist (network issue) — no point retrying
-				// when there are genuinely no credentials configured.
-				const hasAuth = modelRegistry.authStorage.hasAuth(resolvedProvider);
-				const model = agent.state.model;
-				const isOAuth = model && modelRegistry.isUsingOAuth(model);
-				if (!hasAuth && !isOAuth) break;
+                // Only retry if credentials exist (network issue) — no point retrying
+                // when there are genuinely no credentials configured.
+                const hasAuth = modelRegistry.authStorage.hasAuth(resolvedProvider);
+                const model = agent.state.model;
+                const isOAuth = model && modelRegistry.isUsingOAuth(model);
+                if (!hasAuth && !isOAuth) break;
 
-				// Wait with exponential backoff before retrying
-				await new Promise(resolve => setTimeout(resolve, baseDelayMs * attempt));
-			}
+                // Wait with exponential backoff before retrying
+                await new Promise(resolve => setTimeout(resolve, baseDelayMs * attempt));
+            }
 
-			// All retries exhausted — throw descriptive error
-			// Check if credentials exist but are temporarily backed off
-			// (e.g., after a 429 quota exhaustion). Provide a specific error
-			// so the retry handler knows this is transient, not a permanent
-			// auth failure.
-			const hasAuth = modelRegistry.authStorage.hasAuth(resolvedProvider);
-			if (hasAuth) {
-				throw new Error(
-					`All credentials for "${resolvedProvider}" are temporarily backed off due to rate limiting. ` +
-						`The request will be retried automatically when backoff expires.`,
-				);
-			}
-			const model = agent.state.model;
-			const isOAuth = model && modelRegistry.isUsingOAuth(model);
-			if (isOAuth) {
-				// If credentials exist but are all in a backoff window (quota / rate-limit),
-				// surface a specific message instead of the misleading "Authentication failed".
-				if (modelRegistry.authStorage.areAllCredentialsBackedOff(resolvedProvider)) {
-					throw new Error(
-						`Rate limit in effect for "${resolvedProvider}". ` +
-							`Please wait before retrying or switch to a different model.`,
-					);
-				}
-				throw new Error(
-					`Authentication failed for "${resolvedProvider}". ` +
-						`Credentials may have expired or network is unavailable. ` +
-						`Run '/login ${resolvedProvider}' to re-authenticate.`,
-				);
-			}
-			throw new Error(
-				`No API key found for "${resolvedProvider}". ` +
-					`Set an API key environment variable or run '/login ${resolvedProvider}'.`,
-			);
-		},
-	});
+            // All retries exhausted — throw descriptive error
+            // Check if credentials exist but are temporarily backed off
+            // (e.g., after a 429 quota exhaustion). Provide a specific error
+            // so the retry handler knows this is transient, not a permanent
+            // auth failure.
+            const hasAuth = modelRegistry.authStorage.hasAuth(resolvedProvider);
+            if (hasAuth) {
+                throw new Error(
+                    `All credentials for "${resolvedProvider}" are temporarily backed off due to rate limiting. ` +
+                    `The request will be retried automatically when backoff expires.`,
+                );
+            }
+            const model = agent.state.model;
+            const isOAuth = model && modelRegistry.isUsingOAuth(model);
+            if (isOAuth) {
+                // If credentials exist but are all in a backoff window (quota / rate-limit),
+                // surface a specific message instead of the misleading "Authentication failed".
+                if (modelRegistry.authStorage.areAllCredentialsBackedOff(resolvedProvider)) {
+                    throw new Error(
+                        `Rate limit in effect for "${resolvedProvider}". ` +
+                        `Please wait before retrying or switch to a different model.`,
+                    );
+                }
+                throw new Error(
+                    `Authentication failed for "${resolvedProvider}". ` +
+                    `Credentials may have expired or network is unavailable. ` +
+                    `Run '/login ${resolvedProvider}' to re-authenticate.`,
+                );
+            }
+            throw new Error(
+                `No API key found for "${resolvedProvider}". ` +
+                `Set an API key environment variable or run '/login ${resolvedProvider}'.`,
+            );
+        },
+    });
 
-	// Restore messages if session has existing data
-	if (hasExistingSession) {
-		agent.replaceMessages(existingSession.messages);
-		if (!hasThinkingEntry) {
-			sessionManager.appendThinkingLevelChange(thinkingLevel);
-		}
-	} else {
-		// Save initial model and thinking level for new sessions so they can be restored on resume
-		if (model) {
-			sessionManager.appendModelChange(model.provider, model.id);
-		}
-		sessionManager.appendThinkingLevelChange(thinkingLevel);
-	}
+    // Restore messages if session has existing data
+    if (hasExistingSession) {
+        agent.replaceMessages(existingSession.messages);
+        if (!hasThinkingEntry) {
+            sessionManager.appendThinkingLevelChange(thinkingLevel);
+        }
+    } else {
+        // Save initial model and thinking level for new sessions so they can be restored on resume
+        if (model) {
+            sessionManager.appendModelChange(model.provider, model.id);
+        }
+        sessionManager.appendThinkingLevelChange(thinkingLevel);
+    }
 
-	const session = new AgentSession({
-		agent,
-		sessionManager,
-		settingsManager,
-		cwd,
-		scopedModels: options.scopedModels,
-		resourceLoader,
-		customTools: options.customTools,
-		modelRegistry,
-		initialActiveToolNames,
-		extensionRunnerRef,
-		sandboxManager: new SandboxManager(settingsManager),
-	});
-	const extensionsResult = resourceLoader.getExtensions();
+    const session = new AgentSession({
+        agent,
+        sessionManager,
+        settingsManager,
+        cwd,
+        scopedModels: options.scopedModels,
+        resourceLoader,
+        customTools: options.customTools,
+        modelRegistry,
+        initialActiveToolNames,
+        extensionRunnerRef,
+        sandboxManager: new SandboxManager(settingsManager),
+    });
+    const extensionsResult = resourceLoader.getExtensions();
 
-	return {
-		session,
-		extensionsResult,
-		modelFallbackMessage,
-	};
+    return {
+        session,
+        extensionsResult,
+        modelFallbackMessage,
+    };
 }

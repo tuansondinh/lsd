@@ -98,6 +98,7 @@ const SUBCOMMAND_HELP: Record<string, string> = {
     '  --json                 JSONL event stream to stdout (alias for --output-format stream-json)',
     '  --output-format <fmt>  Output format: text (default), json (structured result), stream-json (JSONL events)',
     '  --bare                 Minimal context: skip lsd.md, CLAUDE.md, AGENTS.md, user settings, user skills',
+    '  --no-session           Disable session persistence for this headless run',
     '  --resume <id>          Resume a prior headless session by ID',
     '  --model ID             Override model',
     '  --supervised           Forward interactive UI requests to orchestrator via stdout/stdin',

@@ -662,6 +662,48 @@ export type InputEventResult =
 	| { action: "handled" };
 
 // ============================================================================
+// Extension UI Events
+// ============================================================================
+
+export type ExtensionUIRequestMethod = "select" | "confirm" | "input" | "editor";
+
+export type ExtensionUIResponsePayload =
+	| { value: string }
+	| { values: string[] }
+	| { confirmed: boolean }
+	| { cancelled: true };
+
+export type ExtensionUIResponseSource = "local" | "extension" | "timeout" | "abort";
+
+/** Fired when an extension requests interactive UI. */
+export interface ExtensionUIRequestEvent {
+	type: "extension_ui_request";
+	id: string;
+	method: ExtensionUIRequestMethod;
+	title: string;
+	options?: string[];
+	message?: string;
+	placeholder?: string;
+	prefill?: string;
+	timeout?: number;
+	allowMultiple?: boolean;
+	/**
+	 * Resolve the pending UI request programmatically.
+	 * Returns true when this call won the race and settled the request.
+	 */
+	respond(response: ExtensionUIResponsePayload): boolean;
+}
+
+/** Fired when an extension UI request settles, regardless of source. */
+export interface ExtensionUIResponseEvent {
+	type: "extension_ui_response";
+	id: string;
+	method: ExtensionUIRequestMethod;
+	response: ExtensionUIResponsePayload;
+	source: ExtensionUIResponseSource;
+}
+
+// ============================================================================
 // Tool Events
 // ============================================================================
 
@@ -868,6 +910,8 @@ export type ExtensionEvent =
 	| BashTransformEvent
 	| UserBashEvent
 	| InputEvent
+	| ExtensionUIRequestEvent
+	| ExtensionUIResponseEvent
 	| ToolCallEvent
 	| ToolResultEvent;
 
@@ -1052,6 +1096,8 @@ export interface ExtensionAPI {
 	on(event: "tool_result", handler: ExtensionHandler<ToolResultEvent, ToolResultEventResult>): void;
 	on(event: "user_bash", handler: ExtensionHandler<UserBashEvent, UserBashEventResult>): void;
 	on(event: "input", handler: ExtensionHandler<InputEvent, InputEventResult>): void;
+	on(event: "extension_ui_request", handler: ExtensionHandler<ExtensionUIRequestEvent>): void;
+	on(event: "extension_ui_response", handler: ExtensionHandler<ExtensionUIResponseEvent>): void;
 
 	// =========================================================================
 	// Tool Registration

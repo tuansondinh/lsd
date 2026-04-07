@@ -12,8 +12,11 @@ import {
 	getPermissionMode,
 	registerStdioApprovalHandler,
 	registerStdioClassifierHandler,
+	registerStdioNetworkApprovalHandler,
 	resolveApprovalResponse,
 	resolveClassifierResponse,
+	resolveNetworkApprovalResponse,
+	type NetworkApprovalDecision,
 } from "../core/tool-approval.js";
 import { createDefaultCommandContextActions } from "./shared/command-context-actions.js";
 
@@ -46,8 +49,10 @@ export async function runPrintMode(session: AgentSession, options: PrintModeOpti
 	const permMode = getPermissionMode();
 	if (permMode === "accept-on-edit") registerStdioApprovalHandler();
 	if (permMode === "auto") registerStdioClassifierHandler();
+	// Always register network approval handler so subagents can request network access
+	registerStdioNetworkApprovalHandler();
 
-	if (permMode === "accept-on-edit" || permMode === "auto") {
+	{
 		let stdinBuf = "";
 		process.stdin.on("data", (chunk: Buffer) => {
 			stdinBuf += chunk.toString("utf8");
@@ -60,6 +65,8 @@ export async function runPrintMode(session: AgentSession, options: PrintModeOpti
 					const msg = JSON.parse(line);
 					if (msg.type === "approval_response") resolveApprovalResponse(msg.id, msg.approved);
 					else if (msg.type === "classifier_response") resolveClassifierResponse(msg.id, msg.approved);
+					else if (msg.type === "network_approval_response" && typeof msg.decision === "string")
+						resolveNetworkApprovalResponse(msg.id, msg.decision as NetworkApprovalDecision);
 				} catch {
 					// ignore non-JSON lines
 				}

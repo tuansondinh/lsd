@@ -12,7 +12,7 @@ const toolDescriptions: Record<string, string> = {
 	bash: "Execute bash commands (ls, grep, find, etc.)",
 	edit: "Make surgical edits to files (find exact text and replace)",
 	write: "Create or overwrite files",
-	grep: "Search file contents for patterns (respects .gitignore)",
+	grep: "Search file contents for patterns (respects .gitignore). For symbol definitions, references, type info, or callers in code, use lsp instead",
 	find: "Find files by glob pattern (respects .gitignore)",
 	ls: "List directory contents",
 	lsp: "Code intelligence via Language Server Protocol (go-to-definition, references, diagnostics, hover, rename, symbols)",
@@ -154,11 +154,39 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions = {}): strin
 - Understanding: hover (types + docs), signature (parameter info), symbols (file/workspace search)
 - Refactoring: rename (project-wide), code_actions (quick-fixes, imports, refactors), format (formatter)
 - Verification: diagnostics after edits to catch type errors immediately
+- Before choosing a code-navigation tool, classify your intent: symbol lookup (definition, references, type info, callers, rename, formatting, diagnostics) or text search. Symbols → lsp. Text patterns / non-code files → grep/find/ls
+- Tool selection — code navigation:
+  • Find where a symbol is defined → lsp definition (not grep)
+  • Find all usages of a symbol → lsp references (not grep)
+  • Find implementations of an interface or method → lsp implementation (not grep)
+  • Get type info or docs for a symbol → lsp hover/signature (not reading source first)
+  • Find all callers of a function → lsp incoming_calls (not grep)
+  • Search for a text pattern, TODO, log message, or non-code content → grep
+  • Search for filenames or directory structure → find/ls
+  • Rename a symbol across the codebase → lsp rename (not find-and-replace)
+  • Check typed errors after edits → lsp diagnostics (not manual scans)
+  • Format a file → lsp format when available (not shelling out)
 - When lsp is available, ALWAYS prefer it over grep/bash/find for: finding definitions, finding references, getting type info, renaming symbols, listing symbols in a file or workspace, checking diagnostics/errors, and formatting
 - Never grep for a symbol definition when lsp can resolve it semantically
 - Never shell out to a formatter when lsp format is available`,
 		);
 	}
+
+	// If the request is primarily conceptual or product/design oriented, answer the design or strategy question first and inspect the codebase only after confirming implementation detail is needed.
+	addGuideline(
+		"If the request is primarily conceptual, product, or UX/design oriented, answer the question first with concise recommendations and inspect the codebase only after confirming implementation detail is needed",
+	);
+
+	// Use subagents for broad reconnaissance before spending expensive-model tokens on discovery
+	if (tools.includes("subagent")) {
+		addGuideline(
+			"Use a scout subagent for broad repo reconnaissance when file ownership or architecture is unclear; keep the scout read-only, use a cheaper model when available, and ask it to return a high-signal handoff with exact files/symbols to inspect next",
+		);
+	}
+
+	addGuideline(
+		"Do not deep-dive backend schemas, migrations, or infrastructure for a conceptual/product request until you confirm that implementation constraints actually matter",
+	);
 
 	// File exploration guidelines (only for tasks lsp cannot do: raw text search, non-code files, etc.)
 	if (hasBash && !hasGrep && !hasFind && !hasLs) {

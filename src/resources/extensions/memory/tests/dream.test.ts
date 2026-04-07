@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test, { describe } from 'node:test';
 import {
@@ -11,9 +10,9 @@ import {
 } from '../dream.js';
 
 function makeTempDir(): string {
-    const dir = join(tmpdir(), `memory-dream-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
-    mkdirSync(dir, { recursive: true });
-    return dir;
+    const base = join(process.cwd(), '.tmp-memory-dream-tests');
+    mkdirSync(base, { recursive: true });
+    return mkdtempSync(join(base, 'case-'));
 }
 
 describe('buildConsolidationPrompt', () => {
@@ -137,6 +136,71 @@ describe('listSessionsTouchedSince', () => {
             assert.equal(touched[0], newer);
         } finally {
             rmSync(sessionDir, { recursive: true, force: true });
+        }
+    });
+});
+
+describe('deterministic compaction', () => {
+    test('prunes duplicate index entries and duplicate memory files', () => {
+        const memoryDir = makeTempDir();
+        const entrypoint = join(memoryDir, 'MEMORY.md');
+        const canonical = join(memoryDir, 'feedback_keep.md');
+        const duplicate = join(memoryDir, 'feedback_dupe.md');
+
+        try {
+            const shared = [
+                '---',
+                'name: compact responses',
+                'description: Keep replies concise',
+                'type: feedback',
+                '---',
+                '',
+                'Keep user replies compact.',
+                '',
+                '**Why:** Better signal density.',
+                '**How to apply:** Prefer concise answers.',
+                '',
+            ].join('\n');
+            writeFileSync(canonical, shared, 'utf-8');
+            writeFileSync(duplicate, shared, 'utf-8');
+            writeFileSync(
+                entrypoint,
+                [
+                    '- [Keep](feedback_keep.md) — concise',
+                    '- [Duplicate](feedback_dupe.md) — same memory',
+                    '- [Keep again](feedback_keep.md) — duplicate pointer',
+                ].join('\n') + '\n',
+                'utf-8',
+            );
+
+            const result = __testing.runDeterministicMemoryCompaction(memoryDir);
+            assert.deepEqual(result.duplicateFilesRemoved, ['feedback_dupe.md']);
+            assert.ok(result.duplicateIndexEntriesPruned.length >= 1);
+            assert.equal(existsSync(duplicate), false);
+            assert.equal(readFileSync(entrypoint, 'utf-8'), '- [Keep](feedback_keep.md) — concise\n');
+        } finally {
+            rmSync(memoryDir, { recursive: true, force: true });
+        }
+    });
+
+    test('removes empty placeholder memory files', () => {
+        const memoryDir = makeTempDir();
+        const entrypoint = join(memoryDir, 'MEMORY.md');
+        const placeholder = join(memoryDir, 'placeholder.md');
+
+        try {
+            writeFileSync(
+                placeholder,
+                ['---', 'name: placeholder', 'description: placeholder', 'type: feedback', '---', '', 'TODO', ''].join('\n'),
+                'utf-8',
+            );
+            writeFileSync(entrypoint, '- [Placeholder](placeholder.md) — todo\n', 'utf-8');
+
+            const result = __testing.runDeterministicMemoryCompaction(memoryDir);
+            assert.deepEqual(result.emptyFilesRemoved, ['placeholder.md']);
+            assert.equal(existsSync(placeholder), false);
+        } finally {
+            rmSync(memoryDir, { recursive: true, force: true });
         }
     });
 });

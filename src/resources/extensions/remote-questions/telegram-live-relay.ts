@@ -3,9 +3,10 @@ import type {
   ExtensionCommandContext,
 } from "@gsd/pi-coding-agent";
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
+import { loadEffectivePreferences } from "../shared/preferences.js";
 import { resolveRemoteConfig } from "./config.js";
 import { apiRequest } from "./http-client.js";
 import { telegramPullUpdates, telegramSyncLatestUpdateId, telegramMarkConsumerSeen } from "./telegram-update-stream.js";
@@ -44,6 +45,15 @@ interface TelegramUpdate {
   };
 }
 
+interface PendingUiRequest {
+  id: string;
+  method: "select" | "confirm" | "input" | "editor";
+  title: string;
+  options?: string[];
+  allowMultiple?: boolean;
+  respond: (response: { value: string } | { values: string[] } | { confirmed: boolean } | { cancelled: true }) => boolean;
+}
+
 type AbortableExtensionAPI = ExtensionAPI & { abort(): void };
 
 export class TelegramLiveRelay {
@@ -64,6 +74,7 @@ export class TelegramLiveRelay {
   private assistantDraftText = "";
   private assistantFlushTimer: NodeJS.Timeout | null = null;
   private lastAssistantFlushAt = 0;
+  private pendingUiRequest: PendingUiRequest | null = null;
 
   constructor(pi: ExtensionAPI) {
     this.pi = pi;
@@ -73,16 +84,42 @@ export class TelegramLiveRelay {
   }
 
   async connect(ctx: ExtensionCommandContext): Promise<void> {
+    await this.connectInternal((message, level) => ctx.ui.notify(message, level));
+  }
+
+  async autoConnectIfEnabled(): Promise<void> {
+    const enabled = isTelegramRelayAutoConnectEnabled();
+    if (!enabled) return;
+
+    this.sendCliHint("Telegram autoconnect enabled — connecting live relay…", "info");
+
+    if (this.state?.connected || this.state?.awaitingHandshake) {
+      this.startPollingLoop();
+      this.setStatus();
+      this.sendCliHint(
+        this.state.connected
+          ? `Telegram live relay already connected (${this.state.chatId}).`
+          : `Telegram live relay awaiting handshake (${this.state.chatId}).`,
+        "info",
+      );
+      return;
+    }
+
+    await this.connectInternal((message, level) => this.sendCliHint(message, level));
+  }
+
+  private async connectInternal(notify?: (message: string, level: "info" | "warning" | "error" | "success") => void): Promise<void> {
+    const emit = notify ?? (() => undefined);
     const config = resolveRemoteConfig();
     if (!config || config.channel !== "telegram") {
-      ctx.ui.notify("Telegram is not configured. Run /lsd remote telegram first.", "warning");
+      emit("Telegram is not configured. Run /lsd remote telegram first.", "warning");
       return;
     }
 
     try {
       const me = await this.telegramApi(config.token, "getMe");
       if (!me?.ok || !me?.result?.id) {
-        ctx.ui.notify("Telegram bot validation failed. Re-run /lsd remote telegram.", "error");
+        emit("Telegram bot validation failed. Re-run /lsd remote telegram.", "error");
         return;
       }
       this.botUserId = me.result.id;
@@ -102,14 +139,14 @@ export class TelegramLiveRelay {
       };
       this.writeState();
       if (!this.claimOwnership()) {
-        ctx.ui.notify(`Another LSD session already owns Telegram relay for chat ${config.channelId}. Disconnect it first.`, "warning");
+        emit(`Another LSD session already owns Telegram relay for chat ${config.channelId}. Disconnect it first.`, "warning");
         this.state = null;
         this.writeState();
         this.setStatus();
         return;
       }
       this.startPollingLoop();
-      ctx.ui.notify(`Telegram relay handshake started for chat ${config.channelId}. Confirm in Telegram with /bind ${nonce}.`, "success");
+      emit(`Telegram relay handshake started for chat ${config.channelId}. Confirm in Telegram with /bind ${nonce}.`, "success");
       await this.safeSendTelegram([
         "🔐 LSD live relay handshake",
         "",
@@ -119,7 +156,7 @@ export class TelegramLiveRelay {
       ].join("\n"), true);
       this.setStatus();
     } catch (err) {
-      ctx.ui.notify(`Telegram live relay connect failed: ${this.errorMessage(err)}`, "error");
+      emit(`Telegram live relay connect failed: ${this.errorMessage(err)}`, "error");
     }
   }
 
@@ -170,6 +207,7 @@ export class TelegramLiveRelay {
         "  /lsd telegram connect",
         "  /lsd telegram status",
         "  /lsd telegram disconnect",
+        "  /lsd telegram autoconnect [on|off|status]",
       ].join("\n"), "info");
       return true;
     }
@@ -183,6 +221,21 @@ export class TelegramLiveRelay {
     }
     if (sub === "disconnect") {
       await this.disconnect(ctx);
+      return true;
+    }
+    if (sub === "autoconnect" || sub === "auto-connect" || sub === "autoconnect status" || sub === "auto-connect status") {
+      const enabled = isTelegramRelayAutoConnectEnabled();
+      ctx.ui.notify(`Telegram auto-connect is ${enabled ? "enabled" : "disabled"}.`, "info");
+      return true;
+    }
+    if (sub === "autoconnect on" || sub === "auto-connect on") {
+      setTelegramRelayAutoConnect(true);
+      ctx.ui.notify("Telegram auto-connect enabled. LSD will auto-run /lsd telegram connect on startup.", "success");
+      return true;
+    }
+    if (sub === "autoconnect off" || sub === "auto-connect off") {
+      setTelegramRelayAutoConnect(false);
+      ctx.ui.notify("Telegram auto-connect disabled.", "info");
       return true;
     }
     ctx.ui.notify(`Unknown /lsd telegram subcommand: ${sub}`, "warning");
@@ -250,19 +303,57 @@ export class TelegramLiveRelay {
     void this.safeSendTelegram(endText);
   }
 
-  async onSessionSwitch(_event: unknown): Promise<void> {
+  onExtensionUiRequest(event: {
+    id: string;
+    method: "select" | "confirm" | "input" | "editor";
+    title: string;
+    options?: string[];
+    allowMultiple?: boolean;
+    respond: (response: { value: string } | { values: string[] } | { confirmed: boolean } | { cancelled: true }) => boolean;
+  }): void {
     if (!this.state?.connected) return;
+    this.pendingUiRequest = {
+      id: event.id,
+      method: event.method,
+      title: event.title,
+      options: event.options,
+      allowMultiple: event.allowMultiple,
+      respond: event.respond,
+    };
+    void this.safeSendTelegram(this.formatPendingUiRequest(event), true);
+  }
+
+  onExtensionUiResponse(event: {
+    id: string;
+    source: "local" | "extension" | "timeout" | "abort";
+    response: { value: string } | { values: string[] } | { confirmed: boolean } | { cancelled: true };
+  }): void {
+    if (this.pendingUiRequest?.id === event.id) {
+      this.pendingUiRequest = null;
+    }
+    if (!this.state?.connected) return;
+    if (event.source === "local") {
+      void this.safeSendTelegram("ℹ️ Interactive prompt resolved locally.", true);
+      return;
+    }
+    if (event.source === "timeout" || event.source === "abort" || ("cancelled" in event.response && event.response.cancelled)) {
+      void this.safeSendTelegram("ℹ️ Interactive prompt was cancelled.", true);
+    }
+  }
+
+  async onSessionSwitch(_event: unknown): Promise<void> {
+    if (!this.state) return;
     await this.disconnect(undefined, "session switched");
   }
 
   async onSessionFork(_event: unknown): Promise<void> {
-    if (!this.state?.connected) return;
+    if (!this.state) return;
     await this.disconnect(undefined, "session forked");
   }
 
   async onSessionShutdown(_event: unknown): Promise<void> {
     this.shuttingDown = true;
-    if (!this.state?.connected) return;
+    if (!this.state) return;
     await this.disconnect(undefined, "session shutdown");
   }
 
@@ -271,8 +362,31 @@ export class TelegramLiveRelay {
     void this.safeSendTelegram("🗜️ LSD is compacting context. Relay stays connected.");
   }
 
+  private safeSendPiMessage(message: Parameters<ExtensionAPI["sendMessage"]>[0]): void {
+    try {
+      this.pi.sendMessage(message);
+    } catch (err) {
+      const errorText = this.errorMessage(err);
+      // During extension loading the runtime bridge is not ready yet.
+      // Swallow this specific startup-time error so autoconnect never crashes LSD startup.
+      if (errorText.includes("Extension runtime not initialized")) return;
+      // Keep behavior non-fatal for relay status notifications.
+      // eslint-disable-next-line no-console
+      console.warn(`[remote-questions] failed to send extension message: ${errorText}`);
+    }
+  }
+
+  private sendCliHint(message: string, level: "info" | "warning" | "error" | "success" = "info"): void {
+    const prefix = level === "error" ? "❌" : level === "warning" ? "⚠️" : level === "success" ? "✅" : "ℹ️";
+    this.safeSendPiMessage({
+      customType: "telegram_live_relay_notice",
+      content: `${prefix} ${message}`,
+      display: true,
+    });
+  }
+
   private setStatus(): void {
-    this.pi.sendMessage({
+    this.safeSendPiMessage({
       customType: "telegram_live_relay_status",
       content: this.state
         ? this.state.connected
@@ -362,6 +476,31 @@ export class TelegramLiveRelay {
 
     if (!this.state.connected) return;
 
+    if (this.pendingUiRequest) {
+      if (text === "/cancel") {
+        const handled = this.pendingUiRequest.respond({ cancelled: true });
+        if (handled) {
+          await this.safeSendTelegram("❎ Cancelled interactive prompt.", true);
+        }
+        return;
+      }
+      const pendingResponse = this.parsePendingUiResponse(text, this.pendingUiRequest);
+      if (pendingResponse) {
+        const handled = this.pendingUiRequest.respond(pendingResponse);
+        if (handled) {
+          this.pendingUiRequest = null;
+          await this.safeSendTelegram("✅ Answer received.", true);
+        } else {
+          await this.safeSendTelegram("⚠️ That prompt is no longer active.", true);
+        }
+        return;
+      }
+      if (text.startsWith("/")) {
+        await this.safeSendTelegram("⚠️ Answer the active prompt first, or send /cancel to dismiss it.", true);
+        return;
+      }
+    }
+
     if (text === "/stop") {
       this.stopRequested = true;
       (this.pi as AbortableExtensionAPI).abort();
@@ -378,15 +517,22 @@ export class TelegramLiveRelay {
       await this.safeSendTelegram(`✅ Live relay connected. Chat ${this.state.chatId}.`, true);
       return;
     }
+    if (text === "/commands" || text.startsWith("/commands ")) {
+      const prefix = text.replace(/^\/commands\s*/, "").trim();
+      await this.safeSendTelegramChunks(this.listAvailableCommands(prefix));
+      return;
+    }
     if (text === "/help") {
       await this.safeSendTelegram([
         "Commands:",
         "  /status",
         "  /stop",
         "  /disconnect",
+        "  /commands [prefix]",
         "  /help",
         "  /clear, /reload, /compact, /lsd ...",
         "  Any other non-slash text is forwarded to LSD.",
+        "  If a prompt is active, reply with an answer or /cancel.",
       ].join("\n"), true);
       return;
     }
@@ -405,6 +551,102 @@ export class TelegramLiveRelay {
 
     await this.safeSendTelegram("📨 Message queued for LSD.", true);
     this.pi.sendUserMessage(text, { deliverAs: "followUp" });
+  }
+
+  private formatPendingUiRequest(event: { method: "select" | "confirm" | "input" | "editor"; title: string; options?: string[]; allowMultiple?: boolean }): string {
+    if (event.method === "select" || event.method === "confirm") {
+      const options = event.options ?? [];
+      const lines = [
+        `❓ ${event.title}`,
+        "",
+        ...options.map((option, index) => `${index + 1}. ${option}`),
+        "",
+        event.allowMultiple
+          ? "Reply with comma-separated numbers or exact option labels. Send /cancel to cancel."
+          : "Reply with a number or exact option text. Send /cancel to cancel.",
+      ];
+      return lines.join("\n");
+    }
+
+    return [
+      `✍️ ${event.title}`,
+      "",
+      "Reply with your text answer.",
+      "Send /cancel to cancel.",
+    ].join("\n");
+  }
+
+  private parsePendingUiResponse(
+    text: string,
+    request: PendingUiRequest,
+  ): { value: string } | { values: string[] } | { confirmed: boolean } | null {
+    if (request.method === "input" || request.method === "editor") {
+      return { value: text };
+    }
+
+    const options = request.options ?? [];
+    const normalized = text.trim().toLowerCase();
+    if (request.method === "confirm") {
+      if (["1", "y", "yes", "true", "allow"].includes(normalized)) return { confirmed: true };
+      if (["2", "n", "no", "false", "deny"].includes(normalized)) return { confirmed: false };
+      const yesOption = options.find((option) => option.toLowerCase() === normalized);
+      if (yesOption) return { confirmed: yesOption.toLowerCase().startsWith("y") };
+      return null;
+    }
+
+    if (request.allowMultiple) {
+      const parts = text.split(/[\n,]+/).map((part) => part.trim()).filter(Boolean);
+      if (parts.length === 0) return null;
+      const resolved = parts.map((part) => this.resolveOptionValue(part, options)).filter((value): value is string => !!value);
+      if (resolved.length !== parts.length) return null;
+      return { values: Array.from(new Set(resolved)) };
+    }
+
+    const value = this.resolveOptionValue(text, options);
+    return value ? { value } : null;
+  }
+
+  private resolveOptionValue(input: string, options: string[]): string | null {
+    const trimmed = input.trim();
+    if (!trimmed) return null;
+    const numeric = Number.parseInt(trimmed, 10);
+    if (Number.isInteger(numeric) && numeric >= 1 && numeric <= options.length) {
+      return options[numeric - 1] ?? null;
+    }
+    const exact = options.find((option) => option.toLowerCase() === trimmed.toLowerCase());
+    if (exact) return exact;
+    return null;
+  }
+
+  private listAvailableCommands(prefix: string): string {
+    const builtin = [
+      { name: "help", description: "Show slash command help" },
+      { name: "new", description: "Start a new session" },
+      { name: "clear", description: "Alias for /new" },
+      { name: "compact", description: "Compact the current session" },
+      { name: "reload", description: "Reload extensions, skills, prompts, and themes" },
+      { name: "settings", description: "Open settings" },
+      { name: "model", description: "Select model" },
+      { name: "resume", description: "Resume another session" },
+      { name: "quit", description: "Quit pi" },
+    ];
+    const merged = [...builtin, ...this.pi.getCommands().map((command) => ({ name: command.name, description: command.description ?? "" }))];
+    const seen = new Set<string>();
+    const filtered = merged.filter((command) => {
+      if (seen.has(command.name)) return false;
+      seen.add(command.name);
+      return prefix ? command.name.startsWith(prefix) : true;
+    });
+
+    if (filtered.length === 0) {
+      return prefix ? `No slash commands match "${prefix}".` : "No slash commands available.";
+    }
+
+    return [
+      prefix ? `Available slash commands matching "${prefix}":` : "Available slash commands:",
+      ...filtered.slice(0, 80).map((command) => `/${command.name}${command.description ? ` — ${command.description}` : ""}`),
+      filtered.length > 80 ? `…and ${filtered.length - 80} more` : "",
+    ].filter(Boolean).join("\n");
   }
 
   private claimOwnership(): boolean {
@@ -677,13 +919,68 @@ export class TelegramLiveRelay {
   }
 }
 
+function isTelegramRelayAutoConnectEnabled(): boolean {
+  const settings = readLsdSettings();
+  if (settings.telegramLiveRelayAutoConnect === true) return true;
+  // Backward compatibility: honor legacy preference key if present.
+  const rq = loadEffectivePreferences()?.preferences.remote_questions as { telegram_live_relay_auto_connect?: unknown } | undefined;
+  return rq?.telegram_live_relay_auto_connect === true;
+}
+
+function setTelegramRelayAutoConnect(enabled: boolean): void {
+  const current = readLsdSettings();
+  current.telegramLiveRelayAutoConnect = enabled;
+  writeLsdSettings(current);
+}
+
+function readLsdSettings(): Record<string, unknown> {
+  const path = lsdSettingsPath();
+  if (!existsSync(path)) return {};
+  try {
+    const parsed = JSON.parse(readFileSync(path, "utf-8"));
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeLsdSettings(settings: Record<string, unknown>): void {
+  const path = lsdSettingsPath();
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, JSON.stringify(settings, null, 2) + "\n", "utf-8");
+}
+
+function lsdSettingsPath(): string {
+  const lsdHome = process.env.LSD_HOME || process.env.GSD_HOME || join(homedir(), ".lsd");
+  return join(lsdHome, "agent", "settings.json");
+}
+
+export function isTelegramLiveRelayConnected(): boolean {
+  const path = relayStatePath();
+  if (!existsSync(path)) return false;
+  try {
+    const parsed = JSON.parse(readFileSync(path, "utf-8")) as RelayState | null;
+    return !!parsed?.connected;
+  } catch {
+    return false;
+  }
+}
+
 function relayStatePath(): string {
-  return join(process.env.LSD_HOME || join(homedir(), ".lsd"), "runtime", "relay", sessionKey(), "telegram-live.json");
+  return join(relayBasePath(), sessionKey(), "telegram-live.json");
+}
+
+function relayBasePath(): string {
+  return join(process.env.LSD_HOME || join(homedir(), ".lsd"), "runtime", "relay");
+}
+
+function relayOwnerDir(): string {
+  return join(relayBasePath(), "owners");
 }
 
 function relayOwnerPath(chatId: string): string {
   const safeChatId = chatId.replace(/[^\d-]/g, "_");
-  return join(process.env.LSD_HOME || join(homedir(), ".lsd"), "runtime", "relay", "owners", `telegram-${safeChatId}.json`);
+  return join(relayOwnerDir(), `telegram-${safeChatId}.json`);
 }
 
 function readRelayOwner(chatId: string): RelayOwnerRecord | null {

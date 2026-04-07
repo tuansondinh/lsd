@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 
 import { __testing } from "../resources/extensions/usage/index.ts";
 
-const { parseArgs, collectUsage } = __testing;
+const { parseArgs, parseRangeToken, collectUsage } = __testing;
 
 test("usage parseArgs defaults to today, all projects, by model", () => {
 	const result = parseArgs("");
@@ -22,6 +22,54 @@ test("usage parseArgs supports project scope, group and json flags", () => {
 	assert.equal(result.scope, "current-project");
 	assert.equal(result.groupBy, "project-model");
 	assert.equal(result.json, true);
+});
+
+test("usage parseRangeToken supports month range", () => {
+	const now = new Date();
+	const result = parseRangeToken("month");
+	assert.equal(result.label, "month");
+	const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+	const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1).getTime();
+	assert.equal(result.startMs, monthStart);
+	assert.equal(result.endMs, monthEnd);
+});
+
+test("usage parseRangeToken supports this-month alias", () => {
+	const now = new Date();
+	const result = parseRangeToken("this-month");
+	assert.equal(result.label, "month");
+	const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+	const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1).getTime();
+	assert.equal(result.startMs, monthStart);
+	assert.equal(result.endMs, monthEnd);
+});
+
+test("usage parseRangeToken supports last-month", () => {
+	const now = new Date();
+	const result = parseRangeToken("last-month");
+	assert.equal(result.label, "last-month");
+	const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1).getTime();
+	const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+	assert.equal(result.startMs, lastMonthStart);
+	assert.equal(result.endMs, lastMonthEnd);
+});
+
+test("usage parseRangeToken supports YYYY-MM format", () => {
+	const result = parseRangeToken("2024-03");
+	assert.equal(result.label, "2024-03");
+	const monthStart = new Date(2024, 2, 1).getTime();
+	const monthEnd = new Date(2024, 3, 1).getTime();
+	assert.equal(result.startMs, monthStart);
+	assert.equal(result.endMs, monthEnd);
+});
+
+test("usage parseRangeToken supports YYYY-M format (single digit month)", () => {
+	const result = parseRangeToken("2024-3");
+	assert.equal(result.label, "2024-3");
+	const monthStart = new Date(2024, 2, 1).getTime();
+	const monthEnd = new Date(2024, 3, 1).getTime();
+	assert.equal(result.startMs, monthStart);
+	assert.equal(result.endMs, monthEnd);
 });
 
 test("usage collectUsage aggregates assistant messages by model", () => {

@@ -26,10 +26,12 @@ export const THINKING_DESCRIPTIONS: Record<ThinkingLevel, string> = {
 export interface SettingsConfig {
 	autoCompact: boolean;
 	autoCompactThresholdPercent: number;
+	defaultModel: string;
 	classifierModel: string;
 	budgetSubagentModel: string;
 	planModeReasoningModel: string;
 	planModeReviewModel: string;
+	planModeCodingModel: string;
 	showImages: boolean;
 	autoResizeImages: boolean;
 	blockImages: boolean;
@@ -62,23 +64,29 @@ export interface SettingsConfig {
 	editorScheme: "auto" | "vscode" | "cursor" | "zed" | "jetbrains" | "sublime" | "file";
 	autoDream: boolean;
 	autoMemory: boolean;
+	telegramLiveRelayAutoConnect: boolean;
 	sandboxEnabled?: boolean;
 	sandboxNetworkMode?: "allow" | "ask" | "deny";
+	defaultModelSubmenu?: (currentValue: string, done: (selectedValue?: string) => void) => Component;
 	classifierModelSubmenu?: (currentValue: string, done: (selectedValue?: string) => void) => Component;
 	budgetSubagentModelSubmenu?: (currentValue: string, done: (selectedValue?: string) => void) => Component;
 	planModeReasoningModelSubmenu?: (currentValue: string, done: (selectedValue?: string) => void) => Component;
 	planModeReviewModelSubmenu?: (currentValue: string, done: (selectedValue?: string) => void) => Component;
+	planModeCodingModelSubmenu?: (currentValue: string, done: (selectedValue?: string) => void) => Component;
 }
 
 export interface SettingsCallbacks {
 	onAutoCompactChange: (enabled: boolean) => void;
 	onAutoCompactThresholdPercentChange: (percent: number) => void;
+	onDefaultModelChange: (modelRef: string) => void;
 	onClassifierModelChange: (modelRef: string) => void;
 	onBudgetSubagentModelChange: (modelRef: string) => void;
 	onPlanModeReasoningModelChange: (modelRef: string) => void;
 	onPlanModeReviewModelChange: (modelRef: string) => void;
+	onPlanModeCodingModelChange: (modelRef: string) => void;
 	onAutoDreamChange: (enabled: boolean) => void;
 	onAutoMemoryChange: (enabled: boolean) => void;
+	onTelegramLiveRelayAutoConnectChange: (enabled: boolean) => void;
 	onSandboxEnabledChange?: (enabled: boolean) => void;
 	onSandboxNetworkModeChange?: (mode: "allow" | "ask" | "deny") => void;
 	onShowImagesChange: (enabled: boolean) => void;
@@ -201,6 +209,13 @@ export class SettingsSelectorComponent extends Container {
 				values: ["70", "75", "80", "85", "90", "95"],
 			},
 			{
+				id: "default-model",
+				label: "Default model",
+				description: "Model LSD should use by default when opening a new session",
+				currentValue: config.defaultModel,
+				submenu: config.defaultModelSubmenu,
+			},
+			{
 				id: "classifier-model",
 				label: "Classifier model",
 				description: "Model used for Auto permission mode approvals",
@@ -227,6 +242,13 @@ export class SettingsSelectorComponent extends Container {
 				description: "Optional provider/id model for the other-agent plan review step",
 				currentValue: config.planModeReviewModel,
 				submenu: config.planModeReviewModelSubmenu,
+			},
+			{
+				id: "plan-mode-coding-model",
+				label: "Plan coding model",
+				description: "Optional provider/id model for subagent plan execution",
+				currentValue: config.planModeCodingModel,
+				submenu: config.planModeCodingModelSubmenu,
 			},
 			{
 				id: "steering-mode",
@@ -473,6 +495,16 @@ export class SettingsSelectorComponent extends Container {
 			values: ["true", "false"],
 		});
 
+		// Telegram relay auto-connect toggle (insert after auto-memory)
+		const autoMemoryIdx = items.findIndex((item) => item.id === "auto-memory");
+		items.splice(autoMemoryIdx + 1, 0, {
+			id: "telegram-live-relay-autoconnect",
+			label: "Telegram autoconnect",
+			description: "Auto-run /lsd telegram connect on startup",
+			currentValue: config.telegramLiveRelayAutoConnect ? "true" : "false",
+			values: ["true", "false"],
+		});
+
 		// RTK toggle (insert after cache-timer)
 		const cacheTimerIndex = items.findIndex((item) => item.id === "cache-timer");
 		items.splice(cacheTimerIndex + 1, 0, {
@@ -568,6 +600,9 @@ export class SettingsSelectorComponent extends Container {
 					case "autocompact-threshold":
 						callbacks.onAutoCompactThresholdPercentChange(parseInt(newValue, 10));
 						break;
+					case "default-model":
+						callbacks.onDefaultModelChange(newValue);
+						break;
 					case "classifier-model":
 						callbacks.onClassifierModelChange(newValue);
 						break;
@@ -579,6 +614,9 @@ export class SettingsSelectorComponent extends Container {
 						break;
 					case "plan-mode-review-model":
 						callbacks.onPlanModeReviewModelChange(newValue);
+						break;
+					case "plan-mode-coding-model":
+						callbacks.onPlanModeCodingModelChange(newValue);
 						break;
 					case "show-images":
 						callbacks.onShowImagesChange(newValue === "true");
@@ -606,6 +644,9 @@ export class SettingsSelectorComponent extends Container {
 						break;
 					case "auto-memory":
 						callbacks.onAutoMemoryChange(newValue === "true");
+						break;
+					case "telegram-live-relay-autoconnect":
+						callbacks.onTelegramLiveRelayAutoConnectChange(newValue === "true");
 						break;
 					case "rtk":
 						callbacks.onRtkChange(newValue === "true");

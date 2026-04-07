@@ -72,7 +72,7 @@ export function registerBgShellCommand(pi: ExtensionAPI, state: BgShellSharedSta
 					return;
 				}
 
-				await ctx.ui.custom<void>(
+				const overlayResult = await ctx.ui.custom<void>(
 					(tui, theme, _kb, done) => {
 						return new BgManagerOverlay(tui, theme, () => {
 							done();
@@ -89,6 +89,17 @@ export function registerBgShellCommand(pi: ExtensionAPI, state: BgShellSharedSta
 						},
 					},
 				);
+				if (overlayResult === undefined || overlayResult === null) {
+					const lines = Array.from(processes.values()).map(p => {
+						const statusIcon = p.alive
+							? (p.status === "ready" ? "✓" : p.status === "error" ? "✗" : "⋯")
+							: "○";
+						const uptime = formatUptime(Date.now() - p.startedAt);
+						const portInfo = p.ports.length > 0 ? ` :${p.ports.join(",")}` : "";
+						return `${p.id}  ${statusIcon} ${p.status}  ${uptime}  ${p.label}  [${p.processType}]${portInfo}`;
+					});
+					ctx.ui.notify(lines.join("\n"), "info");
+				}
 				return;
 			}
 
@@ -115,7 +126,7 @@ export function registerBgShellCommand(pi: ExtensionAPI, state: BgShellSharedSta
 					return;
 				}
 
-				await ctx.ui.custom<void>(
+				const overlayResult = await ctx.ui.custom<void>(
 					(tui, theme, _kb, done) => {
 						const overlay = new BgManagerOverlay(tui, theme, () => {
 							done();
@@ -136,6 +147,15 @@ export function registerBgShellCommand(pi: ExtensionAPI, state: BgShellSharedSta
 						},
 					},
 				);
+				if (overlayResult === undefined || overlayResult === null) {
+					if (sub === "digest") {
+						const digest = generateDigest(bg);
+						ctx.ui.notify(formatDigestText(bg, digest), "info");
+					} else {
+						const output = getOutput(bg, { stream: "both", tail: 50 });
+						ctx.ui.notify(output || "(no output)", "info");
+					}
+				}
 				return;
 			}
 
@@ -197,7 +217,7 @@ export function registerBgShellCommand(pi: ExtensionAPI, state: BgShellSharedSta
 		description: shortcutDesc("Open background process manager", "/bg"),
 		handler: async (ctx) => {
 			state.latestCtx = ctx;
-			await ctx.ui.custom<void>(
+			const overlayResult = await ctx.ui.custom<void>(
 				(tui, theme, _kb, done) => {
 					return new BgManagerOverlay(tui, theme, () => {
 						done();
@@ -214,6 +234,9 @@ export function registerBgShellCommand(pi: ExtensionAPI, state: BgShellSharedSta
 					},
 				},
 			);
+			if (overlayResult === undefined || overlayResult === null) {
+				ctx.ui.notify("Background manager overlay is unavailable in this UI. Use /bg list or /bg output <id>.", "info");
+			}
 		},
 	});
 }

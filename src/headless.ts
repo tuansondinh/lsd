@@ -82,6 +82,7 @@ export interface HeadlessOptions {
   eventFilter?: Set<string>  // filter JSONL output to specific event types
   resumeSession?: string // session ID to resume (--resume <id>)
   bare?: boolean         // --bare: suppress lsd.md/CLAUDE.md/AGENTS.md, user skills, project preferences
+  noSession?: boolean    // --no-session: disable session persistence for the RPC child
 }
 
 interface TrackedEvent {
@@ -210,6 +211,8 @@ export function parseHeadlessArgs(argv: string[]): HeadlessOptions {
         options.resumeSession = args[++i]
       } else if (arg === '--bare') {
         options.bare = true
+      } else if (arg === '--no-session') {
+        options.noSession = true
       }
     } else if (options.command === 'auto') {
       options.command = arg
@@ -379,9 +382,12 @@ async function runHeadlessOnce(options: HeadlessOptions, restartCount: number): 
   }
   // Signal headless mode to the GSD extension (skips UAT human pause, etc.)
   clientOptions.env = { ...(clientOptions.env as Record<string, string> || {}), GSD_HEADLESS: '1' }
-  // Propagate --bare to the child process
-  if (options.bare) {
-    clientOptions.args = [...((clientOptions.args as string[]) || []), '--bare']
+  // Propagate headless session/context flags to the RPC child process.
+  const childArgs: string[] = []
+  if (options.bare) childArgs.push('--bare')
+  if (options.noSession) childArgs.push('--no-session')
+  if (childArgs.length > 0) {
+    clientOptions.args = [...((clientOptions.args as string[]) || []), ...childArgs]
   }
 
   const client = new RpcClient(clientOptions)

@@ -2,11 +2,12 @@
 	"id": "slash-commands",
 	"name": "Slash Commands",
 	"version": "1.0.0",
-	"description": "Bundled slash commands for audit, clearing state, and plan workflows",
+	"description": "Bundled slash commands for context inspection, planning, and lazy tool search",
 	"tier": "bundled",
 	"requires": { "platform": ">=2.29.0" },
 	"provides": {
-		"commands": ["audit", "clear", "plan", "execute", "cancel-plan"],
+		"commands": ["audit", "clear", "context", "plan", "execute", "cancel-plan", "tools"],
+		"tools": ["tool_search", "tool_enable"],
 		"flags": ["plan"]
 	}
 }

@@ -16,22 +16,25 @@ export const SEPARATOR_PREFIX = "───";
 export interface ExtensionSelectorOptions {
 	tui?: TUI;
 	timeout?: number;
+	allowMultiple?: boolean;
 }
 
 export class ExtensionSelectorComponent extends Container {
 	private options: string[];
 	private selectedIndex = 0;
+	private selectedValues = new Set<number>();
 	private listContainer: Container;
-	private onSelectCallback: (option: string) => void;
+	private onSelectCallback: (option: string | string[]) => void;
 	private onCancelCallback: () => void;
 	private titleText: Text;
 	private baseTitle: string;
 	private countdown: CountdownTimer | undefined;
+	private readonly allowMultiple: boolean;
 
 	constructor(
 		title: string,
 		options: string[],
-		onSelect: (option: string) => void,
+		onSelect: (option: string | string[]) => void,
 		onCancel: () => void,
 		opts?: ExtensionSelectorOptions,
 	) {
@@ -41,6 +44,7 @@ export class ExtensionSelectorComponent extends Container {
 		this.onSelectCallback = onSelect;
 		this.onCancelCallback = onCancel;
 		this.baseTitle = title;
+		this.allowMultiple = opts?.allowMultiple ?? false;
 
 		this.addChild(new DynamicBorder());
 		this.addChild(new Spacer(1));
@@ -65,7 +69,8 @@ export class ExtensionSelectorComponent extends Container {
 			new Text(
 				rawKeyHint("↑↓", "navigate") +
 					"  " +
-					keyHint("selectConfirm", "select") +
+					(this.allowMultiple ? rawKeyHint("space", "toggle") + "  " : "") +
+					keyHint("selectConfirm", this.allowMultiple ? "confirm" : "select") +
 					"  " +
 					keyHint("selectCancel", "cancel"),
 				1,
@@ -99,6 +104,19 @@ export class ExtensionSelectorComponent extends Container {
 		return idx;
 	}
 
+	private toggleSelected(index: number): void {
+		if (this.isSeparator(index)) return;
+		if (this.selectedValues.has(index)) this.selectedValues.delete(index);
+		else this.selectedValues.add(index);
+	}
+
+	private getSelectedOptions(): string[] {
+		return [...this.selectedValues]
+			.sort((a, b) => a - b)
+			.map((index) => this.options[index])
+			.filter((option): option is string => typeof option === "string");
+	}
+
 	private updateList(): void {
 		this.listContainer.clear();
 		for (let i = 0; i < this.options.length; i++) {
@@ -108,9 +126,11 @@ export class ExtensionSelectorComponent extends Container {
 				continue;
 			}
 			const isSelected = i === this.selectedIndex;
+			const isChecked = this.selectedValues.has(i);
+			const prefix = this.allowMultiple ? `[${isChecked ? "x" : " "}] ` : isSelected ? "→ " : "  ";
 			const text = isSelected
-				? theme.fg("accent", "→ ") + theme.fg("accent", option)
-				: `  ${theme.fg("text", option)}`;
+				? theme.fg("accent", prefix) + theme.fg("accent", option)
+				: `${prefix}${theme.fg("text", option)}`;
 			this.listContainer.addChild(new Text(text, 1, 0));
 		}
 	}
@@ -135,11 +155,22 @@ export class ExtensionSelectorComponent extends Container {
 			}
 			this.selectedIndex = next;
 			this.updateList();
+		} else if (this.allowMultiple && keyData === " ") {
+			this.toggleSelected(this.selectedIndex);
+			this.updateList();
 		} else if (kb.matches(keyData, "selectConfirm") || keyData === "\n") {
 			const selected = this.options[this.selectedIndex];
-			if (selected && !this.isSeparator(this.selectedIndex)) {
-				this.onSelectCallback(selected);
+			if (!selected || this.isSeparator(this.selectedIndex)) {
+				return;
 			}
+			if (this.allowMultiple) {
+				if (this.selectedValues.size === 0) {
+					this.toggleSelected(this.selectedIndex);
+				}
+				this.onSelectCallback(this.getSelectedOptions());
+				return;
+			}
+			this.onSelectCallback(selected);
 		} else if (kb.matches(keyData, "selectCancel")) {
 			this.onCancelCallback();
 		}

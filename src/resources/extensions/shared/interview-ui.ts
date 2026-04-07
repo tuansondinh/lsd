@@ -107,13 +107,59 @@ export interface WrapUpOptions {
 const OTHER_OPTION_LABEL = "None of the above";
 const OTHER_OPTION_DESCRIPTION = "Select to type your own answer.";
 
+async function runSequentialInterviewFallback(
+	questions: Question[],
+	ctx: ExtensionCommandContext,
+): Promise<RoundResult> {
+	const answers: Record<string, { selected: string | string[]; notes: string }> = {};
+
+	for (const q of questions) {
+		const options = q.options.map((o) => o.label);
+		if (!q.allowMultiple) {
+			options.push(OTHER_OPTION_LABEL);
+		}
+
+		const selected = await ctx.ui.select(
+			`${q.header}: ${q.question}`,
+			options,
+			q.allowMultiple ? { allowMultiple: true } : undefined,
+		);
+		if (selected === undefined || selected === null) {
+			return { endInterview: false, answers: {} };
+		}
+
+		let notes = "";
+		const normalized = Array.isArray(selected) ? selected : [selected];
+		const selectedLabels = normalized.filter((item): item is string => typeof item === "string" && item.length > 0);
+
+		const selectedPrimary = selectedLabels[0] ?? "";
+		if (!q.allowMultiple && selectedPrimary === OTHER_OPTION_LABEL) {
+			const note = await ctx.ui.input(
+				`${q.header}: Please explain in your own words`,
+				"Type your answer here…",
+			);
+			if (note) {
+				notes = note;
+			}
+		}
+
+		if (q.allowMultiple) {
+			answers[q.id] = { selected: selectedLabels, notes };
+		} else {
+			answers[q.id] = { selected: selectedPrimary || OTHER_OPTION_LABEL, notes };
+		}
+	}
+
+	return { endInterview: false, answers };
+}
+
 // ─── Wrap-up screen ───────────────────────────────────────────────────────────
 
 export async function showWrapUpScreen(
 	opts: WrapUpOptions,
 	ctx: ExtensionCommandContext,
 ): Promise<WrapUpResult> {
-	return ctx.ui.custom<WrapUpResult>((tui: TUI, theme: Theme, _kb, done) => {
+	const result = await ctx.ui.custom<WrapUpResult>((tui: TUI, theme: Theme, _kb, done) => {
 		// 0 = "Keep going", 1 = "I'm satisfied" — default to satisfied (1)
 		let cursorIdx = 1;
 		let cachedLines: string[] | undefined;
@@ -172,6 +218,13 @@ export async function showWrapUpScreen(
 			handleInput,
 		};
 	});
+
+	if (result !== undefined && result !== null) {
+		return result;
+	}
+
+	const selected = await ctx.ui.select(opts.headline, [opts.satisfiedLabel, opts.keepGoingLabel]);
+	return { satisfied: selected === opts.satisfiedLabel };
 }
 
 // ─── Interview round ──────────────────────────────────────────────────────────
@@ -181,7 +234,7 @@ export async function showInterviewRound(
 	opts: InterviewRoundOptions,
 	ctx: ExtensionCommandContext,
 ): Promise<RoundResult> {
-	return ctx.ui.custom<RoundResult>((tui: TUI, theme: Theme, _kb, done) => {
+	const result = await ctx.ui.custom<RoundResult>((tui: TUI, theme: Theme, _kb, done) => {
 
 		interface QuestionState {
 			cursorIndex: number;
@@ -622,4 +675,10 @@ export async function showInterviewRound(
 			handleInput,
 		};
 	});
+
+	if (result !== undefined && result !== null) {
+		return result;
+	}
+
+	return runSequentialInterviewFallback(questions, ctx);
 }

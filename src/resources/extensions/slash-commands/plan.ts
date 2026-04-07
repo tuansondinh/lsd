@@ -70,6 +70,8 @@ const DEFAULT_APPROVAL_PERMISSION_MODE: RestorablePermissionMode = "auto";
 const APPROVE_LABEL = "Approve plan";
 const APPROVE_AUTO_LABEL = "Auto mode";
 const APPROVE_BYPASS_LABEL = "Bypass mode";
+const APPROVE_AUTO_SUBAGENT_LABEL = "Execute with subagent in auto mode";
+const APPROVE_BYPASS_SUBAGENT_LABEL = "Execute with subagent in bypass mode";
 const REVIEW_LABEL = "Let other agent review";
 const REVISE_LABEL = "Revise plan";
 const CANCEL_LABEL = "Cancel";
@@ -122,7 +124,7 @@ function parseQualifiedModelRef(value: unknown): ModelRef | undefined {
   return { provider, id };
 }
 
-function readPlanModeSettings(): { reasoningModel?: string; reviewModel?: string } {
+function readPlanModeSettings(): { reasoningModel?: string; reviewModel?: string; codingModel?: string } {
   try {
     const settingsPath = join(getAgentDir(), "settings.json");
     if (!existsSync(settingsPath)) return {};
@@ -130,12 +132,15 @@ function readPlanModeSettings(): { reasoningModel?: string; reviewModel?: string
     const parsed = JSON.parse(raw) as {
       planModeReasoningModel?: unknown;
       planModeReviewModel?: unknown;
+      planModeCodingModel?: unknown;
     };
     const reasoningModel = parseQualifiedModelRef(parsed.planModeReasoningModel);
     const reviewModel = parseQualifiedModelRef(parsed.planModeReviewModel);
+    const codingModel = parseQualifiedModelRef(parsed.planModeCodingModel);
     return {
       reasoningModel: reasoningModel ? `${reasoningModel.provider}/${reasoningModel.id}` : undefined,
       reviewModel: reviewModel ? `${reviewModel.provider}/${reviewModel.id}` : undefined,
+      codingModel: codingModel ? `${codingModel.provider}/${codingModel.id}` : undefined,
     };
   } catch {
     return {};
@@ -148,6 +153,10 @@ export function readPlanModeReasoningModel(): string | undefined {
 
 export function readPlanModeReviewModel(): string | undefined {
   return readPlanModeSettings().reviewModel;
+}
+
+export function readPlanModeCodingModel(): string | undefined {
+  return readPlanModeSettings().codingModel;
 }
 
 function sameModel(left: ModelRef | undefined, right: ModelRef | undefined): boolean {
@@ -252,17 +261,42 @@ async function setModelIfNeeded(pi: ExtensionAPI, ctx: any, modelRef: ModelRef |
   await pi.setModel(model, { persist: false });
 }
 
-function buildExecutionKickoffMessage(): string {
+function buildExecutionKickoffMessage(options: { permissionMode: RestorablePermissionMode; executeWithSubagent?: boolean }): string {
+  const { permissionMode, executeWithSubagent = false } = options;
   const task = state.task.trim();
+
+  if (!executeWithSubagent) {
+    const details: string[] = [
+      "Plan approved. Exit plan mode and start implementation immediately.",
+    ];
+    if (task) details.push(`Original task: ${task}`);
+    if (state.latestPlanPath) details.push(`Use the approved plan artifact at ${state.latestPlanPath} as the execution plan.`);
+    return details.join(" ");
+  }
+
+  const codingModel = readPlanModeCodingModel();
+  const modelInstruction = codingModel
+    ? `Set model to \"${codingModel}\" for that subagent.`
+    : "Do not pass a model override for that subagent unless needed.";
+
   const details: string[] = [
-    "Plan approved. Exit plan mode and start implementation immediately.",
+    "Plan approved. Exit plan mode and execute the approved plan with a subagent now.",
+    "Invoke the subagent tool with agent \"generic\" to implement the plan end-to-end.",
+    modelInstruction,
+    `Execution permission mode is now \"${permissionMode}\".`,
   ];
   if (task) details.push(`Original task: ${task}`);
-  if (state.latestPlanPath) details.push(`Use the approved plan artifact at ${state.latestPlanPath} as the execution plan.`);
+  if (state.latestPlanPath) details.push(`Primary plan artifact: ${state.latestPlanPath}`);
+  details.push("After subagent completion, summarize the result and any remaining follow-ups.");
   return details.join(" ");
 }
 
-async function approvePlan(pi: ExtensionAPI, ctx: any, permissionMode: RestorablePermissionMode): Promise<void> {
+async function approvePlan(
+  pi: ExtensionAPI,
+  ctx: any,
+  permissionMode: RestorablePermissionMode,
+  executeWithSubagent = false,
+): Promise<void> {
   const reasoningModel = parseQualifiedModelRef(readPlanModeReasoningModel());
   if (reasoningModel) {
     await setModelIfNeeded(pi, ctx, reasoningModel);
@@ -273,7 +307,7 @@ async function approvePlan(pi: ExtensionAPI, ctx: any, permissionMode: Restorabl
     targetPermissionMode: permissionMode,
   };
   leavePlanMode(pi, "approved", permissionMode);
-  await pi.sendUserMessage(buildExecutionKickoffMessage(), { deliverAs: "followUp" });
+  await pi.sendUserMessage(buildExecutionKickoffMessage({ permissionMode, executeWithSubagent }), { deliverAs: "followUp" });
 }
 
 async function cancelPlan(pi: ExtensionAPI, ctx: any, clearTask = true): Promise<RestorablePermissionMode> {
@@ -315,9 +349,11 @@ function buildApprovalDialogInstructions(): string {
     `2. ${REVIEW_LABEL}`,
     `3. ${REVISE_LABEL}`,
     `Second question id: \"${PLAN_APPROVAL_PERMISSION_QUESTION_ID}\". Ask which execution mode to use if the plan is approved.`,
-    "Use exactly these 2 options for the second question:",
+    "Use exactly these 4 options for the second question:",
     `1. ${APPROVE_AUTO_LABEL} (Recommended)`,
     `2. ${APPROVE_BYPASS_LABEL}`,
+    `3. ${APPROVE_AUTO_SUBAGENT_LABEL}`,
+    `4. ${APPROVE_BYPASS_SUBAGENT_LABEL}`,
     `Do not include \"${CANCEL_LABEL}\" as an explicit option. If the user wants to cancel, they should choose \"None of the above\" on the first question and type \"${CANCEL_LABEL}\" in the free-text note.`,
     `If the user selects \"${REVIEW_LABEL}\" or \"${REVISE_LABEL}\", ignore the second answer for now.`,
     "If the dialog is dismissed or the user gives no answer, continue planning.",
@@ -342,11 +378,8 @@ function buildPlanPreviewMessage(planPath: string, planMarkdown?: string): strin
   ];
 
   if (planMarkdown) {
-    details.push(
-      "```markdown",
-      planMarkdown,
-      "```",
-    );
+    // Render markdown directly so the plan preview UI can display headings/lists/code blocks.
+    details.push(planMarkdown);
   } else {
     details.push(`Unable to read ${planPath} right now.`);
   }
@@ -387,11 +420,23 @@ function buildReviewSteeringMessage(planPath: string, planMarkdown?: string): st
   return details.join("\n\n");
 }
 
-function approvalSelectionToPermissionMode(selected: string | undefined): RestorablePermissionMode | undefined {
+function approvalSelectionToExecutionMode(
+  selected: string | undefined,
+): { permissionMode: RestorablePermissionMode; executeWithSubagent: boolean } | undefined {
   if (!selected) return undefined;
-  if (selected.includes(APPROVE_AUTO_LABEL)) return "auto";
-  if (selected.includes(APPROVE_BYPASS_LABEL)) return "danger-full-access";
+  if (selected.includes(APPROVE_AUTO_SUBAGENT_LABEL)) return { permissionMode: "auto", executeWithSubagent: true };
+  if (selected.includes(APPROVE_BYPASS_SUBAGENT_LABEL)) {
+    return { permissionMode: "danger-full-access", executeWithSubagent: true };
+  }
+  if (selected.includes(APPROVE_AUTO_LABEL)) return { permissionMode: "auto", executeWithSubagent: false };
+  if (selected.includes(APPROVE_BYPASS_LABEL)) {
+    return { permissionMode: "danger-full-access", executeWithSubagent: false };
+  }
   return undefined;
+}
+
+function approvalSelectionToPermissionMode(selected: string | undefined): RestorablePermissionMode | undefined {
+  return approvalSelectionToExecutionMode(selected)?.permissionMode;
 }
 
 function getAnswerValues(answer: AskUserAnswer | undefined): string[] {
@@ -423,6 +468,7 @@ export const __testing = {
   },
   parseQualifiedModelRef,
   approvalSelectionToPermissionMode,
+  approvalSelectionToExecutionMode,
   buildApprovalSteeringMessage,
   buildPlanPreviewMessage,
   buildReviewSteeringMessage,
@@ -549,12 +595,21 @@ export default function planCommand(pi: ExtensionAPI) {
     if (!actionSelection) return;
 
     if (actionSelection.includes(APPROVE_LABEL)) {
-      const targetPermissionMode = approvalSelectionToPermissionMode(permissionValues[0]) ?? DEFAULT_APPROVAL_PERMISSION_MODE;
+      const executionMode = approvalSelectionToExecutionMode(permissionValues[0]) ?? {
+        permissionMode: DEFAULT_APPROVAL_PERMISSION_MODE,
+        executeWithSubagent: false,
+      };
       state = {
         ...state,
-        targetPermissionMode,
+        targetPermissionMode: executionMode.permissionMode,
       };
-      await approvePlan(pi, ctx, targetPermissionMode);
+
+      if (executionMode.executeWithSubagent) {
+        const modeLabel = executionMode.permissionMode === "danger-full-access" ? "bypass" : "auto";
+        ctx.ui?.notify?.(`Plan approved: subagent(${modeLabel})`, "info");
+      }
+
+      await approvePlan(pi, ctx, executionMode.permissionMode, executionMode.executeWithSubagent);
       return;
     }
 

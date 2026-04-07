@@ -42,6 +42,7 @@ interface HeadlessOptions {
   eventFilter?: Set<string>
   resumeSession?: string
   bare?: boolean
+  noSession?: boolean
 }
 
 function parseHeadlessArgs(argv: string[]): HeadlessOptions {
@@ -106,6 +107,8 @@ function parseHeadlessArgs(argv: string[]): HeadlessOptions {
         options.resumeSession = args[++i]
       } else if (arg === '--bare') {
         options.bare = true
+      } else if (arg === '--no-session') {
+        options.noSession = true
       }
     } else if (options.command === 'auto') {
       options.command = arg
@@ -368,6 +371,19 @@ test('--bare combined with --output-format json', () => {
   assert.equal(opts.outputFormat, 'json')
   assert.equal(opts.json, true)
   assert.equal(opts.command, 'auto')
+})
+
+// ─── --no-session flag ─────────────────────────────────────────────────────
+
+test('--no-session sets noSession to true', () => {
+  const opts = parseHeadlessArgs(['node', 'gsd', 'headless', '--no-session', 'auto'])
+  assert.equal(opts.noSession, true)
+  assert.equal(opts.command, 'auto')
+})
+
+test('no --no-session means noSession is undefined', () => {
+  const opts = parseHeadlessArgs(['node', 'gsd', 'headless', 'auto'])
+  assert.equal(opts.noSession, undefined)
 })
 
 // ─── Command-first ordering (flags after command) ─────────────────────────

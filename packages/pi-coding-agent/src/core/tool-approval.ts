@@ -30,6 +30,9 @@ let fileChangeApprovalHandler: FileChangeApprovalHandler | null = null;
 let classifierHandler: ClassifierHandler | null = null;
 let networkApprovalHandler: NetworkApprovalHandler | null = null;
 
+let networkApprovalIdCounter = 0;
+const pendingNetworkApprovals = new Map<string, { resolve: (decision: NetworkApprovalDecision) => void }>();
+
 let subagentApprovalRouter: ((proxyId: string, approved: boolean) => boolean) | null = null;
 let subagentClassifierRouter: ((proxyId: string, approved: boolean) => boolean) | null = null;
 
@@ -137,6 +140,32 @@ export function resolveClassifierResponse(id: string, approved: boolean): void {
 		pendingClassifications.delete(id);
 		pending.resolve(approved);
 	}
+}
+
+export function resolveNetworkApprovalResponse(id: string, decision: NetworkApprovalDecision): void {
+	const pending = pendingNetworkApprovals.get(id);
+	if (pending) {
+		pendingNetworkApprovals.delete(id);
+		pending.resolve(decision);
+	}
+}
+
+export function registerStdioNetworkApprovalHandler(): void {
+	setNetworkApprovalHandler(async (request: NetworkApprovalRequest): Promise<NetworkApprovalDecision> => {
+		const id = `net_${++networkApprovalIdCounter}_${Date.now()}`;
+
+		return new Promise<NetworkApprovalDecision>((resolve) => {
+			pendingNetworkApprovals.set(id, { resolve });
+
+			const msg = JSON.stringify({
+				type: "network_approval_request",
+				id,
+				command: request.command,
+				message: request.message,
+			});
+			process.stdout.write(msg + "\n");
+		});
+	});
 }
 
 export async function requestFileChangeApproval(request: FileChangeApprovalRequest): Promise<void> {

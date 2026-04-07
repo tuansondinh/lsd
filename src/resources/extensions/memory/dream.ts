@@ -70,7 +70,7 @@ function parseAutoDreamSettings(source: Record<string, unknown>): Partial<AutoDr
     // Top-level takes precedence for enabled; nested.memory for thresholds
     const enabledSource = typeof topLevel === 'boolean' ? topLevel
         : nested && typeof nested.autoDream === 'boolean' ? nested.autoDream
-        : undefined;
+            : undefined;
 
     return {
         ...(enabledSource !== undefined ? { enabled: enabledSource } : {}),
@@ -205,6 +205,214 @@ function listSessionsTouchedSince(
     }
 }
 
+interface MemoryFileRecord {
+    href: string;
+    absPath: string;
+    type: string;
+    content: string;
+    mtimeMs: number;
+    indexed: boolean;
+}
+
+interface MemoryCompactionResult {
+    brokenRefsPruned: string[];
+    duplicateIndexEntriesPruned: string[];
+    emptyFilesRemoved: string[];
+    duplicateFilesRemoved: string[];
+}
+
+function normalizeMemoryBody(raw: string): { type: string; body: string } {
+    const content = raw.replace(/\r\n/g, '\n');
+    const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---\n?/);
+    let type = '';
+    let body = content;
+
+    if (frontmatterMatch) {
+        const frontmatter = frontmatterMatch[1] ?? '';
+        const typeMatch = frontmatter.match(/^type:\s*(.+)$/m);
+        type = (typeMatch?.[1] ?? '').trim().toLowerCase();
+        body = content.slice(frontmatterMatch[0].length);
+    }
+
+    return {
+        type,
+        body: body
+            .trim()
+            .toLowerCase()
+            .replace(/\*\*(why|how to apply):\*\*/g, '$1:')
+            .replace(/\s+/g, ' '),
+    };
+}
+
+function listMemoryFiles(memoryDir: string, entrypointRaw?: string): MemoryFileRecord[] {
+    const indexedHrefs = new Set<string>();
+    if (entrypointRaw) {
+        const linkRe = /\[[^\]]+\]\(([^)]+)\)/g;
+        for (const match of entrypointRaw.matchAll(linkRe)) {
+            const href = match[1]?.trim();
+            if (!href || href.startsWith('#') || /^[a-z][a-z0-9+.-]*:/i.test(href)) continue;
+            indexedHrefs.add(href);
+        }
+    }
+
+    const records: MemoryFileRecord[] = [];
+    try {
+        const entries = readdirSync(memoryDir, { recursive: true }) as string[];
+        for (const entry of entries) {
+            if (!entry.endsWith('.md')) continue;
+            if (entry === 'MEMORY.md') continue;
+            if (entry.split(/[\\/]/).some((part) => part.startsWith('.'))) continue;
+
+            const absPath = join(memoryDir, entry);
+            try {
+                const stat = statSync(absPath);
+                if (!stat.isFile()) continue;
+                const content = readFileSync(absPath, 'utf-8');
+                const normalized = normalizeMemoryBody(content);
+                records.push({
+                    href: entry,
+                    absPath,
+                    type: normalized.type,
+                    content,
+                    mtimeMs: stat.mtimeMs,
+                    indexed: indexedHrefs.has(entry),
+                });
+            } catch {
+                // Skip unreadable files.
+            }
+        }
+    } catch {
+        return [];
+    }
+
+    return records;
+}
+
+function pruneDuplicateMemoryIndexEntries(memoryDir: string): string[] {
+    const entrypoint = join(memoryDir, 'MEMORY.md');
+    try {
+        const raw = readFileSync(entrypoint, 'utf-8');
+        const seen = new Set<string>();
+        const pruned: string[] = [];
+        const keptLines = raw.split(/\r?\n/).filter((line) => {
+            const trimmed = line.trim();
+            if (!trimmed) return true;
+
+            const linkMatch = trimmed.match(/\[[^\]]+\]\(([^)]+)\)/);
+            const href = linkMatch?.[1]?.trim();
+            const key = href ? `href:${href}` : `line:${trimmed}`;
+            if (seen.has(key)) {
+                pruned.push(trimmed);
+                return false;
+            }
+            seen.add(key);
+            return true;
+        });
+
+        if (pruned.length > 0) {
+            writeFileSync(entrypoint, keptLines.join('\n').replace(/\n*$/, '\n'), 'utf-8');
+        }
+        return pruned;
+    } catch {
+        return [];
+    }
+}
+
+function pruneUselessAndDuplicateMemoryFiles(memoryDir: string): {
+    emptyFilesRemoved: string[];
+    duplicateFilesRemoved: string[];
+} {
+    const entrypoint = join(memoryDir, 'MEMORY.md');
+    try {
+        const rawEntrypoint = existsSync(entrypoint) ? readFileSync(entrypoint, 'utf-8') : '';
+        const files = listMemoryFiles(memoryDir, rawEntrypoint);
+        const emptyFilesRemoved: string[] = [];
+        const duplicateFilesRemoved: string[] = [];
+        let nextEntrypoint = rawEntrypoint;
+
+        const removablePlaceholders = new Set([
+            '',
+            'todo',
+            'tbd',
+            'none',
+            'n/a',
+            'no memories extracted yet.',
+        ]);
+
+        const nonEmptyFiles = files.filter((file) => {
+            const normalized = normalizeMemoryBody(file.content);
+            if (removablePlaceholders.has(normalized.body)) {
+                emptyFilesRemoved.push(file.href);
+                try {
+                    unlinkSync(file.absPath);
+                } catch {
+                    // Best effort.
+                }
+                return false;
+            }
+            return true;
+        });
+
+        const groups = new Map<string, MemoryFileRecord[]>();
+        for (const file of nonEmptyFiles) {
+            const normalized = normalizeMemoryBody(file.content);
+            const key = `${normalized.type}\n${normalized.body}`;
+            const arr = groups.get(key) ?? [];
+            arr.push(file);
+            groups.set(key, arr);
+        }
+
+        for (const group of groups.values()) {
+            if (group.length < 2) continue;
+            group.sort((a, b) => {
+                if (a.indexed !== b.indexed) return a.indexed ? -1 : 1;
+                if (a.mtimeMs !== b.mtimeMs) return a.mtimeMs - b.mtimeMs;
+                return a.href.localeCompare(b.href);
+            });
+
+            const keeper = group[0]!;
+            for (const duplicate of group.slice(1)) {
+                const escapedHref = duplicate.href.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                const hrefRe = new RegExp(String.raw`(\[[^\]]+\]\()${escapedHref}(\))`, 'g');
+                nextEntrypoint = nextEntrypoint.replace(hrefRe, `$1${keeper.href}$2`);
+                duplicateFilesRemoved.push(duplicate.href);
+                try {
+                    unlinkSync(duplicate.absPath);
+                } catch {
+                    // Best effort.
+                }
+            }
+        }
+
+        if (emptyFilesRemoved.length > 0 || duplicateFilesRemoved.length > 0) {
+            writeFileSync(entrypoint, nextEntrypoint.replace(/\n*$/, '\n'), 'utf-8');
+        }
+
+        return { emptyFilesRemoved, duplicateFilesRemoved };
+    } catch {
+        return {
+            emptyFilesRemoved: [],
+            duplicateFilesRemoved: [],
+        };
+    }
+}
+
+function runDeterministicMemoryCompaction(memoryDir: string): MemoryCompactionResult {
+    const brokenRefsPruned = listBrokenMemoryIndexEntries(memoryDir).length > 0
+        ? pruneBrokenMemoryIndexEntries(memoryDir)
+        : [];
+    const duplicateIndexEntriesPruned = pruneDuplicateMemoryIndexEntries(memoryDir);
+    const { emptyFilesRemoved, duplicateFilesRemoved } = pruneUselessAndDuplicateMemoryFiles(memoryDir);
+    const finalDuplicateIndexEntriesPruned = duplicateIndexEntriesPruned.concat(pruneDuplicateMemoryIndexEntries(memoryDir));
+
+    return {
+        brokenRefsPruned,
+        duplicateIndexEntriesPruned: [...new Set(finalDuplicateIndexEntriesPruned)],
+        emptyFilesRemoved,
+        duplicateFilesRemoved,
+    };
+}
+
 function isPathInsideDir(targetPath: string, dir: string): boolean {
     const resolvedDir = resolve(dir);
     const resolvedTarget = resolve(targetPath);
@@ -272,29 +480,41 @@ Session transcripts: ${sessionDir}
 
 The memory system prompt already defines the memory file format, allowed memory types, and what not to save. Follow that as the source of truth.
 
+Your goal is not to preserve everything. Your goal is to leave behind a smaller, cleaner, more trustworthy memory store.
+
 ## Phase 1 — Orient
 - List the memory directory and inspect MEMORY.md first
 - Skim existing topic files before creating anything new
-- Prefer improving existing files over creating near-duplicates
+- Prefer improving or merging existing files over creating near-duplicates
 - Validate every MEMORY.md link and repair or remove broken pointers
 
 ## Phase 2 — Gather recent signal
 - Review recent session transcripts only as needed
 - Search transcripts narrowly for concrete terms instead of reading them exhaustively
-- Look for drift, contradictions, stale wording, duplicate memories, and stale index entries
+- Look for drift, contradictions, stale wording, duplicate memories, stale index entries, and low-value clutter
 
 ## Phase 3 — Consolidate
-- Merge duplicate or overlapping memories
-- Update existing memories with clearer and more durable wording
+- Merge duplicate or overlapping memories into the best single file
+- If two files say almost the same thing, keep one and delete the weaker duplicate
+- Update existing memories with clearer, more durable wording
 - Convert relative dates like “yesterday” into absolute dates when they matter
-- Remove contradicted, stale, or superseded facts
-- Keep only durable information that will help in future conversations
+- Remove contradicted, stale, superseded, or low-signal facts
+- Prefer fewer high-signal memories over many tiny repetitive ones
 
-## Phase 4 — Prune and index
+## Phase 4 — Prune aggressively
+Delete memories that are not worth future context budget, including:
+- repeated phrasing of the same preference or project fact
+- one-off complaints or ephemeral session notes with no lasting instruction
+- obvious facts already captured elsewhere in the memory store
+- stale files that were superseded by a newer, clearer memory
+- empty, placeholder, or low-information files
+
+## Phase 5 — Rebuild the index
 - Keep MEMORY.md as a concise index, not a content dump
 - Each MEMORY.md entry should stay to one short line
 - Remove pointers to stale or deleted memories
 - Resolve contradictions between files instead of leaving both versions in place
+- The final memory store should feel curated, not append-only
 
 ## Tooling constraints
 - When using write or edit, always target absolute paths inside ${memoryDir}
@@ -306,7 +526,7 @@ The memory system prompt already defines the memory file format, allowed memory 
 - Use bash only for read-only inspection
 - If the memory store is already in good shape, make no changes and say so
 
-Return a short summary of what you consolidated, updated, pruned, or left unchanged.`;
+Return a short summary of what you consolidated, updated, pruned, deleted, or left unchanged.`;
 }
 
 function writeAudit(
@@ -349,6 +569,8 @@ function startDetachedDreamProcess(
             message: 'Dream skipped because the CLI path could not be resolved.',
         };
     }
+
+    runDeterministicMemoryCompaction(memoryDir);
 
     const prompt = buildConsolidationPrompt(memoryDir, sessionDir);
     const tmpPromptPath = join(tmpdir(), `lsd-memory-dream-${randomUUID()}.md`);
@@ -463,6 +685,164 @@ function pruneBrokenMemoryRefs(dir) {
 	}
 }
 
+function normalizeMemoryBody(raw) {
+	const content = String(raw || '').replace(/\r\n/g, '\n');
+	const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---\n?/);
+	let type = '';
+	let body = content;
+	if (frontmatterMatch) {
+		const frontmatter = String(frontmatterMatch[1] || '');
+		const typeMatch = frontmatter.match(/^type:\s*(.+)$/m);
+		type = String(typeMatch?.[1] || '').trim().toLowerCase();
+		body = content.slice(frontmatterMatch[0].length);
+	}
+	return {
+		type,
+		body: body
+			.trim()
+			.toLowerCase()
+			.replace(/\*\*(why|how to apply):\*\*/g, '$1:')
+			.replace(/\s+/g, ' '),
+	};
+}
+
+function listMemoryFiles(dir, entrypointRaw) {
+	const indexedHrefs = new Set();
+	if (entrypointRaw) {
+		const linkRe = /\[[^\]]+\]\(([^)]+)\)/g;
+		for (const match of String(entrypointRaw).matchAll(linkRe)) {
+			const href = String(match[1] || '').trim();
+			if (!href || href.startsWith('#') || /^[a-z][a-z0-9+.-]*:/i.test(href)) continue;
+			indexedHrefs.add(href);
+		}
+	}
+
+	const records = [];
+	try {
+		const entries = readdirSync(dir, { recursive: true });
+		for (const entry of entries) {
+			const relativePath = String(entry);
+			if (!relativePath.endsWith('.md') || relativePath === 'MEMORY.md') continue;
+			if (relativePath.split(/[\\/]/).some((part) => part.startsWith('.'))) continue;
+			const absPath = join(dir, relativePath);
+			try {
+				const stat = statSync(absPath);
+				if (!stat.isFile()) continue;
+				const content = readFileSync(absPath, 'utf-8');
+				const normalized = normalizeMemoryBody(content);
+				records.push({
+					href: relativePath,
+					absPath,
+					type: normalized.type,
+					content,
+					mtimeMs: stat.mtimeMs,
+					indexed: indexedHrefs.has(relativePath),
+				});
+			} catch {}
+		}
+	} catch {
+		return [];
+	}
+	return records;
+}
+
+function pruneDuplicateMemoryIndexEntries(dir) {
+	const entrypoint = join(dir, 'MEMORY.md');
+	try {
+		const raw = readFileSync(entrypoint, 'utf-8');
+		const seen = new Set();
+		const pruned = [];
+		const kept = raw.split(/\r?\n/).filter((line) => {
+			const trimmed = line.trim();
+			if (!trimmed) return true;
+			const match = trimmed.match(/\[[^\]]+\]\(([^)]+)\)/);
+			const href = String(match?.[1] || '').trim();
+			const key = href ? 'href:' + href : 'line:' + trimmed;
+			if (seen.has(key)) {
+				pruned.push(trimmed);
+				return false;
+			}
+			seen.add(key);
+			return true;
+		});
+		if (pruned.length > 0) {
+			writeFileSync(entrypoint, kept.join('\n').replace(/\n*$/, '\n'), 'utf-8');
+		}
+		return pruned;
+	} catch {
+		return [];
+	}
+}
+
+function pruneUselessAndDuplicateMemoryFiles(dir) {
+	const entrypoint = join(dir, 'MEMORY.md');
+	try {
+		const rawEntrypoint = existsSync(entrypoint) ? readFileSync(entrypoint, 'utf-8') : '';
+		const files = listMemoryFiles(dir, rawEntrypoint);
+		const emptyFilesRemoved = [];
+		const duplicateFilesRemoved = [];
+		let nextEntrypoint = rawEntrypoint;
+		const removablePlaceholders = new Set(['', 'todo', 'tbd', 'none', 'n/a', 'no memories extracted yet.']);
+
+		const nonEmptyFiles = files.filter((file) => {
+			const normalized = normalizeMemoryBody(file.content);
+			if (removablePlaceholders.has(normalized.body)) {
+				emptyFilesRemoved.push(file.href);
+				try { unlinkSync(file.absPath); } catch {}
+				return false;
+			}
+			return true;
+		});
+
+		const groups = new Map();
+		for (const file of nonEmptyFiles) {
+			const normalized = normalizeMemoryBody(file.content);
+			const key = normalized.type + '\n' + normalized.body;
+			const arr = groups.get(key) || [];
+			arr.push(file);
+			groups.set(key, arr);
+		}
+
+		for (const group of groups.values()) {
+			if (group.length < 2) continue;
+			group.sort((a, b) => {
+				if (a.indexed !== b.indexed) return a.indexed ? -1 : 1;
+				if (a.mtimeMs !== b.mtimeMs) return a.mtimeMs - b.mtimeMs;
+				return String(a.href).localeCompare(String(b.href));
+			});
+			const keeper = group[0];
+			for (const duplicate of group.slice(1)) {
+				const escapedHref = String(duplicate.href).replace(/[.*+?^$()|[\]{}\\]/g, '\\$&');
+				const hrefRe = new RegExp('(\\[[^\\]]+\\]\\()' + escapedHref + '(\\))', 'g');
+				nextEntrypoint = nextEntrypoint.replace(hrefRe, '$1' + keeper.href + '$2');
+				duplicateFilesRemoved.push(duplicate.href);
+				try { unlinkSync(duplicate.absPath); } catch {}
+			}
+		}
+
+		if (emptyFilesRemoved.length > 0 || duplicateFilesRemoved.length > 0) {
+			writeFileSync(entrypoint, nextEntrypoint.replace(/\n*$/, '\n'), 'utf-8');
+		}
+
+		return { emptyFilesRemoved, duplicateFilesRemoved };
+	} catch {
+		return { emptyFilesRemoved: [], duplicateFilesRemoved: [] };
+	}
+}
+
+function runDeterministicMemoryCompaction(dir) {
+	const brokenRefsPruned = listBrokenMemoryRefs(dir).length > 0 ? pruneBrokenMemoryRefs(dir) : [];
+	const duplicateIndexEntriesPruned = pruneDuplicateMemoryIndexEntries(dir);
+	const { emptyFilesRemoved, duplicateFilesRemoved } = pruneUselessAndDuplicateMemoryFiles(dir);
+	const finalDuplicateIndexEntriesPruned = duplicateIndexEntriesPruned.concat(pruneDuplicateMemoryIndexEntries(dir));
+	return {
+		brokenRefsPruned,
+		duplicateIndexEntriesPruned: Array.from(new Set(finalDuplicateIndexEntriesPruned)),
+		emptyFilesRemoved,
+		duplicateFilesRemoved,
+	};
+}
+
 function stripAnsi(text) {
 	return String(text).replace(ANSI_PATTERN, '');
 }
@@ -562,13 +942,17 @@ function finalize(status, code, signal, completionReason) {
 	if (completionTimer) clearTimeout(completionTimer);
 	if (hardTimeout) clearTimeout(hardTimeout);
 	flushLogText('', true);
-	const beforeBrokenRefs = listBrokenMemoryRefs(memoryDir);
-	const prunedRefs = beforeBrokenRefs.length > 0 ? pruneBrokenMemoryRefs(memoryDir) : [];
+	const compaction = runDeterministicMemoryCompaction(memoryDir);
 	const afterMtime = newestMemoryMtime(memoryDir);
 	const brokenRefs = listBrokenMemoryRefs(memoryDir);
+	const changedByCompaction =
+		compaction.brokenRefsPruned.length > 0 ||
+		compaction.duplicateIndexEntriesPruned.length > 0 ||
+		compaction.emptyFilesRemoved.length > 0 ||
+		compaction.duplicateFilesRemoved.length > 0;
 	const result = brokenRefs.length > 0
 		? 'broken_memory_index'
-		: afterMtime > beforeMtime
+		: afterMtime > beforeMtime || changedByCompaction
 			? 'updated_memory'
 			: 'no_memory_changes';
 	if (status !== 'finished') rollbackLock();
@@ -576,8 +960,14 @@ function finalize(status, code, signal, completionReason) {
 		'exitCode: ' + String(code),
 		'signal: ' + String(signal),
 		'result: ' + result,
-		'brokenRefsPrunedCount: ' + String(prunedRefs.length),
-		...(prunedRefs.length > 0 ? ['brokenRefsPruned: ' + prunedRefs.join(', ')] : []),
+		'brokenRefsPrunedCount: ' + String(compaction.brokenRefsPruned.length),
+		...(compaction.brokenRefsPruned.length > 0 ? ['brokenRefsPruned: ' + compaction.brokenRefsPruned.join(', ')] : []),
+		'duplicateIndexEntriesPrunedCount: ' + String(compaction.duplicateIndexEntriesPruned.length),
+		...(compaction.duplicateIndexEntriesPruned.length > 0 ? ['duplicateIndexEntriesPruned: ' + compaction.duplicateIndexEntriesPruned.join(' | ')] : []),
+		'emptyFilesRemovedCount: ' + String(compaction.emptyFilesRemoved.length),
+		...(compaction.emptyFilesRemoved.length > 0 ? ['emptyFilesRemoved: ' + compaction.emptyFilesRemoved.join(', ')] : []),
+		'duplicateFilesRemovedCount: ' + String(compaction.duplicateFilesRemoved.length),
+		...(compaction.duplicateFilesRemoved.length > 0 ? ['duplicateFilesRemoved: ' + compaction.duplicateFilesRemoved.join(', ')] : []),
 		'brokenRefsCount: ' + String(brokenRefs.length),
 		...(brokenRefs.length > 0 ? ['brokenRefs: ' + brokenRefs.join(', ')] : []),
 		'completionReason: ' + completionReason,
@@ -878,4 +1268,7 @@ export const __testing = {
     parseAutoDreamSettings,
     listSessionsTouchedSince,
     readJsonFile,
+    pruneDuplicateMemoryIndexEntries,
+    pruneUselessAndDuplicateMemoryFiles,
+    runDeterministicMemoryCompaction,
 };

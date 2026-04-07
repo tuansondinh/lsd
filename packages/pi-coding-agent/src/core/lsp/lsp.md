@@ -1,4 +1,4 @@
-Primary tool for code navigation in typed codebases. Use instead of grep/find for symbol definitions, references, implementations, type info, callers, and renames.
+Preferred tool for code navigation in typed codebases. Use this instead of grep/find when looking up symbol definitions, references, implementations, type info, callers, or rename targets.
 
 Interacts with Language Server Protocol servers for code intelligence.
 

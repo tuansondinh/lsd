@@ -41,12 +41,12 @@ export async function showConfirm(
 ): Promise<boolean> {
 	if (!ctx.hasUI) return false;
 
-	return ctx.ui.custom<boolean>((tui: TUI, theme: Theme, _kb, done) => {
+	const yesLabel = opts.confirmLabel ?? "Yes";
+	const noLabel = opts.declineLabel ?? "No";
+
+	const result = await ctx.ui.custom<boolean>((tui: TUI, theme: Theme, _kb, done) => {
 		let cursor = 0; // 0 = yes (confirm), 1 = no (decline)
 		let cachedLines: string[] | undefined;
-
-		const yesLabel = opts.confirmLabel ?? "Yes";
-		const noLabel = opts.declineLabel ?? "No";
 
 		function refresh() {
 			cachedLines = undefined;
@@ -123,4 +123,11 @@ export async function showConfirm(
 			handleInput,
 		};
 	});
+
+	if (result !== undefined && result !== null) {
+		return result;
+	}
+
+	const selected = await ctx.ui.select(`${opts.title}: ${opts.message}`, [yesLabel, noLabel]);
+	return selected === yesLabel;
 }

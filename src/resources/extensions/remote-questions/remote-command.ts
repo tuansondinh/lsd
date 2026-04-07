@@ -330,7 +330,7 @@ function removeRemoteQuestionsConfig(): void {
 
 async function promptMaskedInput(ctx: ExtensionCommandContext, label: string, hint: string): Promise<string | null> {
   if (!ctx.hasUI) return null;
-  return ctx.ui.custom<string | null>((tui: any, theme: any, _kb: any, done: (r: string | null) => void) => {
+  const result = await ctx.ui.custom<string | null>((tui: any, theme: any, _kb: any, done: (r: string | null) => void) => {
     let cachedLines: string[] | undefined;
     const editorTheme: EditorTheme = {
       borderColor: (s: string) => theme.fg("accent", s),
@@ -367,11 +367,16 @@ async function promptMaskedInput(ctx: ExtensionCommandContext, label: string, hi
     };
     return { render, handleInput, invalidate: () => { cachedLines = undefined; } };
   });
+
+  if (result !== undefined && result !== null) return result;
+
+  const input = await ctx.ui.input(label, hint);
+  return input?.trim() || null;
 }
 
 async function promptInput(ctx: ExtensionCommandContext, label: string, hint: string): Promise<string | null> {
   if (!ctx.hasUI) return null;
-  return ctx.ui.custom<string | null>((tui: any, theme: any, _kb: any, done: (r: string | null) => void) => {
+  const result = await ctx.ui.custom<string | null>((tui: any, theme: any, _kb: any, done: (r: string | null) => void) => {
     let cachedLines: string[] | undefined;
     const editorTheme: EditorTheme = {
       borderColor: (s: string) => theme.fg("accent", s),
@@ -408,4 +413,9 @@ async function promptInput(ctx: ExtensionCommandContext, label: string, hint: st
     };
     return { render, handleInput, invalidate: () => { cachedLines = undefined; } };
   });
+
+  if (result !== undefined && result !== null) return result;
+
+  const input = await ctx.ui.input(label, hint);
+  return input?.trim() || null;
 }

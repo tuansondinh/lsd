@@ -111,6 +111,17 @@ If no response is received within `timeout_minutes`, the prompt times out and GS
 | `/gsd remote status` | Show current configuration and last prompt status |
 | `/gsd remote disconnect` | Remove remote questions configuration |
 
+## Telegram Live Relay Capability Matrix
+
+| Capability | Status | Notes |
+|---|---|---|
+| Message input + assistant streaming | ✅ Supported | Relay can receive user messages and stream assistant/tool updates back to Telegram. |
+| Slash command completions (`/gsd`, `/remote`, `/commands`) | ✅ Supported | Command suggestions are available from Telegram chat input. |
+| Standard prompts (`select`, `input`, `editor`) | ✅ Supported | Implemented via sequential prompt flow over the relay channel. |
+| `ask_user_questions` tool | ✅ Supported | Uses the sequential fallback path when Telegram relay is active. |
+| Command-specific `ctx.ui.custom()` with fallback | ⚠️ Partial | Works when command provides a non-custom fallback (`select`/`input`/`notify`). |
+| Arbitrary rich custom TUI widgets | ❌ Unsupported | Telegram cannot render full terminal widgets (overlays, live editor panes, custom components). |
+
 ## Discord vs Slack Feature Comparison
 
 | Feature | Discord | Slack |

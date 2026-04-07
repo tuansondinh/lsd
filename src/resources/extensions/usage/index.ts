@@ -1,4 +1,5 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@gsd/pi-coding-agent";
+import type { AutocompleteItem } from "@gsd/pi-tui";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { homedir } from "node:os";
@@ -14,6 +15,52 @@ function getSessionsRoot(): string {
 function getCurrentProjectSessionsDir(cwd: string): string {
 	const safePath = `--${cwd.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`;
 	return join(getSessionsRoot(), safePath);
+}
+
+const USAGE_ARGUMENTS: AutocompleteItem[] = [
+	// Time ranges
+	{ value: "today", label: "today", description: "Today's usage" },
+	{ value: "month", label: "month", description: "This month's usage" },
+	{ value: "this-month", label: "this-month", description: "This month's usage (alias)" },
+	{ value: "last-month", label: "last-month", description: "Last month's usage" },
+	{ value: "7d", label: "7d", description: "Last 7 days" },
+	{ value: "30d", label: "30d", description: "Last 30 days" },
+	{ value: "90d", label: "90d", description: "Last 90 days" },
+	// Examples for specific months (recent past and current)
+	...generateRecentMonths(),
+	// Flags
+	{ value: "--project-current", label: "--project-current", description: "Show only current project usage" },
+	{ value: "--all-projects", label: "--all-projects", description: "Show all projects usage (default)" },
+	{ value: "--by model", label: "--by model", description: "Group by model (default)" },
+	{ value: "--by project", label: "--by project", description: "Group by project" },
+	{ value: "--by project-model", label: "--by project-model", description: "Group by project and model" },
+	{ value: "--json", label: "--json", description: "Output as JSON" },
+];
+
+function generateRecentMonths(): AutocompleteItem[] {
+	const now = new Date();
+	const items: AutocompleteItem[] = [];
+
+	// Generate last 6 months including current
+	for (let i = 0; i < 6; i++) {
+		const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+		const year = date.getFullYear();
+		const month = (date.getMonth() + 1).toString().padStart(2, '0');
+		const value = `${year}-${month}`;
+		items.push({
+			value,
+			label: value,
+			description: `${date.toLocaleString('default', { month: 'long' })} ${year}`,
+		});
+	}
+	return items;
+}
+
+function filterArgumentCompletions(prefix: string): AutocompleteItem[] | null {
+	const normalized = prefix.toLowerCase().replace(/\s+/g, " ").trimStart();
+	const query = normalized.trimEnd();
+	const filtered = USAGE_ARGUMENTS.filter((item) => item.value.startsWith(query));
+	return filtered.length > 0 ? filtered : null;
 }
 
 type UsageRow = {
@@ -84,6 +131,14 @@ function formatCost(value: number): string {
 	return `$${value.toFixed(4)}`;
 }
 
+function startOfLocalMonth(date: Date): number {
+	return new Date(date.getFullYear(), date.getMonth(), 1).getTime();
+}
+
+function endOfLocalMonth(date: Date): number {
+	return new Date(date.getFullYear(), date.getMonth() + 1, 1).getTime();
+}
+
 function parseRangeToken(token: string | undefined): { label: string; startMs: number; endMs: number } {
 	const trimmed = token?.trim();
 	if (!trimmed || trimmed === "today") {
@@ -92,6 +147,25 @@ function parseRangeToken(token: string | undefined): { label: string; startMs: n
 			label: "today",
 			startMs: startOfLocalDay(now),
 			endMs: endOfLocalDay(now),
+		};
+	}
+
+	if (trimmed === "month" || trimmed === "this-month") {
+		const now = new Date();
+		return {
+			label: "month",
+			startMs: startOfLocalMonth(now),
+			endMs: endOfLocalMonth(now),
+		};
+	}
+
+	if (trimmed === "last-month") {
+		const now = new Date();
+		const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+		return {
+			label: "last-month",
+			startMs: startOfLocalMonth(lastMonth),
+			endMs: endOfLocalMonth(lastMonth),
 		};
 	}
 
@@ -104,6 +178,20 @@ function parseRangeToken(token: string | undefined): { label: string; startMs: n
 			startMs: startOfLocalDay(new Date(now.getFullYear(), now.getMonth(), now.getDate() - (days - 1))),
 			endMs: endOfLocalDay(now),
 		};
+	}
+
+	const monthMatch = trimmed.match(/^(\d{4})-(\d{1,2})$/);
+	if (monthMatch) {
+		const year = Number.parseInt(monthMatch[1] ?? "0", 10);
+		const month = Number.parseInt(monthMatch[2] ?? "1", 10) - 1;
+		const monthStart = new Date(year, month, 1);
+		if (!Number.isNaN(monthStart.getTime())) {
+			return {
+				label: trimmed,
+				startMs: startOfLocalMonth(monthStart),
+				endMs: endOfLocalMonth(monthStart),
+			};
+		}
 	}
 
 	const dateMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -121,7 +209,7 @@ function parseRangeToken(token: string | undefined): { label: string; startMs: n
 		}
 	}
 
-	throw new Error(`Invalid usage range "${trimmed}". Use: today, 7d, or YYYY-MM-DD.`);
+	throw new Error(`Invalid usage range "${trimmed}". Use: today, 7d, month, last-month, YYYY-MM, or YYYY-MM-DD.`);
 }
 
 function parseArgs(rawArgs: string): ParsedArgs {
@@ -409,6 +497,7 @@ function buildUsageReport(ctx: ExtensionCommandContext, args: ParsedArgs): Usage
 export default function usageExtension(pi: ExtensionAPI) {
 	pi.registerCommand("usage", {
 		description: "Show token and cost usage from LSD sessions (today by model by default)",
+		getArgumentCompletions: filterArgumentCompletions,
 		async handler(rawArgs: string, ctx: ExtensionCommandContext) {
 			try {
 				const parsed = parseArgs(rawArgs);
@@ -425,7 +514,7 @@ export default function usageExtension(pi: ExtensionAPI) {
 			} catch (error) {
 				const message = error instanceof Error ? error.message : "Unknown error";
 				ctx.ui.notify(
-					`${message}\nUsage: /usage [today|7d|YYYY-MM-DD] [--project-current|--all-projects] [--by model|project|project-model] [--json]`,
+					`${message}\nUsage: /usage [today|7d|month|last-month|YYYY-MM|YYYY-MM-DD] [--project-current|--all-projects] [--by model|project|project-model] [--json]`,
 					"error",
 				);
 			}
@@ -438,4 +527,5 @@ export const __testing = {
 	parseRangeToken,
 	renderTable,
 	collectUsage,
+	filterArgumentCompletions,
 };

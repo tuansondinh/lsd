@@ -104,8 +104,14 @@ describe('buildAutoExtractHelperScript', () => {
         assert.ok(script.includes(String.raw`const CACHE_TIMER_RE = /^\[phase\]\s+cache-timer(?:\s*:\s*.*)?\s*$/i;`));
         assert.ok(script.includes(String.raw`const SESSION_ENDED_RE = /^\[agent\]\s+Session ended/;`));
         assert.ok(script.includes(String.raw`const HEADLESS_STATUS_RE = /^\[headless\]\s+Status:\s+(\w+)\s*$/i;`));
-        assert.ok(script.includes(String.raw`const parts = pendingLogText.split(/\r?\n/);`));
+        assert.ok(script.includes('const parts = pendingLogText.split('));
         assert.ok(script.includes(`appendFileSync(logPath, kept.join('\\n') + '\\n')`));
+    });
+
+    test('filters slash-commands extension paths in worker mode', () => {
+        const script = buildAutoExtractHelperScript();
+        assert.ok(script.includes('slash-commands'));
+        assert.ok(script.includes('.filter((entry) => !/'));
     });
 
     test('generates syntactically valid helper code', () => {
@@ -209,6 +215,8 @@ describe('buildExtractionPrompt', () => {
         const prompt = buildExtractionPrompt(memoryDir, buildTranscriptSummary(entries));
         assert.ok(prompt.includes('Save ONLY'));
         assert.ok(prompt.includes('raw code snippets'));
+        assert.ok(prompt.includes('This is extraction, not planning'));
+        assert.ok(prompt.includes('Never write under .lsd/plan/'));
         assert.ok(!prompt.includes('Do NOT save: code patterns, architecture'));
     });
 });

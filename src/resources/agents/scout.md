@@ -21,6 +21,7 @@ Strategy:
 2. Read key sections (not entire files) — use lsp to pinpoint exact locations first
 3. Identify types, interfaces, key functions
 4. Note dependencies between files
+5. Optimize for useful handoff quality, not brevity alone — be as detailed as needed for the next agent to work without re-discovering the same context
 
 Output format:
 

@@ -11,6 +11,7 @@ export interface RemoteQuestionsConfig {
   channel_id?: string | number
   timeout_minutes?: number
   poll_interval_seconds?: number
+  telegram_live_relay_auto_connect?: boolean
 }
 
 export interface CmuxPreferences {

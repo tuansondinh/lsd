@@ -2,6 +2,8 @@ import type { ChildProcess } from "node:child_process";
 import {
 	getFileChangeApprovalHandler,
 	getClassifierHandler,
+	requestNetworkApproval,
+	type NetworkApprovalDecision,
 } from "@gsd/pi-coding-agent";
 
 export type SubagentPermissionRequest =
@@ -18,6 +20,12 @@ export type SubagentPermissionRequest =
 			toolName: string;
 			toolCallId: string;
 			args: any;
+	  }
+	| {
+			type: "network_approval_request";
+			id: string;
+			command: string;
+			message: string;
 	  };
 
 export function isSubagentPermissionRequest(event: any): event is SubagentPermissionRequest {
@@ -25,7 +33,8 @@ export function isSubagentPermissionRequest(event: any): event is SubagentPermis
 		event &&
 			typeof event.id === "string" &&
 			((event.type === "approval_request" && typeof event.path === "string" && typeof event.message === "string") ||
-				(event.type === "classifier_request" && typeof event.toolName === "string" && typeof event.toolCallId === "string")),
+				(event.type === "classifier_request" && typeof event.toolName === "string" && typeof event.toolCallId === "string") ||
+				(event.type === "network_approval_request" && typeof event.command === "string" && typeof event.message === "string")),
 	);
 }
 
@@ -64,6 +73,25 @@ export async function handleSubagentPermissionRequest(
 
 		if (proc.stdin && !proc.stdin.destroyed) {
 			proc.stdin.write(JSON.stringify({ type: "approval_response", id: event.id, approved }) + "\n");
+		}
+		return true;
+	}
+
+	if (event.type === "network_approval_request") {
+		// Forward network approval request to the parent session's network approval handler.
+		let decision: NetworkApprovalDecision = "deny";
+
+		try {
+			decision = await requestNetworkApproval({
+				command: event.command,
+				message: event.message,
+			});
+		} catch {
+			decision = "deny";
+		}
+
+		if (proc.stdin && !proc.stdin.destroyed) {
+			proc.stdin.write(JSON.stringify({ type: "network_approval_response", id: event.id, decision }) + "\n");
 		}
 		return true;
 	}

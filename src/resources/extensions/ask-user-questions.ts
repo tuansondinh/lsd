@@ -19,6 +19,7 @@ import {
 	type QuestionOption,
 	type RoundResult,
 } from "./shared/tui.js";
+import { isTelegramLiveRelayConnected } from "./remote-questions/telegram-live-relay.js";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -140,7 +141,8 @@ export default function AskUserQuestions(pi: ExtensionAPI) {
 			}
 
 			// Delegate to shared interview UI
-			const result = await showInterviewRound(params.questions, {}, ctx as any);
+			const preferSequentialPrompts = isTelegramLiveRelayConnected();
+			const result = preferSequentialPrompts ? undefined : await showInterviewRound(params.questions, {}, ctx as any);
 
 			// RPC mode fallback: custom() returns undefined, so showInterviewRound
 			// may return undefined. Fall back to sequential ctx.ui.select() calls.

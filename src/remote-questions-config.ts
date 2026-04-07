@@ -20,16 +20,24 @@ const GLOBAL_PREFERENCES_PATH = join(appRoot, "PREFERENCES.md");
 
 export function saveRemoteQuestionsConfig(channel: "slack" | "discord" | "telegram", channelId: string): void {
   const prefsPath = GLOBAL_PREFERENCES_PATH;
-  const block = [
+  const content = existsSync(prefsPath) ? readFileSync(prefsPath, "utf-8") : "";
+  const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
+  const existingRemoteBlock = fmMatch?.[1].match(/remote_questions:[\s\S]*?(?=\n[a-zA-Z_]|\n---|$)/)?.[0] ?? "";
+  const existingAutoConnect = existingRemoteBlock.match(/\n\s*telegram_live_relay_auto_connect:\s*(true|false)\s*$/m)?.[1];
+
+  const blockLines = [
     "remote_questions:",
     `  channel: ${channel}`,
     `  channel_id: "${channelId}"`,
     "  timeout_minutes: 5",
     "  poll_interval_seconds: 5",
-  ].join("\n");
+  ];
 
-  const content = existsSync(prefsPath) ? readFileSync(prefsPath, "utf-8") : "";
-  const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
+  if (existingAutoConnect) {
+    blockLines.push(`  telegram_live_relay_auto_connect: ${existingAutoConnect}`);
+  }
+
+  const block = blockLines.join("\n");
   let next = content;
 
   if (fmMatch) {

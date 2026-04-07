@@ -116,7 +116,7 @@ async function collectOneSecret(
 ): Promise<string | null> {
 	if (!ctx.hasUI) return null;
 
-	return ctx.ui.custom((tui: any, theme: any, _kb: any, done: (r: string | null) => void) => {
+	const result = await ctx.ui.custom((tui: any, theme: any, _kb: any, done: (r: string | null | undefined) => void) => {
 		let value = "";
 		let cachedLines: string[] | undefined;
 
@@ -213,6 +213,13 @@ async function collectOneSecret(
 			handleInput,
 		};
 	});
+
+	if (result !== undefined) {
+		return result;
+	}
+
+	ctx.ui.notify(`Secure input UI unavailable for ${keyName}; skipping to avoid plaintext secret entry.`, "warning");
+	return null;
 }
 
 /**
@@ -242,12 +249,12 @@ export async function showSecretsSummary(
 
 	const existingSet = new Set(existingKeys);
 
-	await ctx.ui.custom((_tui: any, theme: Theme, _kb: any, done: (r: null) => void) => {
+	const result = await ctx.ui.custom((_tui: any, theme: Theme, _kb: any, done: (r: boolean | undefined) => void) => {
 		let cachedLines: string[] | undefined;
 
 		function handleInput(_data: string) {
-			// Any key dismisses — pass null to satisfy the typed done() callback
-			done(null);
+			// Any key dismisses. Return true to mark the custom UI as handled.
+			done(true);
 		}
 
 		function render(width: number): string[] {
@@ -294,6 +301,19 @@ export async function showSecretsSummary(
 			handleInput,
 		};
 	});
+
+	if (result === true) {
+		return;
+	}
+
+	const lines = ["Secrets Summary"];
+	for (const entry of entries) {
+		if (existingSet.has(entry.key)) lines.push(`✓ ${entry.key} (already set)`);
+		else if (entry.status === "collected") lines.push(`✓ ${entry.key}`);
+		else if (entry.status === "skipped") lines.push(`• ${entry.key} (skipped)`);
+		else lines.push(`○ ${entry.key} (pending)`);
+	}
+	ctx.ui.notify(lines.join("\n"), "info");
 }
 
 // ─── Destination Write Helper ─────────────────────────────────────────────────

@@ -146,6 +146,8 @@ This directory already exists — write files directly.
 Rules:
 - Save ONLY: user preferences/role, feedback/corrections, project context (deadlines, decisions), external references
 - Do NOT save: raw code snippets, low-level implementation details, file paths, git history, one-off debugging steps, ephemeral task details
+- This is extraction, not planning: do NOT create plans, TODO lists, or strategy docs
+- Never write under .lsd/plan/ or .gsd/plan/
 - Check existing memories below — update existing files rather than creating duplicates
 - Use frontmatter: ---\\nname: ...\\ndescription: ...\\ntype: user|feedback|project|reference\\n---
 - After writing topic files, update MEMORY.md with one-line index entries
@@ -341,12 +343,18 @@ const bundledPaths = Array.from(
       .flatMap((value) => String(value).split(delimiter).map((entry) => entry.trim()).filter(Boolean))
       // Explicitly disable cache-timer extension for auto-memory workers.
       // It is noisy in headless logs and provides no value for maintenance runs.
-      .filter((entry) => !/[\\/]cache-timer[\\/]/i.test(entry)),
+      .filter((entry) => !/[\\/]cache-timer[\\/]/i.test(entry))
+      // Also disable slash-commands: memory extraction workers should never
+      // enter /plan workflows or run approval orchestration.
+      .filter((entry) => !/[\\/]slash-commands[\\/]/i.test(entry)),
   ),
 );
 for (const extensionPath of bundledPaths) childArgs.push('--extension', extensionPath);
 if (model) childArgs.push('--model', model);
-childArgs.push('--bare', '--context', tmpPromptPath, '--context-text', instruction);
+// Auto-memory workers should never create normal session files.
+// Otherwise they pollute recents/session history for the project and can make
+// it look like new sessions started on the budget memory model.
+childArgs.push('--no-session', '--bare', '--context', tmpPromptPath, '--context-text', instruction);
 
 const child = spawn(
   process.execPath,
@@ -474,7 +482,7 @@ export function extractMemories(ctx: any, cwd: string): void {
         'utf-8',
     );
 
-    const instruction = 'Extract memories from the transcript above. Write any worth-saving memories to the memory directory, then update MEMORY.md.';
+    const instruction = 'Extract memories from the transcript above. Save only durable memories into the memory directory and update MEMORY.md. Do not create plan artifacts.';
     const helperScript = buildAutoExtractHelperScript();
 
     const proc = spawn(

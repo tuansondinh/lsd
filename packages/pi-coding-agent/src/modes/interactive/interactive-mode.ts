@@ -218,12 +218,62 @@ export class InteractiveMode {
 		"Almost maybe…",
 	];
 	private readonly loadingTips = [
-		"Tip: Run /help for commands and built-in workflows.",
-		"Tip: Run /hotkeys to see keyboard shortcuts.",
-		"Tip: Say ‘plan first’ if you want a design before edits.",
-		"Tip: Mention file paths directly, like src/cli.ts.",
-		"Tip: Say ‘remember this’ to save a workflow preference.",
-		"Tip: Use --print for one-shot prompts in scripts.",
+		"Tip: Run /help to see built-in commands plus loaded skill commands.",
+		"Tip: Use /hotkeys to learn the TUI faster.",
+		"Tip: Run /model to switch models without leaving the session.",
+		"Tip: Use /scoped-models to choose which models Ctrl+P cycles through.",
+		"Tip: Run /thinking to change reasoning depth on the fly.",
+		"Tip: Use /settings to change LSD behavior from the TUI.",
+		"Tip: Run /provider to manage provider configuration.",
+		"Tip: Use /login and /logout for OAuth-backed providers.",
+		"Tip: Run /permission to cycle approval modes like auto and plan.",
+		"Tip: Use /sandbox to inspect or toggle sandbox settings.",
+		"Tip: Run /terminal <cmd> to execute a shell command directly from chat.",
+		"Tip: Use /reload after editing extensions, skills, prompts, or themes.",
+		"Tip: Run /compact when a long session needs a fresh context window.",
+		"Tip: Use /session to view session stats and metadata.",
+		"Tip: Run /name to set a readable session title.",
+		"Tip: Use /new to start a clean session without leaving LSD.",
+		"Tip: Run /resume to pick an older session from the TUI.",
+		"Tip: Use /fork on an earlier message to branch the conversation there.",
+		"Tip: Run /tree to navigate conversation branches.",
+		"Tip: Use /copy to copy the last assistant response.",
+		"Tip: Run /export to save a session as HTML.",
+		"Tip: Use /share to publish a session as a secret gist-backed link.",
+		"Tip: Run /changelog to see what changed in LSD recently.",
+		"Tip: Use /edit-mode to switch between standard and hashline editor modes.",
+		"Tip: Start LSD with --print for one-shot non-interactive prompts.",
+		"Tip: Start LSD with --continue to keep working from the previous session.",
+		"Tip: Start LSD with --resume to open the session picker immediately.",
+		"Tip: Pass @files on the command line to include them in the first prompt.",
+		"Tip: Use --model provider/name to select a model from the CLI.",
+		"Tip: Use --model sonnet:high to set model and thinking level together.",
+		"Tip: Use --models a,b,c to limit which models Ctrl+P cycles through.",
+		"Tip: Use --tools read,bash,edit,write to choose the built-in tool set.",
+		"Tip: Use --no-tools for a chat-only session with no built-in tools.",
+		"Tip: Use --no-session for an ephemeral run that is not saved.",
+		"Tip: Use --extension path/to/ext to load an extension ad hoc.",
+		"Tip: Use --skill path/to/skill to load a skill ad hoc.",
+		"Tip: Use --no-extensions or --no-skills to debug resource loading issues.",
+		"Tip: LSD can discover extensions, skills, prompt templates, and themes automatically.",
+		"Tip: Loaded skills can appear as slash commands like /skill:name.",
+		"Tip: Extensions can register their own CLI flags in LSD.",
+		"Tip: Use Tab in the editor to autocomplete paths and slash commands.",
+		"Tip: Paste an image from the clipboard to attach it to your message.",
+		"Tip: Drag files into the terminal to attach them to the current prompt.",
+		"Tip: Use !! to run bash without adding the command output to context.",
+		"Tip: Mention exact file paths to help LSD target the right code quickly.",
+		"Tip: Say 'plan first' if you want design before edits.",
+		"Tip: Say 'remember this' to store a lasting workflow preference.",
+		"Tip: Say 'forget that' to remove a saved memory.",
+		"Tip: LSD supports custom themes; use /reload after changing theme files.",
+		"Tip: If startup feels quiet, launch with --verbose to force startup guidance.",
+		"Tip: Use --offline to skip startup network operations.",
+		"Tip: Run with --list-models to inspect available models from your config.",
+		"Tip: Use --discover with --list-models to include discovered provider models.",
+		"Tip: Use --discover-models to query provider APIs for live model lists.",
+		"Tip: Use install/remove/update/list subcommands to manage installed extensions.",
+		"Tip: Run 'lsd config' to open the package-resource configuration TUI.",
 	];
 
 	private lastSigintTime = 0;
@@ -1462,7 +1512,7 @@ export class InteractiveMode {
 	 * Called from the main loop and input-controller paths.
 	 */
 	recordLastSentPrompt(text: string): void {
-		// Ignore slash commands and bash commands — they're not "topic" prompts
+		// Ignore slash commands and bash commands - they're not "topic" prompts
 		const trimmed = text.trim();
 		if (trimmed.startsWith("/") || trimmed.startsWith("!")) return;
 		this.lastSentPromptText = trimmed;
@@ -1653,6 +1703,30 @@ export class InteractiveMode {
 		return this.createExtensionUIContext();
 	}
 
+	private emitExtensionUIRequest(event: {
+		id: string;
+		method: "select" | "confirm" | "input" | "editor";
+		title: string;
+		options?: string[];
+		message?: string;
+		placeholder?: string;
+		prefill?: string;
+		timeout?: number;
+		allowMultiple?: boolean;
+		respond: (response: { value: string } | { values: string[] } | { confirmed: boolean } | { cancelled: true }) => boolean;
+	}): void {
+		void this.session.extensionRunner?.emit({ type: "extension_ui_request", ...event });
+	}
+
+	private emitExtensionUIResponse(event: {
+		id: string;
+		method: "select" | "confirm" | "input" | "editor";
+		response: { value: string } | { values: string[] } | { confirmed: boolean } | { cancelled: true };
+		source: "local" | "extension" | "timeout" | "abort";
+	}): void {
+		void this.session.extensionRunner?.emit({ type: "extension_ui_response", ...event });
+	}
+
 	/**
 	 * Show a selector for extensions.
 	 */
@@ -1660,7 +1734,7 @@ export class InteractiveMode {
 		title: string,
 		options: string[],
 		opts?: ExtensionUIDialogOptions,
-	): Promise<string | undefined> {
+	): Promise<string | string[] | undefined> {
 		// If a previous selector is still active, dispose it before creating a
 		// new one.  This avoids leaking the previous promise and DOM state when
 		// showExtensionSelector is called rapidly.
@@ -1674,32 +1748,68 @@ export class InteractiveMode {
 				return;
 			}
 
-			const onAbort = () => {
+			const requestId = crypto.randomUUID();
+			let settled = false;
+			const settle = (
+				value: string | string[] | undefined,
+				response: { value: string } | { values: string[] } | { cancelled: true },
+				source: "local" | "extension" | "timeout" | "abort",
+			) => {
+				if (settled) return false;
+				settled = true;
+				opts?.signal?.removeEventListener("abort", onAbort);
 				this.hideExtensionSelector();
-				resolve(undefined);
+				this.emitExtensionUIResponse({ id: requestId, method: "select", response, source });
+				resolve(value);
+				return true;
+			};
+
+			const onAbort = () => {
+				settle(undefined, { cancelled: true }, "abort");
 			};
 			opts?.signal?.addEventListener("abort", onAbort, { once: true });
 
 			this.extensionSelector = new ExtensionSelectorComponent(
 				title,
 				options,
-				(option) => {
-					opts?.signal?.removeEventListener("abort", onAbort);
-					this.hideExtensionSelector();
-					resolve(option);
+				(selection) => {
+					if (Array.isArray(selection)) {
+						settle(selection, { values: selection }, "local");
+						return;
+					}
+					settle(selection, { value: selection }, "local");
 				},
 				() => {
-					opts?.signal?.removeEventListener("abort", onAbort);
-					this.hideExtensionSelector();
-					resolve(undefined);
+					settle(undefined, { cancelled: true }, "local");
 				},
-				{ tui: this.ui, timeout: opts?.timeout },
+				{ tui: this.ui, timeout: opts?.timeout, allowMultiple: opts?.allowMultiple },
 			);
 
 			this.editorContainer.clear();
 			this.editorContainer.addChild(this.extensionSelector);
 			this.ui.setFocus(this.extensionSelector);
 			this.ui.requestRender();
+
+			this.emitExtensionUIRequest({
+				id: requestId,
+				method: "select",
+				title,
+				options,
+				timeout: opts?.timeout,
+				allowMultiple: opts?.allowMultiple,
+				respond: (response) => {
+					if ("cancelled" in response && response.cancelled) {
+						return settle(undefined, { cancelled: true }, "extension");
+					}
+					if ("values" in response) {
+						return settle(response.values, { values: response.values }, "extension");
+					}
+					if ("value" in response) {
+						return settle(response.value, { value: response.value }, "extension");
+					}
+					return false;
+				},
+			});
 		});
 	}
 
@@ -1828,9 +1938,24 @@ export class InteractiveMode {
 				return;
 			}
 
-			const onAbort = () => {
+			const requestId = crypto.randomUUID();
+			let settled = false;
+			const settle = (
+				value: string | undefined,
+				response: { value: string } | { cancelled: true },
+				source: "local" | "extension" | "timeout" | "abort",
+			) => {
+				if (settled) return false;
+				settled = true;
+				opts?.signal?.removeEventListener("abort", onAbort);
 				this.hideExtensionInput();
-				resolve(undefined);
+				this.emitExtensionUIResponse({ id: requestId, method: "input", response, source });
+				resolve(value);
+				return true;
+			};
+
+			const onAbort = () => {
+				settle(undefined, { cancelled: true }, "abort");
 			};
 			opts?.signal?.addEventListener("abort", onAbort, { once: true });
 
@@ -1838,14 +1963,10 @@ export class InteractiveMode {
 				title,
 				placeholder,
 				(value) => {
-					opts?.signal?.removeEventListener("abort", onAbort);
-					this.hideExtensionInput();
-					resolve(value);
+					settle(value, { value }, "local");
 				},
 				() => {
-					opts?.signal?.removeEventListener("abort", onAbort);
-					this.hideExtensionInput();
-					resolve(undefined);
+					settle(undefined, { cancelled: true }, "local");
 				},
 				{ tui: this.ui, timeout: opts?.timeout },
 			);
@@ -1854,6 +1975,23 @@ export class InteractiveMode {
 			this.editorContainer.addChild(this.extensionInput);
 			this.ui.setFocus(this.extensionInput);
 			this.ui.requestRender();
+
+			this.emitExtensionUIRequest({
+				id: requestId,
+				method: "input",
+				title,
+				placeholder,
+				timeout: opts?.timeout,
+				respond: (response) => {
+					if ("cancelled" in response && response.cancelled) {
+						return settle(undefined, { cancelled: true }, "extension");
+					}
+					if ("value" in response) {
+						return settle(response.value, { value: response.value }, "extension");
+					}
+					return false;
+				},
+			});
 		});
 	}
 
@@ -1874,18 +2012,27 @@ export class InteractiveMode {
 	 */
 	private showExtensionEditor(title: string, prefill?: string): Promise<string | undefined> {
 		return new Promise((resolve) => {
+			const requestId = crypto.randomUUID();
+			let settled = false;
+			const settle = (value: string | undefined, response: { value: string } | { cancelled: true }, source: "local" | "extension") => {
+				if (settled) return false;
+				settled = true;
+				this.hideExtensionEditor();
+				this.emitExtensionUIResponse({ id: requestId, method: "editor", response, source });
+				resolve(value);
+				return true;
+			};
+
 			this.extensionEditor = new ExtensionEditorComponent(
 				this.ui,
 				this.keybindings,
 				title,
 				prefill,
 				(value) => {
-					this.hideExtensionEditor();
-					resolve(value);
+					settle(value, { value }, "local");
 				},
 				() => {
-					this.hideExtensionEditor();
-					resolve(undefined);
+					settle(undefined, { cancelled: true }, "local");
 				},
 			);
 
@@ -1893,6 +2040,22 @@ export class InteractiveMode {
 			this.editorContainer.addChild(this.extensionEditor);
 			this.ui.setFocus(this.extensionEditor);
 			this.ui.requestRender();
+
+			this.emitExtensionUIRequest({
+				id: requestId,
+				method: "editor",
+				title,
+				prefill,
+				respond: (response) => {
+					if ("cancelled" in response && response.cancelled) {
+						return settle(undefined, { cancelled: true }, "extension");
+					}
+					if ("value" in response) {
+						return settle(response.value, { value: response.value }, "extension");
+					}
+					return false;
+				},
+			});
 		});
 	}
 
@@ -2265,7 +2428,14 @@ export class InteractiveMode {
 			? path.basename(planState.latestPlanPath).replace(/\.md$/i, "")
 			: "draft";
 		const badgeText = ` plan ${planName} · /plan to show plan `;
-		return theme.fg("accent", theme.bold(badgeText));
+
+		// Deterministic "random" color per plan so it feels varied without flickering.
+		const palette = [18, 19, 20, 24, 25, 26, 27, 54, 55, 56, 57, 60, 88, 89, 90, 124, 125, 126, 160, 161, 162];
+		const seed = planState.latestPlanPath ?? planName;
+		const digest = crypto.createHash("sha256").update(seed).digest();
+		const bg256 = palette[digest[0] % palette.length] ?? 25;
+
+		return `\x1b[1m\x1b[97m\x1b[48;5;${bg256}m${badgeText}\x1b[49m\x1b[39m\x1b[22m`;
 	}
 
 	/** Extract text content from a user message */
@@ -2612,7 +2782,7 @@ export class InteractiveMode {
 								isError: !!isError,
 							});
 						} else {
-							// No result yet (aborted stream?) — show as pending
+							// No result yet (aborted stream?) - show as pending
 							this.pendingTools.set(content.id, component);
 						}
 					}
@@ -2887,12 +3057,12 @@ export class InteractiveMode {
 		const activeHint = this.toolOutputExpanded ? collapseHint : expandHint;
 
 		if (this.loadingAnimation) {
-			// Agent is running — always show expand/collapse hint when there are tool outputs
+			// Agent is running - always show expand/collapse hint when there are tool outputs
 			this.defaultEditor.bottomHint = hasToolOutputs
 				? `${baseHint}  ${activeHint}`
 				: baseHint;
 		} else if (hasToolOutputs) {
-			// Idle — show expand/collapse hint so user knows ctrl+o works
+			// Idle - show expand/collapse hint so user knows ctrl+o works
 			this.defaultEditor.bottomHint = activeHint;
 		}
 		// If no tool outputs and idle, leave bottomHint as-is (cleared by agent_end)
@@ -3218,14 +3388,25 @@ export class InteractiveMode {
 
 	private showSettingsSelector(): void {
 		this.showSelector((done) => {
+			const savedDefaultProvider = this.settingsManager.getDefaultProvider();
+			const savedDefaultModel = this.settingsManager.getDefaultModel();
+			const currentModelRef = this.session.model
+				? `${this.session.model.provider}/${this.session.model.id}`
+				: "not set";
+			const defaultModelRef = savedDefaultProvider && savedDefaultModel
+				? `${savedDefaultProvider}/${savedDefaultModel}`
+				: currentModelRef;
+
 			const selector = new SettingsSelectorComponent(
 				{
 					autoCompact: this.session.autoCompactionEnabled,
 					autoCompactThresholdPercent: this.settingsManager.getCompactionThresholdPercent(),
+					defaultModel: defaultModelRef,
 					classifierModel: this.settingsManager.getClassifierModel() ?? "default",
 					budgetSubagentModel: this.settingsManager.getBudgetSubagentModel() ?? "default",
 					planModeReasoningModel: this.settingsManager.getPlanModeReasoningModel() ?? "default",
 					planModeReviewModel: this.settingsManager.getPlanModeReviewModel() ?? "default",
+					planModeCodingModel: this.settingsManager.getPlanModeCodingModel() ?? "default",
 					showImages: this.settingsManager.getShowImages(),
 					autoResizeImages: this.settingsManager.getImageAutoResize(),
 					blockImages: this.settingsManager.getBlockImages(),
@@ -3258,9 +3439,20 @@ export class InteractiveMode {
 					editorScheme: this.settingsManager.getEditorScheme(),
 					autoDream: this.settingsManager.getAutoDream(),
 					autoMemory: this.settingsManager.getAutoMemory(),
+					telegramLiveRelayAutoConnect: this.settingsManager.getTelegramLiveRelayAutoConnect(),
 					sandboxEnabled: this.settingsManager.getSandboxSettings().enabled ?? true,
 					sandboxNetworkMode: this.settingsManager.getSandboxSettings().networkMode
 						?? (this.settingsManager.getSandboxSettings().networkEnabled === true ? "allow" : this.settingsManager.getSandboxSettings().networkEnabled === false ? "deny" : "ask"),
+					defaultModelSubmenu: (_currentValue, submenuDone) =>
+						new ModelSelectorComponent(
+							this.ui,
+							undefined,
+							this.settingsManager,
+							this.session.modelRegistry,
+							[],
+							(model) => submenuDone(`${model.provider}/${model.id}`),
+							() => submenuDone(),
+						),
 					classifierModelSubmenu: (_currentValue, submenuDone) =>
 						new ModelSelectorComponent(
 							this.ui,
@@ -3301,6 +3493,16 @@ export class InteractiveMode {
 							(model) => submenuDone(`${model.provider}/${model.id}`),
 							() => submenuDone(),
 						),
+					planModeCodingModelSubmenu: (_currentValue, submenuDone) =>
+						new ModelSelectorComponent(
+							this.ui,
+							undefined,
+							this.settingsManager,
+							this.session.modelRegistry,
+							[],
+							(model) => submenuDone(`${model.provider}/${model.id}`),
+							() => submenuDone(),
+						),
 				},
 				{
 					onAutoCompactChange: (enabled) => {
@@ -3310,6 +3512,17 @@ export class InteractiveMode {
 					onAutoCompactThresholdPercentChange: (percent) => {
 						this.settingsManager.setCompactionThresholdPercent(percent);
 						this.showStatus(`Auto-compact threshold: ${percent}%`);
+					},
+					onDefaultModelChange: (modelRef) => {
+						const slashIdx = modelRef.indexOf("/");
+						if (slashIdx <= 0 || slashIdx === modelRef.length - 1) {
+							this.showError(`Invalid startup model: ${modelRef}`);
+							return;
+						}
+						const provider = modelRef.slice(0, slashIdx);
+						const modelId = modelRef.slice(slashIdx + 1);
+						this.settingsManager.setDefaultModelAndProvider(provider, modelId);
+						this.showStatus(`Default model: ${modelRef}`);
 					},
 					onClassifierModelChange: (modelRef) => {
 						this.settingsManager.setClassifierModel(modelRef);
@@ -3331,6 +3544,12 @@ export class InteractiveMode {
 						this.settingsManager.setPlanModeReviewModel(modelRef === "default" ? undefined : modelRef);
 						this.showStatus(
 							`Plan review model: ${modelRef === "default" ? "use current/default model" : modelRef}`,
+						);
+					},
+					onPlanModeCodingModelChange: (modelRef) => {
+						this.settingsManager.setPlanModeCodingModel(modelRef === "default" ? undefined : modelRef);
+						this.showStatus(
+							`Plan coding model: ${modelRef === "default" ? "use current/default model" : modelRef}`,
 						);
 					},
 					onShowImagesChange: (enabled) => {
@@ -3376,6 +3595,10 @@ export class InteractiveMode {
 					onAutoMemoryChange: (enabled) => {
 						this.settingsManager.setAutoMemory(enabled);
 						this.showStatus(`Auto memory: ${enabled ? "enabled" : "disabled"}`);
+					},
+					onTelegramLiveRelayAutoConnectChange: (enabled) => {
+						this.settingsManager.setTelegramLiveRelayAutoConnect(enabled);
+						this.showStatus(`Telegram autoconnect: ${enabled ? "enabled" : "disabled"}`);
 					},
 					onSteeringModeChange: (mode) => {
 						this.session.setSteeringMode(mode);
@@ -3896,7 +4119,7 @@ export class InteractiveMode {
 		this.renderInitialMessages();
 
 		if (this.session.sessionManager.wasInterrupted()) {
-			this.showStatus("Resumed session (previous session ended unexpectedly — last action may be incomplete)");
+			this.showStatus("Resumed session (previous session ended unexpectedly - last action may be incomplete)");
 		} else {
 			this.showStatus("Resumed session");
 		}
@@ -3980,7 +4203,7 @@ export class InteractiveMode {
 										await this.session.setModel(fallback);
 									}
 								} catch {
-									// Model switch failed — user can manually switch via /model
+									// Model switch failed - user can manually switch via /model
 								}
 							}
 
@@ -3991,7 +4214,7 @@ export class InteractiveMode {
 					}
 					};
 					handleAsync().catch(() => {
-						// Swallow — showLoginDialog already handles its own errors.
+						// Swallow - showLoginDialog already handles its own errors.
 						// This prevents unhandled rejections when login is cancelled.
 					});
 				},
@@ -4022,7 +4245,7 @@ export class InteractiveMode {
 		this.ui.setFocus(dialog);
 		this.ui.requestRender();
 
-		// Restore editor helper — also disposes the dialog to reject any
+		// Restore editor helper - also disposes the dialog to reject any
 		// dangling promises and prevent the UI from getting stuck.
 		const restoreEditor = () => {
 			dialog.dispose();
@@ -4083,7 +4306,7 @@ export class InteractiveMode {
 					}
 				}
 			} catch (error: unknown) {
-				// Model switch failed — user can manually switch via /model
+				// Model switch failed - user can manually switch via /model
 			}
 
 			this.showStatus(`Logged in to ${providerName}. Credentials saved to ${getAuthPath()}`);
