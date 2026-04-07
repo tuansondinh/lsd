@@ -4,6 +4,7 @@ import {
   getPermissionMode,
   isToolCallEventType,
   setPermissionMode,
+  SettingsManager,
   type ExtensionAPI,
   type ExtensionCommandContext,
   type PermissionMode,
@@ -170,6 +171,12 @@ function resolveModelFromContext(ctx: any, modelRef: ModelRef): any | undefined 
 
 function setPermissionModeAndEnv(mode: PermissionMode): void {
   setPermissionMode(mode);
+  try {
+    const settingsManager = SettingsManager.create();
+    settingsManager.setPermissionMode(mode);
+  } catch {
+    // Best-effort persistence; if settings manager is unavailable, proceed with in-memory only
+  }
   process.env.LUCENT_CODE_PERMISSION_MODE = mode;
 }
 

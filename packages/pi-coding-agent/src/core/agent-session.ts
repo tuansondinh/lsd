@@ -2334,12 +2334,6 @@ export class AgentSession {
 			for (const tool of wrappedExtensionTools) {
 				nextActiveToolNames.push(tool.name);
 			}
-		} else if (!options?.activeToolNames) {
-			for (const toolName of this._toolRegistry.keys()) {
-				if (!previousRegistryNames.has(toolName)) {
-					nextActiveToolNames.push(toolName);
-				}
-			}
 		}
 
 		this.setActiveToolsByName([...new Set(nextActiveToolNames)]);
