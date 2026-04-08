@@ -109,6 +109,36 @@ describe("model registry — custom zai provider (GLM-5.1)", () => {
 	});
 });
 
+describe("model registry — openai-codex mirrors openai GPT-5 models", () => {
+	it("openai-codex exposes the same GPT-5 model IDs as openai", () => {
+		const openaiIds = getModels("openai")
+			.filter((model) => model.id.startsWith("gpt-5"))
+			.map((model) => model.id)
+			.sort();
+		const codexIds = getModels("openai-codex" as any)
+			.map((model) => model.id)
+			.sort();
+		assert.deepEqual(codexIds, openaiIds);
+	});
+
+	it("openai-codex GPT-5 metadata is derived from openai with codex transport overrides", () => {
+		const openaiModels = getModels("openai").filter((model) => model.id.startsWith("gpt-5"));
+		for (const openaiModel of openaiModels) {
+			const codexModel = getModel("openai-codex" as any, openaiModel.id as any);
+			assert.ok(codexModel, `Expected openai-codex/${openaiModel.id} to exist`);
+			assert.equal(codexModel.api, "openai-codex-responses");
+			assert.equal(codexModel.provider, "openai-codex");
+			assert.equal(codexModel.baseUrl, "https://chatgpt.com/backend-api");
+			assert.equal(codexModel.name, openaiModel.name);
+			assert.equal(codexModel.reasoning, openaiModel.reasoning);
+			assert.deepEqual(codexModel.input, openaiModel.input);
+			assert.deepEqual(codexModel.cost, openaiModel.cost);
+			assert.equal(codexModel.maxTokens, openaiModel.maxTokens);
+			assert.equal(codexModel.contextWindow, Math.min(openaiModel.contextWindow, 272000));
+		}
+	});
+});
+
 describe("model registry — custom models do not collide with generated models", () => {
 	it("generated providers still exist alongside custom providers", () => {
 		const providers = getProviders();

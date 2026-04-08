@@ -6,7 +6,6 @@
 - [ ] Plan mode: automatically switch to the configured plan model when entering plan mode (not just after plan is generated)
 - [ ] Add dream/auto dream function (copy from Claude Code)
 - [ ] Add Bedrock to the onboarding setup command
-- [ ] Add missing model: gpt-5.4-mini
 - [ ] Fix subagents with skills — lsd is not aware how to use corectl models
 - [ ] Improve classifier in auto mode
 - [ ] Review scout→planner→worker chain pattern in subagents skills doc and agent personas — remove or tone down if it's steering unhelpful default behavior

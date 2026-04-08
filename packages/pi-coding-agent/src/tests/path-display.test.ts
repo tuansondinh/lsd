@@ -62,6 +62,20 @@ test("buildSystemPrompt: Unix paths pass through unchanged", () => {
 	assert.ok(prompt.includes("/home/user/project"));
 });
 
+test("buildSystemPrompt: encourages scout-first reconnaissance when subagent is available", () => {
+	const prompt = buildSystemPrompt({
+		cwd: "/home/user/project",
+		selectedTools: ["read", "lsp", "subagent", "edit", "write"],
+	});
+	assert.match(prompt, /delegate reconnaissance to the scout subagent/i);
+	assert.match(prompt, /0 scouts for narrow known-file work, 1 scout for one broad unfamiliar subsystem/i);
+	assert.match(prompt, /For one scout use \{ agent, task \}/i);
+	assert.match(prompt, /Scout is for mapping and reconnaissance only/i);
+	assert.match(prompt, /multiple scout subagents in parallel/i);
+	assert.match(prompt, /broad review or audit requests, use scout only as a prep step/i);
+	assert.match(prompt, /Skip scout only when the task is clearly narrow/i);
+});
+
 // ─── Regression: no backslash paths in LLM-visible text ────────────────────
 
 /**

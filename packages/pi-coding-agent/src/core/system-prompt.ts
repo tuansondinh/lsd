@@ -152,12 +152,38 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions = {}): strin
 	addGuideline("Be concise. Prefer short, direct answers over preamble.");
 	addGuideline("For conceptual, product, or UX questions, answer first; inspect code only if implementation detail is needed.");
 
+	const hasSubagent = tools.includes("subagent");
+
 	if (hasLsp) {
 		addGuideline(
 			"Code navigation in typed codebases: use lsp for symbols (definition, references, implementation, hover, diagnostics, rename, format). Use grep/find/ls for text patterns, filenames, and non-code files.",
 		);
 	} else {
 		addGuideline("Use grep/find/ls for code search and file exploration (faster than bash, respects .gitignore)");
+	}
+
+	if (hasSubagent) {
+		addGuideline(
+			"Recon planning policy: use 0 scouts for narrow known-file work, 1 scout for one broad unfamiliar subsystem, and 2-4 parallel scouts only when the work spans multiple loosely-coupled subsystems.",
+		);
+		addGuideline(
+			"For broad or unfamiliar codebase exploration, delegate reconnaissance to the scout subagent before reading many files yourself. After scout returns, use lsp and targeted reads for the narrowed file set.",
+		);
+		addGuideline(
+			"Call the subagent tool directly. For one scout use { agent, task }. For several scouts use parallel mode with { tasks: [{ agent, task }, ...] }.",
+		);
+		addGuideline(
+			"Scout is for mapping and reconnaissance only — not for final review, audit, or ranked issue lists. Use it to identify relevant files, subsystems, and likely hotspots for later evaluation.",
+		);
+		addGuideline(
+			"If reconnaissance spans multiple loosely-coupled areas, prefer multiple scout subagents in parallel, each covering one subsystem, instead of one model exploring everything itself.",
+		);
+		addGuideline(
+			"For broad review or audit requests, use scout only as a prep step to map architecture and hotspots; the parent model or a reviewer should make the final judgments.",
+		);
+		addGuideline(
+			"Skip scout only when the task is clearly narrow, the relevant file is already known, or the user explicitly asked for direct inspection of a specific file.",
+		);
 	}
 
 	if (hasRead && hasEdit) {

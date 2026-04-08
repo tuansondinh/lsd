@@ -916,110 +916,20 @@ async function generateModels() {
 		});
 	}
 
-	// OpenAI Codex (ChatGPT OAuth) models
-	// NOTE: These are not fetched from models.dev; we keep a small, explicit list to avoid aliases.
-	// Context window is based on observed server limits (400s above ~272k), not marketing numbers.
+	// OpenAI Codex (ChatGPT OAuth) models mirror the OpenAI GPT-5 family
+	// automatically so new GPT-5 variants appear without maintaining a second list.
+	// We still apply a conservative context cap based on observed backend-api limits.
 	const CODEX_BASE_URL = "https://chatgpt.com/backend-api";
-	const CODEX_CONTEXT = 272000;
-	const CODEX_MAX_TOKENS = 128000;
-	const codexModels: Model<"openai-codex-responses">[] = [
-		{
-			id: "gpt-5.1",
-			name: "GPT-5.1",
+	const CODEX_CONTEXT_CAP = 272000;
+	const codexModels: Model<"openai-codex-responses">[] = allModels
+		.filter((model) => model.provider === "openai" && model.id.startsWith("gpt-5"))
+		.map((model) => ({
+			...model,
 			api: "openai-codex-responses",
 			provider: "openai-codex",
 			baseUrl: CODEX_BASE_URL,
-			reasoning: true,
-			input: ["text", "image"],
-			cost: { input: 1.25, output: 10, cacheRead: 0.125, cacheWrite: 0 },
-			contextWindow: CODEX_CONTEXT,
-			maxTokens: CODEX_MAX_TOKENS,
-		},
-		{
-			id: "gpt-5.1-codex-max",
-			name: "GPT-5.1 Codex Max",
-			api: "openai-codex-responses",
-			provider: "openai-codex",
-			baseUrl: CODEX_BASE_URL,
-			reasoning: true,
-			input: ["text", "image"],
-			cost: { input: 1.25, output: 10, cacheRead: 0.125, cacheWrite: 0 },
-			contextWindow: CODEX_CONTEXT,
-			maxTokens: CODEX_MAX_TOKENS,
-		},
-		{
-			id: "gpt-5.1-codex-mini",
-			name: "GPT-5.1 Codex Mini",
-			api: "openai-codex-responses",
-			provider: "openai-codex",
-			baseUrl: CODEX_BASE_URL,
-			reasoning: true,
-			input: ["text", "image"],
-			cost: { input: 0.25, output: 2, cacheRead: 0.025, cacheWrite: 0 },
-			contextWindow: CODEX_CONTEXT,
-			maxTokens: CODEX_MAX_TOKENS,
-		},
-		{
-			id: "gpt-5.2",
-			name: "GPT-5.2",
-			api: "openai-codex-responses",
-			provider: "openai-codex",
-			baseUrl: CODEX_BASE_URL,
-			reasoning: true,
-			input: ["text", "image"],
-			cost: { input: 1.75, output: 14, cacheRead: 0.175, cacheWrite: 0 },
-			contextWindow: CODEX_CONTEXT,
-			maxTokens: CODEX_MAX_TOKENS,
-		},
-		{
-			id: "gpt-5.2-codex",
-			name: "GPT-5.2 Codex",
-			api: "openai-codex-responses",
-			provider: "openai-codex",
-			baseUrl: CODEX_BASE_URL,
-			reasoning: true,
-			input: ["text", "image"],
-			cost: { input: 1.75, output: 14, cacheRead: 0.175, cacheWrite: 0 },
-			contextWindow: CODEX_CONTEXT,
-			maxTokens: CODEX_MAX_TOKENS,
-		},
-		{
-			id: "gpt-5.3-codex",
-			name: "GPT-5.3 Codex",
-			api: "openai-codex-responses",
-			provider: "openai-codex",
-			baseUrl: CODEX_BASE_URL,
-			reasoning: true,
-			input: ["text", "image"],
-			cost: { input: 1.75, output: 14, cacheRead: 0.175, cacheWrite: 0 },
-			contextWindow: CODEX_CONTEXT,
-			maxTokens: CODEX_MAX_TOKENS,
-		},
-		{
-			id: "gpt-5.4",
-			name: "GPT-5.4",
-			api: "openai-codex-responses",
-			provider: "openai-codex",
-			baseUrl: CODEX_BASE_URL,
-			reasoning: true,
-			input: ["text", "image"],
-			cost: { input: 2.5, output: 15, cacheRead: 0.25, cacheWrite: 0 },
-			contextWindow: CODEX_CONTEXT,
-			maxTokens: CODEX_MAX_TOKENS,
-		},
-		{
-			id: "gpt-5.3-codex-spark",
-			name: "GPT-5.3 Codex Spark",
-			api: "openai-codex-responses",
-			provider: "openai-codex",
-			baseUrl: CODEX_BASE_URL,
-			reasoning: true,
-			input: ["text"],
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-			contextWindow: 128000,
-			maxTokens: CODEX_MAX_TOKENS,
-		},
-	];
+			contextWindow: Math.min(model.contextWindow, CODEX_CONTEXT_CAP),
+		})) as Model<"openai-codex-responses">[];
 	allModels.push(...codexModels);
 
 	// Add missing Grok models

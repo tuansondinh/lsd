@@ -331,7 +331,7 @@ export async function runOnboarding(authStorage: AuthStorage, settingsManager: S
   if (budgetModel) {
     summaryLines.push(`${pc.green('✓')} Budget subagent model: ${budgetModel}`)
   } else {
-    summaryLines.push(`${pc.dim('↷')} Budget subagent model: app default/current model`)
+    summaryLines.push(`${pc.dim('↷')} Budget subagent model: app default/current model — set one to keep scout reconnaissance cheap`)
   }
 
   if (lspInstalled === null) {
@@ -402,13 +402,13 @@ async function runBudgetModelStep(
   }
 
   options.push(
-    { value: 'default', label: 'Use current/default model', hint: 'scout falls back when no budget model is set' },
+    { value: 'default', label: 'Use current/default model', hint: 'works, but setting a cheap scout model keeps reconnaissance predictable' },
     ...BUDGET_MODEL_OPTIONS,
     { value: 'skip', label: 'Skip for now', hint: 'change later in /settings' },
   )
 
   const choice = await p.select({
-    message: 'Choose a budget model for cheap subagents like scout',
+    message: 'Choose a budget model for cheap scout / recon subagents',
     options,
   })
 

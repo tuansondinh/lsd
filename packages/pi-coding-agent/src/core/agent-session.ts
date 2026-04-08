@@ -1039,10 +1039,45 @@ export class AgentSession {
 		return this._expandSkillByName(skillName, args);
 	}
 
+	private _isPremiumReconModel(): boolean {
+		const model = this.model;
+		if (!model) return false;
+		const provider = model.provider.toLowerCase();
+		const id = model.id.toLowerCase();
+		return (
+			(provider === "anthropic" && (id.includes("opus") || id.includes("sonnet"))) ||
+			(provider === "openai" && /^gpt-5(\.|-|$)/.test(id)) ||
+			(provider === "google" && id.includes("gemini-2.5-pro"))
+		);
+	}
+
+	private _buildScoutPolicyGuidelines(toolNames: string[]): string[] {
+		if (!toolNames.includes("subagent")) return [];
+
+		const guidelines = [
+			"Recon planning policy: use 0 scouts for narrow known-file work, 1 scout for one broad unfamiliar subsystem, and 2-4 parallel scouts only when the work spans multiple loosely-coupled subsystems.",
+			"Scout-first reconnaissance policy: when you need architecture context across multiple files or folders, do not map the subsystem by reading file-after-file yourself. Launch the scout subagent first, then continue with lsp and targeted reads.",
+			"If your next step would be broad exploration rather than a targeted lookup, prefer scout before doing more read/find/grep sweeps yourself.",
+			"When you choose scout, call subagent directly with valid parameters: { agent, task } for one scout, or { tasks: [{ agent, task }, ...] } for parallel scouts.",
+			"Scout is reconnaissance-only. Do not use it as the reviewer, auditor, or final issue-ranker; use it to map files, ownership, and likely hotspots for later evaluation.",
+			"If the work spans multiple loosely-coupled subsystems, prefer parallel scout subagents so each scout maps one area and the parent model reads the summaries instead of the raw files.",
+			"For broad review or audit requests, use scout only as a prep step to map architecture and hotspots; the parent model or a reviewer should make the final judgments.",
+		];
+
+		if (this._isPremiumReconModel()) {
+			guidelines.push(
+				"You are on a premium model. Spend tokens on synthesis, planning, and edits — not broad reconnaissance. Delegate exploratory reading to scout whenever the scope is not already narrow.",
+			);
+		}
+
+		return guidelines;
+	}
+
 	private _rebuildSystemPrompt(toolNames: string[]): string {
 		const validToolNames = toolNames.filter((name) => this._toolRegistry.has(name));
 		const toolSnippets: Record<string, string> = {};
 		const promptGuidelines: string[] = [];
+		promptGuidelines.push(...this._buildScoutPolicyGuidelines(validToolNames));
 		for (const name of validToolNames) {
 			const snippet = this._toolPromptSnippets.get(name);
 			if (snippet) {

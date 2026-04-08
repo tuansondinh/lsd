@@ -68,6 +68,7 @@ type UsageRow = {
 	project: string;
 	model: string;
 	messages: number;
+	userPrompts: number;
 	input: number;
 	output: number;
 	cacheRead: number;
@@ -302,13 +303,16 @@ function makeGroupKey(groupBy: GroupBy, project: string, model: string): string 
 
 function collectUsage(sessionFiles: string[], startMs: number, endMs: number, scope: Scope, groupBy: GroupBy): UsageReport {
 	const rows = new Map<string, UsageRow>();
+	const userPromptRows = new Map<string, UsageRow>();
 	let filesScanned = 0;
 	let matchedMessages = 0;
+	let matchedUserPrompts = 0;
 
 	for (const file of sessionFiles) {
 		filesScanned++;
 		let projectLabel = basename(file);
 		let headerResolved = false;
+		let currentModel = "";
 
 		const raw = readFileSync(file, "utf-8");
 		for (const line of raw.split("\n")) {
@@ -328,44 +332,87 @@ function collectUsage(sessionFiles: string[], startMs: number, endMs: number, sc
 				}
 			}
 
+			// Track model changes
+			if (parsed?.type === "model_change" && parsed.provider && parsed.modelId) {
+				currentModel = `${parsed.provider}/${parsed.modelId}`;
+			}
+
 			const message = parsed?.type === "message" ? (parsed.message as AssistantMessageLike | undefined) : undefined;
-			if (!message || message.role !== "assistant") continue;
+			if (!message) continue;
 
-			const timestamp = Number(message.timestamp ?? 0);
-			if (!timestamp || timestamp < startMs || timestamp >= endMs) continue;
+			if (message.role === "assistant") {
+				const timestamp = Number(message.timestamp ?? 0);
+				if (!timestamp || timestamp < startMs || timestamp >= endMs) continue;
 
-			matchedMessages++;
-			const model = makeModelLabel(message);
-			const key = makeGroupKey(groupBy, projectLabel, model);
-			const usage = message.usage ?? {};
-			const input = Number(usage.input ?? 0);
-			const output = Number(usage.output ?? 0);
-			const cacheRead = Number(usage.cacheRead ?? 0);
-			const cacheWrite = Number(usage.cacheWrite ?? 0);
-			const cost = Number(usage.cost?.total ?? 0);
-			const total = input + output + cacheRead + cacheWrite;
+				matchedMessages++;
+				const model = message.provider && message.model ? `${message.provider}/${message.model}` : currentModel;
+				const key = makeGroupKey(groupBy, projectLabel, model);
+				const usage = message.usage ?? {};
+				const input = Number(usage.input ?? 0);
+				const output = Number(usage.output ?? 0);
+				const cacheRead = Number(usage.cacheRead ?? 0);
+				const cacheWrite = Number(usage.cacheWrite ?? 0);
+				const cost = Number(usage.cost?.total ?? 0);
+				const total = input + output + cacheRead + cacheWrite;
 
-			const existing = rows.get(key) ?? {
-				key,
-				project: groupBy === "model" ? "—" : projectLabel,
-				model: groupBy === "project" ? "—" : model,
-				messages: 0,
-				input: 0,
-				output: 0,
-				cacheRead: 0,
-				cacheWrite: 0,
-				total: 0,
-				cost: 0,
-			};
+				const existing = rows.get(key) ?? {
+					key,
+					project: groupBy === "model" ? "—" : projectLabel,
+					model: groupBy === "project" ? "—" : model,
+					messages: 0,
+					userPrompts: 0,
+					input: 0,
+					output: 0,
+					cacheRead: 0,
+					cacheWrite: 0,
+					total: 0,
+					cost: 0,
+				};
 
-			existing.messages += 1;
-			existing.input += input;
-			existing.output += output;
-			existing.cacheRead += cacheRead;
-			existing.cacheWrite += cacheWrite;
-			existing.total += total;
-			existing.cost += cost;
-			rows.set(key, existing);
+				existing.messages += 1;
+				existing.input += input;
+				existing.output += output;
+				existing.cacheRead += cacheRead;
+				existing.cacheWrite += cacheWrite;
+				existing.total += total;
+				existing.cost += cost;
+				rows.set(key, existing);
+			} else if (message.role === "user") {
+				const timestamp = Number(message.timestamp ?? 0);
+				if (!timestamp || timestamp < startMs || timestamp >= endMs) continue;
+
+				matchedUserPrompts++;
+				const model = currentModel;
+				const key = makeGroupKey(groupBy, projectLabel, model);
+
+				const existing = userPromptRows.get(key) ?? {
+					key,
+					project: groupBy === "model" ? "—" : projectLabel,
+					model: groupBy === "project" ? "—" : model,
+					messages: 0,
+					userPrompts: 0,
+					input: 0,
+					output: 0,
+					cacheRead: 0,
+					cacheWrite: 0,
+					total: 0,
+					cost: 0,
+				};
+
+				existing.userPrompts += 1;
+				userPromptRows.set(key, existing);
+			}
+		}
+	}
+
+	// Merge user prompt counts into the main rows
+	for (const [key, userRow] of userPromptRows.entries()) {
+		const existing = rows.get(key);
+		if (existing) {
+			existing.userPrompts = userRow.userPrompts;
+		} else {
+			// User prompts without assistant responses (edge case)
+			rows.set(key, userRow);
 		}
 	}
 
@@ -377,6 +424,7 @@ function collectUsage(sessionFiles: string[], startMs: number, endMs: number, sc
 	const totals = orderedRows.reduce(
 		(acc, row) => {
 			acc.messages += row.messages;
+			acc.userPrompts += row.userPrompts;
 			acc.input += row.input;
 			acc.output += row.output;
 			acc.cacheRead += row.cacheRead;
@@ -385,7 +433,7 @@ function collectUsage(sessionFiles: string[], startMs: number, endMs: number, sc
 			acc.cost += row.cost;
 			return acc;
 		},
-		{ messages: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0, cost: 0 },
+		{ messages: 0, userPrompts: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0, cost: 0 },
 	);
 
 	return {
@@ -409,6 +457,7 @@ function renderTable(report: UsageReport): string {
 
 	const displayRows = report.rows.map((row) => ({
 		label: row.key,
+		userPrompts: String(row.userPrompts),
 		msgs: String(row.messages),
 		input: formatInt(row.input),
 		output: formatInt(row.output),
@@ -420,6 +469,7 @@ function renderTable(report: UsageReport): string {
 
 	const widths = {
 		label: Math.max(firstColumnHeader.length, ...displayRows.map((row) => row.label.length), 5),
+		userPrompts: Math.max(11, ...displayRows.map((row) => row.userPrompts.length), String(report.totals.userPrompts).length),
 		msgs: Math.max(4, ...displayRows.map((row) => row.msgs.length), String(report.totals.messages).length),
 		input: Math.max(5, ...displayRows.map((row) => row.input.length), formatInt(report.totals.input).length),
 		output: Math.max(6, ...displayRows.map((row) => row.output.length), formatInt(report.totals.output).length),
@@ -431,6 +481,7 @@ function renderTable(report: UsageReport): string {
 
 	const header = [
 		firstColumnHeader.padEnd(widths.label),
+		"user prompts".padStart(widths.userPrompts),
 		"msgs".padStart(widths.msgs),
 		"input".padStart(widths.input),
 		"output".padStart(widths.output),
@@ -443,6 +494,7 @@ function renderTable(report: UsageReport): string {
 	const divider = "-".repeat(header.length);
 	const body = displayRows.map((row) => [
 		row.label.padEnd(widths.label),
+		row.userPrompts.padStart(widths.userPrompts),
 		row.msgs.padStart(widths.msgs),
 		row.input.padStart(widths.input),
 		row.output.padStart(widths.output),
@@ -454,6 +506,7 @@ function renderTable(report: UsageReport): string {
 
 	const totalsLine = [
 		"TOTAL".padEnd(widths.label),
+		String(report.totals.userPrompts).padStart(widths.userPrompts),
 		String(report.totals.messages).padStart(widths.msgs),
 		formatInt(report.totals.input).padStart(widths.input),
 		formatInt(report.totals.output).padStart(widths.output),
@@ -474,7 +527,8 @@ function renderReport(report: UsageReport): string {
 		`Grouped by: ${report.groupBy}`,
 		`Sessions root: ${report.sessionsRoot}`,
 		`Session files scanned: ${report.filesScanned}`,
-		`Assistant messages matched: ${report.matchedMessages}`,
+		`User prompts: ${report.totals.userPrompts}`,
+		`Assistant messages: ${report.matchedMessages}`,
 	].join("\n");
 
 	if (report.rows.length === 0) {
