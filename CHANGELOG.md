@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-04-08
+
+### Added
+- **plan mode**: instruct main agent to split large plans across sequential chained subagents when a single subagent context window would be exceeded
+- **plan mode**: main agent performs a quick implementation review after subagent(s) complete execution
+
 ## [1.2.0] - 2026-04-08
 
 ### Added
