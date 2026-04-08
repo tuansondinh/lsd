@@ -14,6 +14,7 @@ import { join } from "node:path";
 const PLAN_ENTRY_TYPE = "plan-mode-state";
 const PLAN_APPROVAL_ACTION_QUESTION_ID = "plan_mode_approval_action";
 const PLAN_APPROVAL_PERMISSION_QUESTION_ID = "plan_mode_approval_permission";
+const PLAN_SUGGEST_QUESTION_ID = "plan_mode_suggest_switch";
 const PLAN_DIR_RE = /(^|[/\\])\.(?:lsd|gsd)[/\\]plan([/\\]|$)/;
 const BASH_READ_ONLY_RE = /^\s*(cat|head|tail|less|more|wc|file|stat|du|df|which|type|echo|printf|ls|find|grep|rg|awk|sed\b(?!.*-i)|sort|uniq|diff|comm|tr|cut|tee\s+-a\s+\/dev\/null|git\s+(log|show|diff|status|branch|tag|remote|rev-parse|ls-files|blame|shortlog|describe|stash\s+list|config\s+--get|cat-file)|gh\s+(issue|pr|api|repo|release)\s+(view|list|diff|status|checks)|mkdir\s+-p\s+\.(?:lsd|gsd)(?:[\\/]+plan)?|rtk\s)/;
 const SAFE_TOOLS = new Set([
@@ -73,10 +74,12 @@ const APPROVE_AUTO_LABEL = "Auto mode";
 const APPROVE_BYPASS_LABEL = "Bypass mode";
 const APPROVE_AUTO_SUBAGENT_LABEL = "Execute with subagent in auto mode";
 const APPROVE_BYPASS_SUBAGENT_LABEL = "Execute with subagent in bypass mode";
+const APPROVE_NEW_SESSION_LABEL = "New session with coding model"; // shown in second question when autoSwitchPlanModel is on
 const REVIEW_LABEL = "Let other agent review";
 const REVISE_LABEL = "Revise plan";
 const CANCEL_LABEL = "Cancel";
 const DEFAULT_PLAN_REVIEW_AGENT = "generic";
+const DEFAULT_PLAN_CODING_AGENT = "worker";
 
 type PlanApprovalStatus = "pending" | "approved" | "revising" | "cancelled";
 type RestorablePermissionMode = Exclude<PermissionMode, "plan">;
@@ -109,6 +112,7 @@ const INITIAL_STATE: PlanModeState = {
 
 let state: PlanModeState = { ...INITIAL_STATE };
 let startedFromFlag = false;
+let reasoningModelSwitchDone = false;
 
 function isPlanModeActive(): boolean {
   return getPermissionMode() === "plan";
@@ -125,7 +129,13 @@ function parseQualifiedModelRef(value: unknown): ModelRef | undefined {
   return { provider, id };
 }
 
-function readPlanModeSettings(): { reasoningModel?: string; reviewModel?: string; codingModel?: string } {
+function parseSubagentName(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function readPlanModeSettings(): { reasoningModel?: string; reviewModel?: string; codingModel?: string; codingSubagent?: string } {
   try {
     const settingsPath = join(getAgentDir(), "settings.json");
     if (!existsSync(settingsPath)) return {};
@@ -134,14 +144,19 @@ function readPlanModeSettings(): { reasoningModel?: string; reviewModel?: string
       planModeReasoningModel?: unknown;
       planModeReviewModel?: unknown;
       planModeCodingModel?: unknown;
+      planModeCodingSubagent?: unknown;
+      planModeCodingAgent?: unknown;
     };
     const reasoningModel = parseQualifiedModelRef(parsed.planModeReasoningModel);
     const reviewModel = parseQualifiedModelRef(parsed.planModeReviewModel);
     const codingModel = parseQualifiedModelRef(parsed.planModeCodingModel);
+    const codingSubagent = parseSubagentName(parsed.planModeCodingSubagent)
+      ?? parseSubagentName(parsed.planModeCodingAgent);
     return {
       reasoningModel: reasoningModel ? `${reasoningModel.provider}/${reasoningModel.id}` : undefined,
       reviewModel: reviewModel ? `${reviewModel.provider}/${reviewModel.id}` : undefined,
       codingModel: codingModel ? `${codingModel.provider}/${codingModel.id}` : undefined,
+      codingSubagent,
     };
   } catch {
     return {};
@@ -158,6 +173,42 @@ export function readPlanModeReviewModel(): string | undefined {
 
 export function readPlanModeCodingModel(): string | undefined {
   return readPlanModeSettings().codingModel;
+}
+
+export function readPlanModeCodingSubagent(): string | undefined {
+  return readPlanModeSettings().codingSubagent;
+}
+
+function readAutoSuggestPlanModeSetting(): boolean {
+  try {
+    const settingsPath = join(getAgentDir(), "settings.json");
+    if (!existsSync(settingsPath)) return false;
+    const raw = readFileSync(settingsPath, "utf-8");
+    const parsed = JSON.parse(raw) as { autoSuggestPlanMode?: unknown };
+    return parsed.autoSuggestPlanMode === true;
+  } catch {
+    return false;
+  }
+}
+
+function readAutoSwitchPlanModelSetting(): boolean {
+  try {
+    const settingsPath = join(getAgentDir(), "settings.json");
+    if (!existsSync(settingsPath)) return false;
+    const raw = readFileSync(settingsPath, "utf-8");
+    const parsed = JSON.parse(raw) as { autoSwitchPlanModel?: unknown };
+    return parsed.autoSwitchPlanModel === true;
+  } catch {
+    return false;
+  }
+}
+
+function buildAutoSuggestPlanModeSystemPrompt(): string {
+  return [
+    `Plan-mode suggestion: if the user's latest request describes a large, multi-step, or ambiguous task — e.g. a refactor, multi-file change, new feature, migration, or anything that benefits from upfront investigation — proactively ask whether to switch to plan mode before making any edits.`,
+    `How to suggest: call ask_user_questions with a single question. Set the question id to exactly "${PLAN_SUGGEST_QUESTION_ID}". Ask: "This looks like a complex task. Would you like to switch to plan mode first?". Provide exactly two options: "Yes, switch to plan mode" (recommended) and "No, proceed directly". Do NOT call /plan yourself — wait for the user answer and the system will handle switching automatically.`,
+    "Do not suggest plan mode for simple, single-file, or read-only tasks. Do not suggest it if the user is already in plan mode or in the middle of an implementation. Only suggest it once per distinct task.",
+  ].join(" ");
 }
 
 function sameModel(left: ModelRef | undefined, right: ModelRef | undefined): boolean {
@@ -217,6 +268,24 @@ function restoreStateFromSession(ctx: ExtensionCommandContext | any): void {
   }
 }
 
+async function enablePlanModeWithModelSwitch(
+  pi: ExtensionAPI,
+  ctx: any,
+  currentModel: ModelRef | undefined,
+  next: Partial<Pick<PlanModeState, "task" | "latestPlanPath" | "approvalStatus" | "previousMode" | "preplanModel" | "targetPermissionMode">> = {},
+): Promise<void> {
+  enablePlanMode(pi, currentModel, next);
+  // Signal that before_agent_start should switch to the reasoning model on next turn
+  reasoningModelSwitchDone = false;
+  if (!readAutoSwitchPlanModelSetting()) return;
+  if (!readPlanModeReasoningModel()) {
+    ctx.ui?.notify?.(
+      "OpusPlan: set a Plan reasoning model in /settings to auto-switch on entry",
+      "info",
+    );
+  }
+}
+
 function enablePlanMode(
   pi: ExtensionAPI,
   currentModel: ModelRef | undefined,
@@ -246,6 +315,7 @@ function leavePlanMode(
   nextPermissionMode: RestorablePermissionMode,
   clearTask = false,
 ): RestorablePermissionMode {
+  reasoningModelSwitchDone = false;
   setPermissionModeAndEnv(nextPermissionMode);
   setState(pi, {
     active: false,
@@ -282,9 +352,10 @@ function buildExecutionKickoffMessage(options: { permissionMode: RestorablePermi
   }
 
   const codingModel = readPlanModeCodingModel();
+  const codingSubagent = readPlanModeCodingSubagent() ?? DEFAULT_PLAN_CODING_AGENT;
   const agentInvocationInstruction = codingModel
-    ? `Invoke the subagent tool with agent "worker" and model="${codingModel}" to implement the plan end-to-end.`
-    : `Invoke the subagent tool with agent "worker" to implement the plan end-to-end.`;
+    ? `Invoke the subagent tool with exact parameters agent "${codingSubagent}" and model="${codingModel}" to implement the plan end-to-end.`
+    : `Invoke the subagent tool with exact parameter agent "${codingSubagent}" to implement the plan end-to-end.`;
 
   const details: string[] = [
     "Plan approved. Exit plan mode and execute the approved plan with a subagent now.",
@@ -295,6 +366,38 @@ function buildExecutionKickoffMessage(options: { permissionMode: RestorablePermi
   if (state.latestPlanPath) details.push(`Primary plan artifact: ${state.latestPlanPath}`);
   details.push("After subagent completion, summarize the result and any remaining follow-ups.");
   return details.join(" ");
+}
+
+// Pending new-session payload — set before triggering the internal command
+interface PendingNewSession {
+  codingModelRef: ModelRef | undefined;
+  codingSubagent: string;
+  planPath: string | undefined;
+  planContent: string | undefined;
+  task: string;
+}
+let pendingNewSession: PendingNewSession | null = null;
+
+function scheduleNewSession(pi: ExtensionAPI, ctx: any): void {
+  const codingModelRef = parseQualifiedModelRef(readPlanModeCodingModel());
+  const codingSubagent = readPlanModeCodingSubagent() ?? DEFAULT_PLAN_CODING_AGENT;
+  const planPath = state.latestPlanPath;
+  const planContent = planPath ? readPlanArtifact(planPath) : undefined;
+
+  pendingNewSession = {
+    codingModelRef,
+    codingSubagent,
+    planPath,
+    planContent,
+    task: state.task,
+  };
+
+  leavePlanMode(pi, "approved", "auto");
+  ctx.ui?.notify?.("Plan approved. Starting new session…", "info");
+
+  // Trigger the internal command which has ExtensionCommandContext (ctx.newSession available).
+  // Must use the /prefix so tryExecuteExtensionCommand parses the name correctly.
+  pi.executeSlashCommand("/plan-execute-new-session");
 }
 
 async function approvePlan(
@@ -313,7 +416,13 @@ async function approvePlan(
     targetPermissionMode: permissionMode,
   };
   leavePlanMode(pi, "approved", permissionMode);
-  await pi.sendUserMessage(buildExecutionKickoffMessage({ permissionMode, executeWithSubagent }), { deliverAs: "followUp" });
+  // Deliver the kickoff as a steering message so it is injected BEFORE the LLM
+  // produces its next assistant turn. Using "followUp" would defer delivery
+  // until the agent has no more tool calls, which lets the LLM call the
+  // subagent tool with the default session model BEFORE it ever sees the
+  // explicit model="<planModeCodingModel>" instruction. Steering ensures the
+  // configured plan-mode coding model reaches the subagent invocation.
+  await pi.sendUserMessage(buildExecutionKickoffMessage({ permissionMode, executeWithSubagent }), { deliverAs: "steer" });
 }
 
 async function cancelPlan(pi: ExtensionAPI, ctx: any, clearTask = true): Promise<RestorablePermissionMode> {
@@ -346,35 +455,52 @@ function readPlanArtifact(planPath: string): string | undefined {
   }
 }
 
-function buildApprovalDialogInstructions(): string {
+function buildNewSessionOptionLabel(): string {
+  const codingModel = readPlanModeCodingModel();
+  const codingSubagent = readPlanModeCodingSubagent() ?? DEFAULT_PLAN_CODING_AGENT;
+  const modelSuffix = codingModel ? codingModel.split("/")[1] ?? codingModel : null;
+  // e.g. "Approve plan — new session (worker · claude-sonnet-4-6)"
+  //      "Approve plan — new session (worker)"
+  const suffix = modelSuffix ? `${codingSubagent} · ${modelSuffix}` : codingSubagent;
+  return `${APPROVE_LABEL} — ${APPROVE_NEW_SESSION_LABEL} (${suffix})`;
+}
+
+function buildApprovalActionInstructions(): string {
   return [
-    "Present approval options now using ask_user_questions with exactly two single-select questions.",
-    `First question id: \"${PLAN_APPROVAL_ACTION_QUESTION_ID}\". Ask what to do next with the plan.`,
-    "Use exactly these 3 options for the first question:",
-    `1. ${APPROVE_LABEL} (Recommended)`,
-    `2. ${REVIEW_LABEL}`,
-    `3. ${REVISE_LABEL}`,
-    `Second question id: \"${PLAN_APPROVAL_PERMISSION_QUESTION_ID}\". Ask which execution mode to use if the plan is approved.`,
-    "Use exactly these 4 options for the second question:",
-    `1. ${APPROVE_AUTO_LABEL} (Recommended)`,
-    `2. ${APPROVE_BYPASS_LABEL}`,
-    `3. ${APPROVE_AUTO_SUBAGENT_LABEL}`,
-    `4. ${APPROVE_BYPASS_SUBAGENT_LABEL}`,
-    `Do not include \"${CANCEL_LABEL}\" as an explicit option. If the user wants to cancel, they should choose \"None of the above\" on the first question and type \"${CANCEL_LABEL}\" in the free-text note.`,
-    `If the user selects \"${REVIEW_LABEL}\" or \"${REVISE_LABEL}\", ignore the second answer for now.`,
-    "If the dialog is dismissed or the user gives no answer, continue planning.",
+    "Ask for plan approval now using ask_user_questions.",
+    `One single-select question with id \"${PLAN_APPROVAL_ACTION_QUESTION_ID}\". Ask what to do next with the plan.`,
+    `Options: ${APPROVE_LABEL}, ${REVIEW_LABEL}, ${REVISE_LABEL}.`,
+    `Do not include \"${CANCEL_LABEL}\" as an explicit option — if the user wants to cancel they should choose \"None of the above\" and type \"${CANCEL_LABEL}\" in the note.`,
+    "Do not restate the plan. Just show the question.",
   ].join(" ");
 }
 
-function buildApprovalSteeringMessage(planPath: string): string {
-  const details = [
-    `Plan artifact saved at ${planPath}.`,
-    "Do not restate the plan in a normal assistant response.",
-    "Ask for approval now via ask_user_questions.",
-    buildApprovalDialogInstructions(),
-  ];
+function buildApprovalModeInstructions(): string {
+  const autoSwitchEnabled = readAutoSwitchPlanModelSetting();
+  const showNewSessionOption = autoSwitchEnabled;
+  const newSessionLabel = buildNewSessionOptionLabel();
 
-  return details.join("\n\n");
+  const options = showNewSessionOption
+    ? `${APPROVE_AUTO_LABEL}, ${APPROVE_BYPASS_LABEL}, ${APPROVE_AUTO_SUBAGENT_LABEL}, ${APPROVE_BYPASS_SUBAGENT_LABEL}, ${newSessionLabel}`
+    : `${APPROVE_AUTO_LABEL}, ${APPROVE_BYPASS_LABEL}, ${APPROVE_AUTO_SUBAGENT_LABEL}, ${APPROVE_BYPASS_SUBAGENT_LABEL}`;
+
+  return [
+    "Plan approved. Now ask which execution mode to use via ask_user_questions.",
+    `One single-select question with id \"${PLAN_APPROVAL_PERMISSION_QUESTION_ID}\".`,
+    `Options: ${options}.`,
+  ].join(" ");
+}
+
+// Keep for external callers that reference the combined form (headless path)
+function buildApprovalDialogInstructions(): string {
+  return buildApprovalActionInstructions();
+}
+
+function buildApprovalSteeringMessage(planPath: string): string {
+  return [
+    `Plan artifact saved at ${planPath}.`,
+    buildApprovalActionInstructions(),
+  ].join("\n\n");
 }
 
 function buildPlanPreviewMessage(planPath: string, planMarkdown?: string): string {
@@ -420,7 +546,7 @@ function buildReviewSteeringMessage(planPath: string, planMarkdown?: string): st
 
   details.push(
     "After the subagent responds, summarize its feedback for the user, present the current plan again, and then ask for approval again.",
-    buildApprovalDialogInstructions(),
+    buildApprovalActionInstructions(),
   );
 
   return details.join("\n\n");
@@ -478,6 +604,9 @@ export const __testing = {
   buildApprovalSteeringMessage,
   buildPlanPreviewMessage,
   buildReviewSteeringMessage,
+  buildAutoSuggestPlanModeSystemPrompt,
+  readAutoSuggestPlanModeSetting,
+  PLAN_SUGGEST_QUESTION_ID,
 };
 
 export default function planCommand(pi: ExtensionAPI) {
@@ -489,16 +618,28 @@ export default function planCommand(pi: ExtensionAPI) {
   pi.on("session_start", async (_event, ctx) => {
     restoreStateFromSession(ctx);
     startedFromFlag = false;
+    reasoningModelSwitchDone = false;
     if (state.active) {
       setPermissionModeAndEnv("plan");
     }
   });
 
-  pi.on("before_agent_start", async () => {
-    if (!isPlanModeActive()) return;
-    return {
-      systemPrompt: buildPlanModeSystemPrompt(),
-    };
+  pi.on("before_agent_start", async (_event, ctx) => {
+    if (isPlanModeActive()) {
+      // Switch to reasoning model once per plan mode activation
+      if (!reasoningModelSwitchDone && readAutoSwitchPlanModelSetting()) {
+        const reasoningModel = parseQualifiedModelRef(readPlanModeReasoningModel());
+        if (reasoningModel) {
+          reasoningModelSwitchDone = true;
+          await setModelIfNeeded(pi, ctx, reasoningModel);
+        }
+      }
+      return { systemPrompt: buildPlanModeSystemPrompt() };
+    }
+    if (readAutoSuggestPlanModeSetting()) {
+      return { systemPrompt: buildAutoSuggestPlanModeSystemPrompt() };
+    }
+    return;
   });
 
   pi.on("input", async (event, ctx) => {
@@ -509,7 +650,7 @@ export default function planCommand(pi: ExtensionAPI) {
 
     startedFromFlag = true;
     ensurePlanDir();
-    enablePlanMode(pi, ctx.model ? { provider: ctx.model.provider, id: ctx.model.id } : undefined, {
+    await enablePlanModeWithModelSwitch(pi, ctx, ctx.model ? { provider: ctx.model.provider, id: ctx.model.id } : undefined, {
       task: event.text.trim(),
       approvalStatus: "pending",
       latestPlanPath: undefined,
@@ -577,6 +718,35 @@ export default function planCommand(pi: ExtensionAPI) {
       return;
     }
 
+    if (event.toolName === "ask_user_questions" && !isPlanModeActive()) {
+      const details = event.details as {
+        cancelled?: boolean;
+        response?: { answers?: Record<string, AskUserAnswer> };
+      } | undefined;
+      if (!details?.cancelled && details?.response?.answers) {
+        const suggestAnswer = details.response.answers[PLAN_SUGGEST_QUESTION_ID];
+        if (suggestAnswer) {
+          const selected = Array.isArray(suggestAnswer.selected) ? suggestAnswer.selected[0] : suggestAnswer.selected;
+          if (typeof selected === "string" && selected.toLowerCase().includes("yes")) {
+            ensurePlanDir();
+            await enablePlanModeWithModelSwitch(pi, ctx, ctx.model ? { provider: ctx.model.provider, id: ctx.model.id } : undefined, {
+              task: state.task,
+              latestPlanPath: undefined,
+              approvalStatus: "pending",
+              targetPermissionMode: undefined,
+            });
+            ctx.ui?.notify?.("Plan mode enabled. Investigate and produce a plan before making changes.", "info");
+            pi.sendUserMessage(
+              "The user confirmed switching to plan mode. You are now in plan mode. Investigate the task and produce a persisted execution plan under .lsd/plan/ before making any source changes.",
+              { deliverAs: "steer" },
+            );
+          }
+          return;
+        }
+      }
+      return;
+    }
+
     if (!isPlanModeActive() || event.toolName !== "ask_user_questions") return;
 
     const details = event.details as {
@@ -590,9 +760,35 @@ export default function planCommand(pi: ExtensionAPI) {
     const actionValues = getAnswerValues(actionAnswer);
     const permissionValues = getAnswerValues(permissionAnswer);
 
-    if (actionValues.length === 0 && permissionValues.length === 0) return;
+    // ── Second question answered (execution mode) ─────────────────────────
+    if (permissionValues.length > 0) {
+      if (selectionRequestsCancel(permissionValues)) {
+        await cancelPlan(pi, ctx, true);
+        return;
+      }
 
-    if (selectionRequestsCancel([...actionValues, ...permissionValues])) {
+      if (permissionValues[0]?.includes(APPROVE_NEW_SESSION_LABEL)) {
+        scheduleNewSession(pi, ctx);
+        return;
+      }
+
+      const executionMode = approvalSelectionToExecutionMode(permissionValues[0]) ?? {
+        permissionMode: DEFAULT_APPROVAL_PERMISSION_MODE,
+        executeWithSubagent: false,
+      };
+      state = { ...state, targetPermissionMode: executionMode.permissionMode };
+      if (executionMode.executeWithSubagent) {
+        const modeLabel = executionMode.permissionMode === "danger-full-access" ? "bypass" : "auto";
+        ctx.ui?.notify?.(`Plan approved: subagent(${modeLabel})`, "info");
+      }
+      await approvePlan(pi, ctx, executionMode.permissionMode, executionMode.executeWithSubagent);
+      return;
+    }
+
+    // ── First question answered (action) ──────────────────────────────────
+    if (actionValues.length === 0) return;
+
+    if (selectionRequestsCancel(actionValues)) {
       await cancelPlan(pi, ctx, true);
       return;
     }
@@ -601,21 +797,8 @@ export default function planCommand(pi: ExtensionAPI) {
     if (!actionSelection) return;
 
     if (actionSelection.includes(APPROVE_LABEL)) {
-      const executionMode = approvalSelectionToExecutionMode(permissionValues[0]) ?? {
-        permissionMode: DEFAULT_APPROVAL_PERMISSION_MODE,
-        executeWithSubagent: false,
-      };
-      state = {
-        ...state,
-        targetPermissionMode: executionMode.permissionMode,
-      };
-
-      if (executionMode.executeWithSubagent) {
-        const modeLabel = executionMode.permissionMode === "danger-full-access" ? "bypass" : "auto";
-        ctx.ui?.notify?.(`Plan approved: subagent(${modeLabel})`, "info");
-      }
-
-      await approvePlan(pi, ctx, executionMode.permissionMode, executionMode.executeWithSubagent);
+      // Steer the second question — handle in the next tool_result cycle
+      pi.sendUserMessage(buildApprovalModeInstructions(), { deliverAs: "steer" });
       return;
     }
 
@@ -660,16 +843,17 @@ export default function planCommand(pi: ExtensionAPI) {
 
       ensurePlanDir();
       const task = args.trim();
-      enablePlanMode(pi, ctx.model ? { provider: ctx.model.provider, id: ctx.model.id } : undefined, {
+      await enablePlanModeWithModelSwitch(pi, ctx, ctx.model ? { provider: ctx.model.provider, id: ctx.model.id } : undefined, {
         task,
         latestPlanPath: undefined,
         approvalStatus: "pending",
         targetPermissionMode: undefined,
       });
+      const reasoningModel = readAutoSwitchPlanModelSetting() ? readPlanModeReasoningModel() : undefined;
       ctx.ui.notify(
         task
-          ? `Plan mode enabled. Current task: ${task}`
-          : "Plan mode enabled. Investigation is allowed; source changes stay blocked until you exit plan mode.",
+          ? `Plan mode enabled${reasoningModel ? ` · ${reasoningModel.split("/")[1] ?? reasoningModel}` : ""}. Current task: ${task}`
+          : `Plan mode enabled${reasoningModel ? ` · ${reasoningModel.split("/")[1] ?? reasoningModel}` : ""}. Investigation is allowed; source changes stay blocked until you exit plan mode.`,
         "info",
       );
     },
@@ -696,6 +880,38 @@ export default function planCommand(pi: ExtensionAPI) {
         resetState(pi, { approvalStatus: "cancelled" });
       }
       ctx.ui.notify("Plan mode cancelled.", "info");
+    },
+  });
+
+  // Internal command — called by scheduleNewSession() via pi.executeSlashCommand().
+  // Runs in ExtensionCommandContext so ctx.newSession() is available.
+  pi.registerCommand("plan-execute-new-session", {
+    description: "Internal: execute approved plan in a new session with the coding model",
+    async handler(_args: string, ctx: ExtensionCommandContext) {
+      const payload = pendingNewSession;
+      pendingNewSession = null;
+      if (!payload) return;
+
+      // Switch to coding model first
+      if (payload.codingModelRef) {
+        await setModelIfNeeded(pi, ctx, payload.codingModelRef);
+      }
+
+      const result = await ctx.newSession();
+      if (result.cancelled) return;
+
+      // Inject plan into the new session as a steer message
+      const parts: string[] = [
+        `Plan approved. You are acting as the ${payload.codingSubagent} agent. Implement the following plan now without re-investigating or re-planning.`,
+      ];
+      if (payload.task) parts.push(`Original task: ${payload.task}`);
+      if (payload.planPath) parts.push(`Plan artifact: ${payload.planPath}`);
+      if (payload.planContent) {
+        parts.push(`Full plan:\n\`\`\`markdown\n${payload.planContent}\n\`\`\``);
+      } else if (payload.planPath) {
+        parts.push(`Read the plan from ${payload.planPath} before starting.`);
+      }
+      pi.sendUserMessage(parts.join("\n\n"), { deliverAs: "steer" });
     },
   });
 }

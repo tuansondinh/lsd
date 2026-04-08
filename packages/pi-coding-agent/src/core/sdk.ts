@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { Agent, type AgentMessage, type ThinkingLevel } from "@gsd/pi-agent-core";
-import type { Message, Model } from "@gsd/pi-ai";
+import { supportsAdaptiveThinking, type Message, type Model } from "@gsd/pi-ai";
 import { getAgentDir, getDocsPath } from "../config.js";
 import { AgentSession } from "./agent-session.js";
 import { AuthStorage } from "./auth-storage.js";
@@ -140,6 +140,17 @@ function getDefaultAgentDir(): string {
     return getAgentDir();
 }
 
+function shouldPreferAdaptiveThinkingByDefault(
+    model: Model<any> | undefined,
+    settingsManager: SettingsManager,
+): boolean {
+    return !!model &&
+        model.provider === "anthropic" &&
+        model.reasoning === true &&
+        settingsManager.getAnthropicAdaptiveByDefault() &&
+        supportsAdaptiveThinking(model.id);
+}
+
 /**
  * Create an AgentSession with the specified options.
  *
@@ -252,6 +263,11 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
         thinkingLevel = settingsManager.getDefaultThinkingLevel() ?? DEFAULT_THINKING_LEVEL;
     }
 
+    const preferAdaptiveByDefault = shouldPreferAdaptiveThinkingByDefault(model, settingsManager);
+    if (preferAdaptiveByDefault) {
+        thinkingLevel = "adaptive";
+    }
+
     // Clamp to model capabilities
     if (!model || !model.reasoning) {
         thinkingLevel = "off";
@@ -259,13 +275,12 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 
     const editMode = settingsManager.getEditMode();
     const toolProfile = settingsManager.getToolProfile();
-    const defaultActiveToolNames: string[] = toolProfile === "minimal"
-        ? (editMode === "hashline"
-            ? ["hashline_read", "bash", "lsp", "tool_search", "tool_enable"]
-            : ["read", "bash", "lsp", "tool_search", "tool_enable"])
-        : editMode === "hashline"
-            ? ["hashline_read", "bash", "hashline_edit", "write", "lsp", "bg_shell", "tool_search", "tool_enable", "Skill", "subagent", "await_subagent"]
-            : ["read", "bash", "edit", "write", "lsp", "bg_shell", "tool_search", "tool_enable", "Skill", "subagent", "await_subagent"];
+    const balancedToolNames = editMode === "hashline"
+        ? ["hashline_read", "bash", "hashline_edit", "write", "lsp", "bg_shell", "tool_search", "tool_enable", "Skill", "subagent", "await_subagent", "ask_user_questions"]
+        : ["read", "bash", "edit", "write", "lsp", "bg_shell", "tool_search", "tool_enable", "Skill", "subagent", "await_subagent", "ask_user_questions"];
+    const defaultActiveToolNames: string[] = toolProfile === "full"
+        ? Object.keys(allTools)
+        : balancedToolNames;
     const initialActiveToolNames: string[] = options.tools
         ? options.tools.map((t) => t.name).filter((n): n is string => typeof n === "string" && n in allTools)
         : defaultActiveToolNames;

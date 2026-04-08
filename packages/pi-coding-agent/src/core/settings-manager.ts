@@ -127,9 +127,12 @@ export interface Settings {
 	planModeReasoningModel?: string;
 	planModeReviewModel?: string;
 	planModeCodingModel?: string;
+	autoSuggestPlanMode?: boolean; // default: false — append a system-prompt instruction so the LLM proposes plan mode for large tasks
+	autoSwitchPlanModel?: boolean; // default: false — enable opusplan-style model switching (auto-switch to reasoning model on entry, new-session option on approval)
 	permissionMode?: "danger-full-access" | "accept-on-edit" | "auto" | "plan";
 	classifierModel?: string;
 	defaultThinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "adaptive";
+	anthropicAdaptiveByDefault?: boolean; // default: false — prefer adaptive thinking when using supported Anthropic models
 	transport?: TransportSetting; // default: "sse"
 	steeringMode?: "all" | "one-at-a-time";
 	followUpMode?: "all" | "one-at-a-time";
@@ -149,8 +152,8 @@ export interface Settings {
 	prompts?: string[]; // Array of local prompt template paths or directories
 	themes?: string[]; // Array of local theme file paths or directories
 	enableSkillCommands?: boolean; // default: true - register skills as /skill:name commands
-	toolSearch?: boolean; // legacy boolean toggle for lazy tool-search mode; superseded by toolProfile
-	toolProfile?: "minimal" | "balanced"; // default: "balanced"
+	toolSearch?: boolean; // legacy boolean toggle from deprecated minimal profile; retained for migration only
+	toolProfile?: "balanced" | "full"; // default: "balanced"
 	terminal?: TerminalSettings;
 	images?: ImageSettings;
 	enabledModels?: string[]; // Model patterns for cycling (same format as --models CLI flag)
@@ -806,6 +809,22 @@ export class SettingsManager {
 		this.setGlobalSetting("planModeCodingModel", modelRef.trim());
 	}
 
+	getAutoSuggestPlanMode(): boolean {
+		return this.settings.autoSuggestPlanMode ?? false;
+	}
+
+	setAutoSuggestPlanMode(enabled: boolean): void {
+		this.setGlobalSetting("autoSuggestPlanMode", enabled);
+	}
+
+	getAutoSwitchPlanModel(): boolean {
+		return this.settings.autoSwitchPlanModel ?? false;
+	}
+
+	setAutoSwitchPlanModel(enabled: boolean): void {
+		this.setGlobalSetting("autoSwitchPlanModel", enabled);
+	}
+
 	setPermissionMode(mode: "danger-full-access" | "accept-on-edit" | "auto" | "plan"): void {
 		this.setGlobalSetting("permissionMode", mode);
 	}
@@ -880,6 +899,14 @@ export class SettingsManager {
 
 	setDefaultThinkingLevel(level: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "adaptive"): void {
 		this.setGlobalSetting("defaultThinkingLevel", level);
+	}
+
+	getAnthropicAdaptiveByDefault(): boolean {
+		return this.settings.anthropicAdaptiveByDefault ?? false;
+	}
+
+	setAnthropicAdaptiveByDefault(enabled: boolean): void {
+		this.setGlobalSetting("anthropicAdaptiveByDefault", enabled);
 	}
 
 	getTransport(): TransportSetting {
@@ -1067,24 +1094,18 @@ export class SettingsManager {
 		this.setGlobalSetting("enableSkillCommands", enabled);
 	}
 
-	getToolProfile(): "minimal" | "balanced" {
+	getToolProfile(): "balanced" | "full" {
 		const profile = this.settings.toolProfile;
-		if (profile === "minimal" || profile === "balanced") return profile;
-		if (this.settings.toolSearch !== undefined) return this.settings.toolSearch ? "minimal" : "balanced";
+		if (profile === "balanced" || profile === "full") return profile;
+		// Migrate legacy minimal/toolSearch settings to balanced.
+		if (this.settings.toolSearch !== undefined) return "balanced";
 		return "balanced";
 	}
 
-	setToolProfile(profile: "minimal" | "balanced"): void {
+	setToolProfile(profile: "balanced" | "full"): void {
 		this.setGlobalSetting("toolProfile", profile);
-		this.setGlobalSetting("toolSearch", profile === "minimal");
-	}
-
-	getToolSearch(): boolean {
-		return this.getToolProfile() === "minimal";
-	}
-
-	setToolSearch(enabled: boolean): void {
-		this.setToolProfile(enabled ? "minimal" : "balanced");
+		// Keep legacy field in sync with deprecated minimal mode removal.
+		this.setGlobalSetting("toolSearch", false);
 	}
 
 	getThinkingBudgets(): ThinkingBudgetsSettings | undefined {

@@ -710,7 +710,7 @@ const ChainItem = Type.Object({
 });
 
 const AgentScopeSchema = StringEnum(["user", "project", "both"] as const, {
-    description: 'Which agent directories to use. Default: "both" (user + project-local).',
+    description: 'Which agent directories to use. Default: "both".',
     default: "both",
 });
 
@@ -950,13 +950,11 @@ export default function(pi: ExtensionAPI) {
             "Modes: single ({ agent, task }), parallel ({ tasks: [{agent, task},...] }), chain ({ chain: [{agent, task},...] } with {previous} placeholder).",
             "Agents are defined as .md files in the configured user agent directory (for LSD this is typically ~/.lsd/agent/agents/) or project-local .lsd/agents/, with legacy support for .gsd/agents/ and .pi/agents/.",
             "Use the /subagent command to list available agents and their descriptions.",
-            "Use chain mode to pipeline: scout finds context, planner designs, worker implements.",
             "Set background: true (single mode only) to run detached — returns immediately with a sa_xxxx job ID. Completion is announced back into the session. Use await_subagent or /subagents to manage background jobs.",
         ].join(" "),
         promptGuidelines: [
             "Use subagent to delegate self-contained tasks that benefit from an isolated context window.",
-            "Use scout agent first when you need codebase context before implementing.",
-            "Use chain mode for scout→planner→worker or worker→reviewer→worker pipelines.",
+            "Use scout when a task requires reading and understanding many files to build architectural context — not for targeted lookups where LSP or a single file read is enough.",
             "Use parallel mode when tasks are independent and don't need each other's output.",
             "Always check available agents with /subagent before choosing one.",
             "Use background: true when the user wants to keep chatting while a long-running agent works in parallel.",
@@ -1344,8 +1342,7 @@ export default function(pi: ExtensionAPI) {
             if (args.chain && args.chain.length > 0) {
                 let text =
                     theme.fg("toolTitle", theme.bold("subagent ")) +
-                    theme.fg("accent", `chain (${args.chain.length} steps)`) +
-                    theme.fg("muted", ` [${scope}]`);
+                    theme.fg("accent", `chain (${args.chain.length} steps)`);
                 for (let i = 0; i < Math.min(args.chain.length, 3); i++) {
                     const step = args.chain[i];
                     // Clean up {previous} placeholder for display
@@ -1364,8 +1361,7 @@ export default function(pi: ExtensionAPI) {
             if (args.tasks && args.tasks.length > 0) {
                 let text =
                     theme.fg("toolTitle", theme.bold("subagent ")) +
-                    theme.fg("accent", `parallel (${args.tasks.length} tasks)`) +
-                    theme.fg("muted", ` [${scope}]`);
+                    theme.fg("accent", `parallel (${args.tasks.length} tasks)`);
                 for (const t of args.tasks.slice(0, 3)) {
                     const preview = t.task.length > 40 ? `${t.task.slice(0, 40)}...` : t.task;
                     text += `\n  ${theme.fg("accent", t.agent)}${theme.fg("dim", ` ${preview}`)}`;
@@ -1377,8 +1373,7 @@ export default function(pi: ExtensionAPI) {
             const preview = args.task ? (args.task.length > 60 ? `${args.task.slice(0, 60)}...` : args.task) : "...";
             let text =
                 theme.fg("toolTitle", theme.bold("subagent ")) +
-                theme.fg("accent", agentName) +
-                theme.fg("muted", ` [${scope}]`);
+                theme.fg("accent", agentName);
             text += `\n  ${theme.fg("dim", preview)}`;
             return new Text(text, 0, 0);
         },

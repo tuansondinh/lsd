@@ -33,12 +33,13 @@ export interface SettingsConfig {
 	planModeReasoningModel: string;
 	planModeReviewModel: string;
 	planModeCodingModel: string;
+	autoSuggestPlanMode: boolean;
+	autoSwitchPlanModel: boolean;
 	showImages: boolean;
 	autoResizeImages: boolean;
 	blockImages: boolean;
 	enableSkillCommands: boolean;
-	toolSearch: boolean;
-	toolProfile: "minimal" | "balanced";
+	toolProfile: "balanced" | "full";
 	codexRotate: boolean;
 	cacheTimer: boolean;
 	pinLastPrompt: boolean;
@@ -46,6 +47,7 @@ export interface SettingsConfig {
 	followUpMode: "all" | "one-at-a-time";
 	transport: Transport;
 	thinkingLevel: ThinkingLevel;
+	anthropicAdaptiveByDefault: boolean;
 	availableThinkingLevels: ThinkingLevel[];
 	currentTheme: string;
 	availableThemes: string[];
@@ -87,6 +89,8 @@ export interface SettingsCallbacks {
 	onPlanModeReasoningModelChange: (modelRef: string) => void;
 	onPlanModeReviewModelChange: (modelRef: string) => void;
 	onPlanModeCodingModelChange: (modelRef: string) => void;
+	onAutoSuggestPlanModeChange: (enabled: boolean) => void;
+	onAutoSwitchPlanModelChange: (enabled: boolean) => void;
 	onAutoDreamChange: (enabled: boolean) => void;
 	onAutoMemoryChange: (enabled: boolean) => void;
 	onTelegramLiveRelayAutoConnectChange: (enabled: boolean) => void;
@@ -96,8 +100,7 @@ export interface SettingsCallbacks {
 	onAutoResizeImagesChange: (enabled: boolean) => void;
 	onBlockImagesChange: (blocked: boolean) => void;
 	onEnableSkillCommandsChange: (enabled: boolean) => void;
-	onToolSearchChange: (enabled: boolean) => void;
-	onToolProfileChange: (profile: "minimal" | "balanced") => void;
+	onToolProfileChange: (profile: "balanced" | "full") => void;
 	onCodexRotateChange: (enabled: boolean) => void;
 	onCacheTimerChange: (enabled: boolean) => void;
 	onPinLastPromptChange: (enabled: boolean) => void;
@@ -105,6 +108,7 @@ export interface SettingsCallbacks {
 	onFollowUpModeChange: (mode: "all" | "one-at-a-time") => void;
 	onTransportChange: (transport: Transport) => void;
 	onThinkingLevelChange: (level: ThinkingLevel) => void;
+	onAnthropicAdaptiveByDefaultChange: (enabled: boolean) => void;
 	onThemeChange: (theme: string) => void;
 	onThemePreview?: (theme: string) => void;
 	onThemeAccentChange: (accent: string) => void;
@@ -256,6 +260,20 @@ export class SettingsSelectorComponent extends Container {
 				submenu: config.planModeCodingModelSubmenu,
 			},
 			{
+				id: "auto-suggest-plan-mode",
+				label: "Auto-suggest plan mode",
+				description: "Ask the LLM to suggest plan mode for large/complex tasks",
+				currentValue: config.autoSuggestPlanMode ? "true" : "false",
+				values: ["true", "false"],
+			},
+			{
+				id: "auto-switch-plan-model",
+				label: "OpusPlan mode",
+				description: "On plan entry: auto-switch to Plan reasoning model (must be set). On approval: offer new session with Plan coding model + worker agent",
+				currentValue: config.autoSwitchPlanModel ? "true" : "false",
+				values: ["true", "false"],
+			},
+			{
 				id: "steering-mode",
 				label: "Steering mode",
 				description:
@@ -357,6 +375,13 @@ export class SettingsSelectorComponent extends Container {
 					),
 			},
 			{
+				id: "anthropic-adaptive-default",
+				label: "Anthropic adaptive",
+				description: "Default to adaptive thinking for supported Anthropic models",
+				currentValue: config.anthropicAdaptiveByDefault ? "true" : "false",
+				values: ["true", "false"],
+			},
+			{
 				id: "theme",
 				label: "Theme",
 				description: "Color theme for the interface",
@@ -455,9 +480,9 @@ export class SettingsSelectorComponent extends Container {
 		items.splice(skillCommandsIndex + 1, 0, {
 			id: "tool-profile",
 			label: "Tool profile",
-			description: "Choose the default active tool set: balanced for day-to-day coding, minimal for lazy tool-search mode",
+			description: "Choose the default active tool set: balanced for day-to-day coding, full to enable all available tools",
 			currentValue: config.toolProfile,
-			values: ["balanced", "minimal"],
+			values: ["balanced", "full"],
 		});
 
 		// Codex rotate toggle (insert after tool-profile)
@@ -633,6 +658,12 @@ export class SettingsSelectorComponent extends Container {
 					case "plan-mode-coding-model":
 						callbacks.onPlanModeCodingModelChange(newValue);
 						break;
+					case "auto-suggest-plan-mode":
+						callbacks.onAutoSuggestPlanModeChange(newValue === "true");
+						break;
+					case "auto-switch-plan-model":
+						callbacks.onAutoSwitchPlanModelChange(newValue === "true");
+						break;
 					case "show-images":
 						callbacks.onShowImagesChange(newValue === "true");
 						break;
@@ -645,11 +676,8 @@ export class SettingsSelectorComponent extends Container {
 					case "skill-commands":
 						callbacks.onEnableSkillCommandsChange(newValue === "true");
 						break;
-					case "tool-search":
-						callbacks.onToolSearchChange(newValue === "true");
-						break;
 					case "tool-profile":
-						callbacks.onToolProfileChange(newValue as "minimal" | "balanced");
+						callbacks.onToolProfileChange(newValue as "balanced" | "full");
 						break;
 					case "codex-rotate":
 						callbacks.onCodexRotateChange(newValue === "true");
@@ -680,6 +708,9 @@ export class SettingsSelectorComponent extends Container {
 						break;
 					case "transport":
 						callbacks.onTransportChange(newValue as Transport);
+						break;
+					case "anthropic-adaptive-default":
+						callbacks.onAnthropicAdaptiveByDefaultChange(newValue === "true");
 						break;
 					case "hide-thinking":
 						callbacks.onHideThinkingBlockChange(newValue === "true");

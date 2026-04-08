@@ -10,6 +10,7 @@ interface MockPi {
   commands: Record<string, { handler: (args: string, ctx: any) => Promise<void> }>
   entries: Array<{ type: string; data: unknown }>
   sentMessages: string[]
+  sentUserMessageDeliveries: Array<{ text: string; deliverAs?: 'steer' | 'followUp' }>
   customMessages: Array<{ customType: string; content: string; display?: boolean }>
   modelSwitches: string[]
   flagValue: boolean
@@ -18,7 +19,10 @@ interface MockPi {
   registerFlag(_name: string, _config: unknown): void
   appendEntry<T>(type: string, data?: T): void
   sendMessage(message: { customType: string; content: string; display?: boolean }): void
-  sendUserMessage(content: string | Array<{ type: string; text?: string }>): void
+  sendUserMessage(
+    content: string | Array<{ type: string; text?: string }>,
+    options?: { deliverAs?: 'steer' | 'followUp' },
+  ): void
   getFlag(_name: string): boolean
   setModel(model: { provider: string; id: string }): Promise<boolean>
 }
@@ -29,6 +33,7 @@ function makeMockPi(): MockPi {
     commands: {},
     entries: [],
     sentMessages: [],
+    sentUserMessageDeliveries: [],
     customMessages: [],
     modelSwitches: [],
     flagValue: false,
@@ -45,12 +50,13 @@ function makeMockPi(): MockPi {
     sendMessage(message) {
       this.customMessages.push(message)
     },
-    sendUserMessage(content) {
-      if (typeof content === 'string') {
-        this.sentMessages.push(content)
-        return
-      }
-      this.sentMessages.push(content.map((item) => item.text ?? '').join('\n'))
+    sendUserMessage(content, options) {
+      const text =
+        typeof content === 'string'
+          ? content
+          : content.map((item) => item.text ?? '').join('\n')
+      this.sentMessages.push(text)
+      this.sentUserMessageDeliveries.push({ text, deliverAs: options?.deliverAs })
     },
     getFlag() {
       return this.flagValue
@@ -70,7 +76,7 @@ function makeCtx(overrides: Partial<any> = {}): any {
     { provider: 'google', id: 'gemini-2.5-pro' },
   ]
 
-  return {
+  const ctx: any = {
     hasUI: true,
     model: overrides.model,
     modelRegistry: {
@@ -87,6 +93,8 @@ function makeCtx(overrides: Partial<any> = {}): any {
     },
     ...overrides,
   }
+
+  return ctx
 }
 
 function makeAskUserDetails(
@@ -484,14 +492,20 @@ test('plan mode non-interactive plan write auto-approves with default auto mode 
   assert.match(pi.sentMessages.at(-1) ?? '', /Plan approved\. Exit plan mode and start implementation immediately\./)
 })
 
-test('plan mode subagent-auto approval embeds planModeCodingModel in the worker invocation instruction', async (t) => {
+test('plan mode subagent-auto approval uses configured planModeCodingSubagent with planModeCodingModel', async (t) => {
   const tmp = mkdtempSync(join(tmpdir(), 'plan-mode-test-'))
   t.after(() => rmSync(tmp, { recursive: true, force: true }))
 
   const oldAgentDir = process.env.LSD_CODING_AGENT_DIR
   process.env.LSD_CODING_AGENT_DIR = tmp
   mkdirSync(tmp, { recursive: true })
-  writeFileSync(join(tmp, 'settings.json'), JSON.stringify({ planModeCodingModel: 'anthropic/claude-sonnet-4-6' }))
+  writeFileSync(
+    join(tmp, 'settings.json'),
+    JSON.stringify({
+      planModeCodingModel: 'anthropic/claude-sonnet-4-6',
+      planModeCodingSubagent: 'generic',
+    }),
+  )
   t.after(() => {
     if (oldAgentDir === undefined) delete process.env.LSD_CODING_AGENT_DIR
     else process.env.LSD_CODING_AGENT_DIR = oldAgentDir
@@ -534,22 +548,34 @@ test('plan mode subagent-auto approval embeds planModeCodingModel in the worker 
   const kickoff = pi.sentMessages.at(-1) ?? ''
   assert.match(kickoff, /Plan approved\. Exit plan mode and execute the approved plan with a subagent now\./)
   // codingModel must be embedded directly in the invocation instruction as a tool parameter
-  assert.match(kickoff, /agent "worker" and model="anthropic\/claude-sonnet-4-6"/)
+  assert.match(kickoff, /agent "generic" and model="anthropic\/claude-sonnet-4-6"/)
   // must NOT fall back to the old loose "Set model to" pattern
   assert.doesNotMatch(kickoff, /Set model to/)
   assert.match(kickoff, /Execution permission mode is now "auto"/)
   assert.match(kickoff, /PLAN-subagent-auto\.md/)
-  assert.ok(pi.sentMessages.some(m => m.includes('worker')))
+  assert.ok(pi.sentMessages.some(m => m.includes('generic')))
+  // The kickoff MUST be steered (not delivered as a follow-up). Otherwise the
+  // LLM continues the same turn after the dialog answer and calls the
+  // subagent tool with the default session model BEFORE it ever sees the
+  // explicit model="<planModeCodingModel>" instruction in the kickoff.
+  const lastDelivery = pi.sentUserMessageDeliveries.at(-1)
+  assert.equal(lastDelivery?.deliverAs, 'steer', 'plan-mode kickoff must be delivered as a steer message so the configured planModeCodingModel reaches the subagent invocation before the LLM calls the tool')
 })
 
-test('plan mode subagent-bypass approval embeds planModeCodingModel in the worker invocation instruction', async (t) => {
+test('plan mode subagent-bypass approval honors configured planModeCodingAgent alias with planModeCodingModel', async (t) => {
   const tmp = mkdtempSync(join(tmpdir(), 'plan-mode-test-'))
   t.after(() => rmSync(tmp, { recursive: true, force: true }))
 
   const oldAgentDir = process.env.LSD_CODING_AGENT_DIR
   process.env.LSD_CODING_AGENT_DIR = tmp
   mkdirSync(tmp, { recursive: true })
-  writeFileSync(join(tmp, 'settings.json'), JSON.stringify({ planModeCodingModel: 'anthropic/claude-sonnet-4-6' }))
+  writeFileSync(
+    join(tmp, 'settings.json'),
+    JSON.stringify({
+      planModeCodingModel: 'anthropic/claude-sonnet-4-6',
+      planModeCodingAgent: 'generic',
+    }),
+  )
   t.after(() => {
     if (oldAgentDir === undefined) delete process.env.LSD_CODING_AGENT_DIR
     else process.env.LSD_CODING_AGENT_DIR = oldAgentDir
@@ -592,10 +618,34 @@ test('plan mode subagent-bypass approval embeds planModeCodingModel in the worke
   const kickoff = pi.sentMessages.at(-1) ?? ''
   assert.match(kickoff, /Plan approved\. Exit plan mode and execute the approved plan with a subagent now\./)
   // codingModel must be embedded directly in the invocation instruction as a tool parameter
-  assert.match(kickoff, /agent "worker" and model="anthropic\/claude-sonnet-4-6"/)
+  assert.match(kickoff, /agent "generic" and model="anthropic\/claude-sonnet-4-6"/)
   // must NOT fall back to the old loose "Set model to" pattern
   assert.doesNotMatch(kickoff, /Set model to/)
   assert.match(kickoff, /Execution permission mode is now "danger-full-access"/)
   assert.match(kickoff, /PLAN-subagent-bypass\.md/)
-  assert.ok(pi.sentMessages.some(m => m.includes('worker')))
+  assert.ok(pi.sentMessages.some(m => m.includes('generic')))
+})
+
+// ─── Auto-suggest plan mode tests (system-prompt approach) ────────────────────
+
+test('auto-suggest plan mode off: buildAutoSuggestPlanModeSystemPrompt returns correct wording', async () => {
+  const { buildAutoSuggestPlanModeSystemPrompt } = (await import('../resources/extensions/slash-commands/plan.ts')).__testing
+  const prompt = buildAutoSuggestPlanModeSystemPrompt()
+  assert.match(prompt, /plan mode/i)
+  assert.match(prompt, /\/plan/)
+  assert.match(prompt, /large|multi-step|refactor|migration/i)
+})
+
+test('auto-suggest readAutoSuggestPlanModeSetting returns false when settings file is missing', async () => {
+  const { readAutoSuggestPlanModeSetting } = (await import('../resources/extensions/slash-commands/plan.ts')).__testing
+  const tmp = mkdtempSync(join(tmpdir(), 'lsd-plan-test-'))
+  const oldAgentDir = process.env.LSD_CODING_AGENT_DIR
+  process.env.LSD_CODING_AGENT_DIR = join(tmp, 'nonexistent')
+  try {
+    assert.equal(readAutoSuggestPlanModeSetting(), false)
+  } finally {
+    if (oldAgentDir !== undefined) process.env.LSD_CODING_AGENT_DIR = oldAgentDir
+    else delete process.env.LSD_CODING_AGENT_DIR
+    rmSync(tmp, { recursive: true, force: true })
+  }
 })

@@ -71,14 +71,14 @@ function tryReadContextFile(filePath: string): { path: string; content: string }
 
 function loadContextFileFromDir(dir: string): { path: string; content: string } | null {
 	const candidates = [
-		join(dir, "lsd.md"),
-		join(dir, ".lsd", "lsd.md"),
-		join(dir, CONFIG_DIR_NAME, "lsd.md"),
 		join(dir, "LSD.md"),
 		join(dir, ".lsd", "LSD.md"),
 		join(dir, CONFIG_DIR_NAME, "LSD.md"),
-		join(dir, "AGENTS.md"),
+		join(dir, "lsd.md"),
+		join(dir, ".lsd", "lsd.md"),
+		join(dir, CONFIG_DIR_NAME, "lsd.md"),
 		join(dir, "CLAUDE.md"),
+		join(dir, "AGENTS.md"),
 	];
 	for (const filePath of new Set(candidates)) {
 		const loaded = tryReadContextFile(filePath);

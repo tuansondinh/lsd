@@ -178,6 +178,17 @@ export interface InteractiveModeOptions {
 	runSetupWizard?: () => Promise<void>;
 }
 
+function getToolNamesForProfile(
+	profile: "balanced" | "full",
+	editMode: "standard" | "hashline",
+	availableToolNames: string[],
+): string[] {
+	const balancedToolNames = editMode === "hashline"
+		? ["hashline_read", "bash", "hashline_edit", "write", "lsp", "bg_shell", "tool_search", "tool_enable", "Skill", "subagent", "await_subagent", "ask_user_questions"]
+		: ["read", "bash", "edit", "write", "lsp", "bg_shell", "tool_search", "tool_enable", "Skill", "subagent", "await_subagent", "ask_user_questions"];
+	return profile === "full" ? availableToolNames : balancedToolNames;
+}
+
 export class InteractiveMode {
 	private session: AgentSession;
 	private ui: TUI;
@@ -2405,13 +2416,13 @@ export class InteractiveMode {
 		await handleAgentEvent(this as any, event);
 	}
 
-	private getLatestPlanModeState(): { active?: boolean; latestPlanPath?: string } | undefined {
+	private getLatestPlanModeState(): { active?: boolean; latestPlanPath?: string; approvalStatus?: string } | undefined {
 		try {
 			const entries = this.session.sessionManager.getEntries();
 			for (let i = entries.length - 1; i >= 0; i--) {
 				const entry = entries[i];
 				if (entry.type === "custom" && entry.customType === "plan-mode-state" && entry.data && typeof entry.data === "object") {
-					return entry.data as { active?: boolean; latestPlanPath?: string };
+					return entry.data as { active?: boolean; latestPlanPath?: string; approvalStatus?: string };
 				}
 			}
 		} catch {
@@ -2421,17 +2432,26 @@ export class InteractiveMode {
 	}
 
 	private getPlanModeEditorBadge(): string {
+		// Show badge when actively in plan mode OR when plan is approved (executing)
+		// Only clear when plan is cancelled or there's no plan state at all.
+		const permMode = getPermissionMode();
 		const planState = this.getLatestPlanModeState();
-		if (!planState?.active) return "";
 
-		const planName = planState.latestPlanPath
+		const inPlanMode = permMode === "plan";
+		const planApproved = planState?.approvalStatus === "approved" && !planState?.active;
+
+		if (!inPlanMode && !planApproved) return "";
+
+		const planName = planState?.latestPlanPath
 			? path.basename(planState.latestPlanPath).replace(/\.md$/i, "")
 			: "draft";
-		const badgeText = ` plan ${planName} · /plan to show plan `;
+		const badgeText = inPlanMode
+			? ` plan ${planName} · /plan to show plan `
+			: ` plan ${planName} · executing `;
 
 		// Deterministic "random" color per plan so it feels varied without flickering.
 		const palette = [18, 19, 20, 24, 25, 26, 27, 54, 55, 56, 57, 60, 88, 89, 90, 124, 125, 126, 160, 161, 162];
-		const seed = planState.latestPlanPath ?? planName;
+		const seed = planState?.latestPlanPath ?? planName;
 		const digest = crypto.createHash("sha256").update(seed).digest();
 		const bg256 = palette[digest[0] % palette.length] ?? 25;
 
@@ -3407,11 +3427,12 @@ export class InteractiveMode {
 					planModeReasoningModel: this.settingsManager.getPlanModeReasoningModel() ?? "default",
 					planModeReviewModel: this.settingsManager.getPlanModeReviewModel() ?? "default",
 					planModeCodingModel: this.settingsManager.getPlanModeCodingModel() ?? "default",
+					autoSuggestPlanMode: this.settingsManager.getAutoSuggestPlanMode(),
+					autoSwitchPlanModel: this.settingsManager.getAutoSwitchPlanModel(),
 					showImages: this.settingsManager.getShowImages(),
 					autoResizeImages: this.settingsManager.getImageAutoResize(),
 					blockImages: this.settingsManager.getBlockImages(),
 					enableSkillCommands: this.settingsManager.getEnableSkillCommands(),
-					toolSearch: this.settingsManager.getToolSearch(),
 					toolProfile: this.settingsManager.getToolProfile(),
 					codexRotate: this.settingsManager.getCodexRotate(),
 					cacheTimer: this.settingsManager.getCacheTimer(),
@@ -3420,6 +3441,7 @@ export class InteractiveMode {
 					followUpMode: this.session.followUpMode,
 					transport: this.settingsManager.getTransport(),
 					thinkingLevel: this.session.thinkingLevel,
+					anthropicAdaptiveByDefault: this.settingsManager.getAnthropicAdaptiveByDefault(),
 					availableThinkingLevels: this.session.getAvailableThinkingLevels(),
 					currentTheme: this.settingsManager.getTheme() || "dark",
 					currentThemeAccent: this.settingsManager.getThemeAccent() || "default",
@@ -3554,6 +3576,14 @@ export class InteractiveMode {
 							`Plan coding model: ${modelRef === "default" ? "use current/default model" : modelRef}`,
 						);
 					},
+					onAutoSuggestPlanModeChange: (enabled) => {
+						this.settingsManager.setAutoSuggestPlanMode(enabled);
+						this.showStatus(`Auto-suggest plan mode: ${enabled ? "enabled" : "disabled"}`);
+					},
+					onAutoSwitchPlanModelChange: (enabled) => {
+						this.settingsManager.setAutoSwitchPlanModel(enabled);
+						this.showStatus(`OpusPlan mode: ${enabled ? "enabled" : "disabled"}`);
+					},
 					onShowImagesChange: (enabled) => {
 						this.settingsManager.setShowImages(enabled);
 						for (const child of this.chatContainer.children) {
@@ -3572,28 +3602,10 @@ export class InteractiveMode {
 						this.settingsManager.setEnableSkillCommands(enabled);
 						this.setupAutocomplete();
 					},
-					onToolSearchChange: (enabled) => {
-						const profile = enabled ? "minimal" : "balanced";
-						this.settingsManager.setToolProfile(profile);
-						const nextActiveToolNames = profile === "minimal"
-							? (this.session.editMode === "hashline"
-								? ["hashline_read", "bash", "lsp", "tool_search", "tool_enable"]
-								: ["read", "bash", "lsp", "tool_search", "tool_enable"])
-							: (this.session.editMode === "hashline"
-								? ["hashline_read", "bash", "hashline_edit", "write", "lsp", "bg_shell", "tool_search", "tool_enable", "Skill", "subagent", "await_subagent"]
-								: ["read", "bash", "edit", "write", "lsp", "bg_shell", "tool_search", "tool_enable", "Skill", "subagent", "await_subagent"]);
-						this.session.setActiveToolsByName(nextActiveToolNames);
-						this.showStatus(`Tool profile: ${profile}`);
-					},
 					onToolProfileChange: (profile) => {
 						this.settingsManager.setToolProfile(profile);
-						const nextActiveToolNames = profile === "minimal"
-							? (this.session.editMode === "hashline"
-								? ["hashline_read", "bash", "lsp", "tool_search", "tool_enable"]
-								: ["read", "bash", "lsp", "tool_search", "tool_enable"])
-							: (this.session.editMode === "hashline"
-								? ["hashline_read", "bash", "hashline_edit", "write", "lsp", "bg_shell", "tool_search", "tool_enable", "Skill", "subagent", "await_subagent"]
-								: ["read", "bash", "edit", "write", "lsp", "bg_shell", "tool_search", "tool_enable", "Skill", "subagent", "await_subagent"]);
+						const allToolNames = this.session.getAllTools().map((tool) => tool.name);
+						const nextActiveToolNames = getToolNamesForProfile(profile, this.session.editMode, allToolNames);
 						this.session.setActiveToolsByName(nextActiveToolNames);
 						this.showStatus(`Tool profile: ${profile}`);
 					},
@@ -3641,6 +3653,10 @@ export class InteractiveMode {
 						this.session.setThinkingLevel(level);
 						this.footer.invalidate();
 						this.updateEditorBorderColor();
+					},
+					onAnthropicAdaptiveByDefaultChange: (enabled) => {
+						this.settingsManager.setAnthropicAdaptiveByDefault(enabled);
+						this.showStatus(`Anthropic adaptive default: ${enabled ? "enabled" : "disabled"}`);
 					},
 					onThemeChange: (themeName) => {
 						const result = setTheme(themeName, true, this.settingsManager.getThemeAccent());

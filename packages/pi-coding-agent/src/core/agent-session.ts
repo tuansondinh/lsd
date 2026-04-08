@@ -1804,7 +1804,7 @@ export class AgentSession {
 			throw new Error(`No API key for ${model.provider}/${model.id}`);
 		}
 
-		const thinkingLevel = this._getThinkingLevelForModelSwitch();
+		const thinkingLevel = this._getThinkingLevelForModelSwitch(model);
 		await this._applyModelChange(model, thinkingLevel, "set", options);
 	}
 
@@ -1841,7 +1841,7 @@ export class AgentSession {
 
 		// Explicit scoped model thinking level overrides current session level;
 		// undefined scoped model thinking level inherits the current session preference.
-		const thinkingLevel = this._getThinkingLevelForModelSwitch(next.thinkingLevel);
+		const thinkingLevel = this._getThinkingLevelForModelSwitch(next.model, next.thinkingLevel);
 		await this._applyModelChange(next.model, thinkingLevel, "cycle", options);
 
 		return { model: next.model, thinkingLevel: this.thinkingLevel, isScoped: true };
@@ -1859,7 +1859,7 @@ export class AgentSession {
 		const nextIndex = direction === "forward" ? (currentIndex + 1) % len : (currentIndex - 1 + len) % len;
 		const nextModel = availableModels[nextIndex];
 
-		const thinkingLevel = this._getThinkingLevelForModelSwitch();
+		const thinkingLevel = this._getThinkingLevelForModelSwitch(nextModel);
 		await this._applyModelChange(nextModel, thinkingLevel, "cycle", options);
 
 		return { model: nextModel, thinkingLevel: this.thinkingLevel, isScoped: false };
@@ -1942,11 +1942,19 @@ export class AgentSession {
 		return !!this.model?.reasoning;
 	}
 
-	private _getThinkingLevelForModelSwitch(explicitLevel?: ThinkingLevel): ThinkingLevel {
+	private _getThinkingLevelForModelSwitch(targetModel: Model<any>, explicitLevel?: ThinkingLevel): ThinkingLevel {
 		if (explicitLevel !== undefined) {
 			return explicitLevel;
 		}
-		if (!this.supportsThinking()) {
+		if (
+			targetModel.provider === "anthropic" &&
+			targetModel.reasoning === true &&
+			this.settingsManager.getAnthropicAdaptiveByDefault() &&
+			supportsAdaptiveThinking(targetModel.id)
+		) {
+			return "adaptive";
+		}
+		if (!targetModel.reasoning) {
 			return this.settingsManager.getDefaultThinkingLevel() ?? DEFAULT_THINKING_LEVEL;
 		}
 		return this.thinkingLevel;

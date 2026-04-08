@@ -16,12 +16,6 @@ function isHashlineMode(activeToolNames: string[]): boolean {
     return activeToolNames.includes("hashline_read") || activeToolNames.includes("hashline_edit");
 }
 
-function getCoreToolNames(activeToolNames: string[]): string[] {
-    return isHashlineMode(activeToolNames)
-        ? ["hashline_read", "bash", "lsp", "tool_search", "tool_enable"]
-        : ["read", "bash", "lsp", "tool_search", "tool_enable"];
-}
-
 function getBalancedToolNames(activeToolNames: string[]): string[] {
     return isHashlineMode(activeToolNames)
         ? [
@@ -36,6 +30,7 @@ function getBalancedToolNames(activeToolNames: string[]): string[] {
             "Skill",
             "subagent",
             "await_subagent",
+            "ask_user_questions",
         ]
         : [
             "read",
@@ -49,7 +44,12 @@ function getBalancedToolNames(activeToolNames: string[]): string[] {
             "Skill",
             "subagent",
             "await_subagent",
+            "ask_user_questions",
         ];
+}
+
+function getFullToolNames(pi: ExtensionAPI): string[] {
+    return pi.getAllTools().map((tool) => tool.name).filter((name): name is string => Boolean(name));
 }
 
 function scoreTool(query: string, tool: { name?: string; description?: string }): number {
@@ -164,41 +164,27 @@ export default function toolSearchExtension(pi: ExtensionAPI) {
     });
 
     pi.registerCommand("tools", {
-        description: "Toggle lazy tool-search mode",
+        description: "Manage default tool profiles",
         handler: async (args: string, _ctx: ExtensionCommandContext) => {
             const input = args.trim();
             const settings = getSettingsManager();
             const currentActive = pi.getActiveTools();
             const toolProfile = settings.getToolProfile();
-            const toolSearchEnabled = toolProfile === "minimal";
 
             if (!input) {
                 pi.sendMessage({
                     customType: "tools:status",
                     content: [
                         `Tool profile: ${toolProfile}`,
-                        `Tool search mode: ${toolSearchEnabled ? "on" : "off"}`,
                         `Active tools: ${currentActive.length}`,
                         currentActive.length > 0 ? currentActive.join(", ") : "(none)",
                         "",
                         "Usage:",
-                        "  /tools on         Enable lazy tool-search mode and switch to a small core tool set",
-                        "  /tools off        Disable lazy tool-search mode and restore the balanced tool profile",
                         "  /tools balanced   Switch to the balanced tool profile",
-                        "  /tools minimal    Switch to the minimal core tool profile",
+                        "  /tools full       Switch to the full tool profile (all available tools)",
+                        "  /tools on         Alias for /tools full",
+                        "  /tools off        Alias for /tools balanced",
                     ].join("\n"),
-                    display: true,
-                });
-                return;
-            }
-
-            if (["on", "enable", "mode on"].includes(input)) {
-                settings.setToolProfile("minimal");
-                const nextActive = getCoreToolNames(currentActive);
-                pi.setActiveTools(nextActive);
-                pi.sendMessage({
-                    customType: "tools:mode",
-                    content: `Tool search mode enabled. Active tools reduced to: ${pi.getActiveTools().join(", ")}`,
                     display: true,
                 });
                 return;
@@ -216,13 +202,13 @@ export default function toolSearchExtension(pi: ExtensionAPI) {
                 return;
             }
 
-            if (["minimal", "core"].includes(input)) {
-                settings.setToolProfile("minimal");
-                const nextActive = getCoreToolNames(currentActive);
+            if (["on", "enable", "mode on", "full", "all"].includes(input)) {
+                settings.setToolProfile("full");
+                const nextActive = getFullToolNames(pi);
                 pi.setActiveTools(nextActive);
                 pi.sendMessage({
                     customType: "tools:mode",
-                    content: `Minimal tool profile active: ${pi.getActiveTools().join(", ")}`,
+                    content: `Full tool profile active: ${pi.getActiveTools().join(", ")}`,
                     display: true,
                 });
                 return;
@@ -230,7 +216,7 @@ export default function toolSearchExtension(pi: ExtensionAPI) {
 
             pi.sendMessage({
                 customType: "tools:help",
-                content: `Unknown /tools subcommand: ${input}\n\nTry /tools, /tools on, /tools off, /tools balanced, or /tools minimal.`,
+                content: `Unknown /tools subcommand: ${input}\n\nTry /tools, /tools balanced, /tools full, /tools on, or /tools off.`,
                 display: true,
             });
         },

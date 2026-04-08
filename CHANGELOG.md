@@ -6,6 +6,35 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-04-08
+
+### Added
+- show /bg hint after bg_shell start/list/digest tool calls
+- detect privilege escalation errors and show manual run callout
+- add memory extraction helper script and export auth-storage
+- add configurable sandbox manager
+- background subagent sessions (PLAN-4)
+- add usage reports and memory auto-dream
+- **theme**: add configurable main accent presets
+- plan mode auto-switch approval dialog
+- add bedrock onboarding support
+- verify custom subagents and skills
+- subagent model resolution and extension awareness
+- add LSP server install step to onboarding wizard
+- add LSP server install utility and settings fields
+- port teams workflow skills and agents
+- improve subagent config
+- **ui**: add configurable tool output density
+- **subagent**: infer model for spawned agents
+- commit unrelated UI and core improvements
+- **extensions**: wire up topological sort and unified registry filtering (#3152)
+- **widget**: add last commit display and dashboard layout improvements (#3226)
+- **model-routing**: enable dynamic routing by default (#3120)
+- **plan-mode**: optional auto-suggest — append a system-prompt instruction asking the LLM to recommend plan mode for large tasks (off by default, toggle in /settings)
+
+### Added
+- **plan-mode**: optional auto-suggest — append a system-prompt instruction asking the LLM to recommend plan mode for large tasks (off by default, toggle in /settings)
+
 ## [1.1.10] - 2026-04-07
 
 ### Added
@@ -2230,7 +2259,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 - License updated to MIT
 
-[Unreleased]: https://github.com/gsd-build/gsd-2/compare/v1.1.8...HEAD
+[Unreleased]: https://github.com/gsd-build/gsd-2/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/gsd-build/gsd-2/compare/v1.1.8...v1.2.0
 [1.1.8]: https://github.com/gsd-build/gsd-2/compare/v2.58.0...v1.1.8
 [2.58.0]: https://github.com/gsd-build/gsd-2/compare/v2.57.0...v2.58.0
 [2.57.0]: https://github.com/gsd-build/gsd-2/compare/v2.56.0...v2.57.0
