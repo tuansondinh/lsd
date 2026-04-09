@@ -6,6 +6,7 @@ import {
   SettingsManager,
   SessionManager,
   createAgentSession,
+  allBuiltInTools,
   InteractiveMode,
   resetStdinForTui,
   runPrintMode,
@@ -432,12 +433,19 @@ if (isPrintMode) {
   await resourceLoader.reload()
   markStartup('resourceLoader.reload')
 
+  const toolsOverride = cliFlags.tools
+    ? cliFlags.tools
+        .filter((toolName): toolName is keyof typeof allBuiltInTools => toolName in allBuiltInTools)
+        .map((toolName) => allBuiltInTools[toolName])
+    : undefined
+
   const { session, extensionsResult } = await createAgentSession({
     authStorage,
     modelRegistry,
     settingsManager,
     sessionManager,
     resourceLoader,
+    ...(toolsOverride ? { tools: toolsOverride } : {}),
   })
   markStartup('createAgentSession')
 

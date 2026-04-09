@@ -189,6 +189,7 @@ export {
 	type PromptTemplate,
 	// Pre-built tools (use process.cwd())
 	readOnlyTools,
+	allBuiltInTools,
 } from "./core/sdk.js";
 export {
 	type BranchSummaryEntry,

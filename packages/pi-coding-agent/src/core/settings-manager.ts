@@ -1099,7 +1099,7 @@ export class SettingsManager {
 		if (profile === "balanced" || profile === "full") return profile;
 		// Migrate legacy minimal/toolSearch settings to balanced.
 		if (this.settings.toolSearch !== undefined) return "balanced";
-		return "balanced";
+		return "full";
 	}
 
 	setToolProfile(profile: "balanced" | "full"): void {

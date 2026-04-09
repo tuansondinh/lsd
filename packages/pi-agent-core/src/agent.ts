@@ -282,7 +282,10 @@ export class Agent {
 	}
 
 	setTools(t: AgentTool<any>[]) {
-		this._state.tools = t;
+		// Mutate in-place so any AgentContext.tools reference captured by the
+		// running agent loop stays live and immediately sees the new tool set.
+		// This allows tool_enable to take effect within the same turn.
+		this._state.tools.splice(0, this._state.tools.length, ...t);
 	}
 
 	replaceMessages(ms: AgentMessage[]) {
@@ -479,10 +482,13 @@ export class Agent {
 
 		const reasoning = this._state.thinkingLevel === "off" ? undefined : this._state.thinkingLevel;
 
+		const self = this;
 		const context: AgentContext = {
 			systemPrompt: this._state.systemPrompt,
 			messages: this._state.messages.slice(),
-			tools: this._state.tools,
+			get tools() {
+				return self._state.tools;
+			},
 		};
 
 		let skipInitialSteeringPoll = options?.skipInitialSteeringPoll === true;
