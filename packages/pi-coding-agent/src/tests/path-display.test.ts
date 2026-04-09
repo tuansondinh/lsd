@@ -74,6 +74,7 @@ test("buildSystemPrompt: encourages scout-first reconnaissance when subagent is 
 	assert.match(prompt, /multiple scout subagents in parallel/i);
 	assert.match(prompt, /broad review or audit requests, use scout only as a prep step/i);
 	assert.match(prompt, /Skip scout only when the task is clearly narrow/i);
+	assert.match(prompt, /When the user names a subagent such as scout, worker, reviewer, or planner, invoke the subagent tool directly/i);
 });
 
 // ─── Regression: no backslash paths in LLM-visible text ────────────────────

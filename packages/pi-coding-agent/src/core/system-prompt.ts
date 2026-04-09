@@ -173,6 +173,9 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions = {}): strin
 			"Call the subagent tool directly. For one scout use { agent, task }. For several scouts use parallel mode with { tasks: [{ agent, task }, ...] }.",
 		);
 		addGuideline(
+			"When the user names a subagent such as scout, worker, reviewer, or planner, invoke the subagent tool directly rather than the Skill tool or ad-hoc search.",
+		);
+		addGuideline(
 			"Scout is for mapping and reconnaissance only — not for final review, audit, or ranked issue lists. Use it to identify relevant files, subsystems, and likely hotspots for later evaluation.",
 		);
 		addGuideline(

@@ -85,6 +85,24 @@ describe("Skill tool", () => {
 		);
 	});
 
+	it("describes Skill as distinct from subagents", async () => {
+		const session = await createSession();
+		const tool = session.state.tools.find((entry) => entry.name === "Skill");
+		assert.ok(tool, "Skill tool should be registered");
+		assert.match(tool.description ?? "", /not for launching subagents like scout, worker, reviewer, or planner/i);
+	});
+
+	it("returns a helpful redirect when a known subagent name is passed to Skill", async () => {
+		const session = await createSession();
+		const tool = session.state.tools.find((entry) => entry.name === "Skill");
+		assert.ok(tool, "Skill tool should be registered");
+
+		const result = await tool.execute("call-subagent", { skill: "scout" });
+		const message = result.content[0]?.type === "text" ? result.content[0].text : "";
+		assert.match(message, /"scout" is an available subagent/i);
+		assert.match(message, /Use the subagent tool directly with \{ agent: "scout", task: "\.\.\." \}\./i);
+	});
+
 	it("returns a helpful error for unknown skills", async () => {
 		writeSkill(testDir, "swift-testing", "Use for Swift Testing assertions and verification patterns.");
 		const session = await createSession();

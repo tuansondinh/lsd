@@ -275,15 +275,21 @@ async function enablePlanModeWithModelSwitch(
   next: Partial<Pick<PlanModeState, "task" | "latestPlanPath" | "approvalStatus" | "previousMode" | "preplanModel" | "targetPermissionMode">> = {},
 ): Promise<void> {
   enablePlanMode(pi, currentModel, next);
-  // Signal that before_agent_start should switch to the reasoning model on next turn
+  // Keep fallback behavior in before_agent_start for restored sessions or when
+  // immediate switching cannot be completed at entry-time.
   reasoningModelSwitchDone = false;
   if (!readAutoSwitchPlanModelSetting()) return;
-  if (!readPlanModeReasoningModel()) {
+
+  const reasoningModel = parseQualifiedModelRef(readPlanModeReasoningModel());
+  if (!reasoningModel) {
     ctx.ui?.notify?.(
       "OpusPlan: set a Plan reasoning model in /settings to auto-switch on entry",
       "info",
     );
+    return;
   }
+
+  reasoningModelSwitchDone = await setModelIfNeeded(pi, ctx, reasoningModel);
 }
 
 function enablePlanMode(
@@ -329,13 +335,14 @@ function leavePlanMode(
   return nextPermissionMode;
 }
 
-async function setModelIfNeeded(pi: ExtensionAPI, ctx: any, modelRef: ModelRef | undefined): Promise<void> {
-  if (!modelRef) return;
+async function setModelIfNeeded(pi: ExtensionAPI, ctx: any, modelRef: ModelRef | undefined): Promise<boolean> {
+  if (!modelRef) return false;
   const currentModel = parseQualifiedModelRef(ctx?.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined);
-  if (sameModel(currentModel, modelRef)) return;
+  if (sameModel(currentModel, modelRef)) return true;
   const model = resolveModelFromContext(ctx, modelRef);
-  if (!model) return;
+  if (!model) return false;
   await pi.setModel(model, { persist: false });
+  return true;
 }
 
 function buildExecutionKickoffMessage(options: { permissionMode: RestorablePermissionMode; executeWithSubagent?: boolean }): string {
@@ -640,8 +647,7 @@ export default function planCommand(pi: ExtensionAPI) {
       if (!reasoningModelSwitchDone && readAutoSwitchPlanModelSetting()) {
         const reasoningModel = parseQualifiedModelRef(readPlanModeReasoningModel());
         if (reasoningModel) {
-          reasoningModelSwitchDone = true;
-          await setModelIfNeeded(pi, ctx, reasoningModel);
+          reasoningModelSwitchDone = await setModelIfNeeded(pi, ctx, reasoningModel);
         }
       }
       return { systemPrompt: buildPlanModeSystemPrompt() };

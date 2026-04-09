@@ -177,6 +177,7 @@ test("discoverAgents finds user and project agents with project override and sco
 
 	writeAgentFile(userAgentsDir, "user-only.md", ["name: user-only", "description: User only agent"]);
 	writeAgentFile(userAgentsDir, "collision.md", ["name: collision", "description: User collision"]);
+	const bundledScout = discoverAgents(project, "user").agents.find((agent) => agent.name === "scout");
 	writeAgentFile(projectAgentsDir, "project-only.md", ["name: project-only", "description: Project only agent"]);
 	const projectCollisionPath = writeAgentFile(projectAgentsDir, "collision.md", [
 		"name: collision",
@@ -185,13 +186,19 @@ test("discoverAgents finds user and project agents with project override and sco
 
 	const both = discoverAgents(join(project, "nested", "deeper"), "both");
 	assert.equal(both.projectAgentsDir, projectAgentsDir);
-	assert.equal(both.agents.length, 3);
 	assert.equal(both.agents.find((agent) => agent.name === "collision")?.description, "Project collision");
 	assert.equal(both.agents.find((agent) => agent.name === "collision")?.source, "project");
 	assert.equal(both.agents.find((agent) => agent.name === "collision")?.filePath, projectCollisionPath);
+	assert.ok(both.agents.some((agent) => agent.name === "user-only"));
+	assert.ok(both.agents.some((agent) => agent.name === "project-only"));
+	if (bundledScout) {
+		assert.ok(both.agents.some((agent) => agent.name === "scout" && agent.source === bundledScout.source));
+	}
 
 	const userOnly = discoverAgents(project, "user");
-	assert.deepEqual(userOnly.agents.map((agent) => agent.name).sort(), ["collision", "user-only"]);
+	assert.ok(userOnly.agents.some((agent) => agent.name === "collision"));
+	assert.ok(userOnly.agents.some((agent) => agent.name === "user-only"));
+	assert.ok(!userOnly.agents.some((agent) => agent.name === "project-only"));
 
 	const projectOnly = discoverAgents(project, "project");
 	assert.deepEqual(projectOnly.agents.map((agent) => agent.name).sort(), ["collision", "project-only"]);
@@ -227,12 +234,11 @@ test("discoverAgents parses agent frontmatter, keeps $budget_model, and drops ma
 	]);
 
 	const result = discoverAgents(project, "user");
-	assert.deepEqual(result.agents.map((agent) => agent.name).sort(), [
-		"empty-tools",
-		"invalid-model-slashes",
-		"invalid-model-spaces",
-		"valid-agent",
-	]);
+	const names = result.agents.map((agent) => agent.name);
+	assert.ok(names.includes("valid-agent"));
+	assert.ok(names.includes("invalid-model-spaces"));
+	assert.ok(names.includes("invalid-model-slashes"));
+	assert.ok(names.includes("empty-tools"));
 
 	const valid = result.agents.find((agent) => agent.name === "valid-agent");
 	assert.equal(valid?.model, "$budget_model");
@@ -242,6 +248,14 @@ test("discoverAgents parses agent frontmatter, keeps $budget_model, and drops ma
 	assert.equal(result.agents.find((agent) => agent.name === "invalid-model-slashes")?.model, undefined);
 	assert.equal(result.agents.find((agent) => agent.name === "empty-tools")?.tools, undefined);
 	assert.equal(result.agents.find((agent) => agent.name === "empty-tools")?.model, "sonnet");
+});
+
+test("discoverAgents includes bundled system agents when synced agent dir is empty", (t) => {
+	const { project } = withTempProject(t);
+	const result = discoverAgents(project, "user");
+	const scout = result.agents.find((agent) => agent.name === "scout");
+	assert.ok(scout, "expected bundled scout agent to be discoverable");
+	assert.equal(scout?.source, "bundled");
 });
 
 test("resource loader discovers project, user, and bundled skills with project shadowing user", async (t) => {

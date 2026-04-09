@@ -18,6 +18,12 @@ const interactiveModeSource = readFileSync(
   "utf-8",
 );
 
+const subagentExtensionSource = readFileSync(
+  join(process.cwd(), "src", "resources", "extensions", "subagent", "index.ts"),
+  "utf-8",
+);
+
+
 test("app keybindings declare showHotkeys bound to ctrl+k", () => {
   assert.match(appKeybindingsSource, /\| "showHotkeys"\s*[;|]/, "AppAction should include showHotkeys");
   assert.match(appKeybindingsSource, /showHotkeys: "ctrl\+k"/, "showHotkeys should default to ctrl+k");
@@ -41,5 +47,18 @@ test("interactive mode wires showHotkeys action to hotkeys UI", () => {
     interactiveModeSource,
     /onAction\("showHotkeys", \(\) => showHotkeys\(this\.getSlashCommandContext\(\)\)\)/,
     "interactive mode should bind showHotkeys to the hotkeys renderer",
+  );
+});
+
+test("subagent extension registers ctrl+b shortcut for foreground backgrounding", () => {
+  assert.match(
+    subagentExtensionSource,
+    /registerShortcut\(Key\.ctrl\("b"\)/,
+    "subagent extension should register Ctrl+B",
+  );
+  assert.match(
+    subagentExtensionSource,
+    /Moved .* to background as \$\{jobId\}/,
+    "Ctrl+B handoff should confirm the generated sa_xxxx job id",
   );
 });

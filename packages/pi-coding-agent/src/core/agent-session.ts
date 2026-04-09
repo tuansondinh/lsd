@@ -13,7 +13,7 @@
  * Modes use this class and add their own I/O layer on top.
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { Text } from "@gsd/pi-tui";
 import type {
@@ -1001,7 +1001,52 @@ export class AgentSession {
 		return this.resourceLoader.getSkills().skills.find((skill) => skill.name === skillName);
 	}
 
+	private _findKnownSubagentByName(agentName: string): { name: string; source: string } | undefined {
+		const normalized = agentName.trim().toLowerCase();
+		if (!normalized) return undefined;
+
+		const builtInAgentNames = new Set(["scout", "worker", "reviewer", "planner", "teams-builder", "teams-reviewer"]);
+		if (builtInAgentNames.has(normalized)) {
+			return { name: normalized, source: "bundled" };
+		}
+
+		const userAgentsDir = join(process.env.LSD_CODING_AGENT_DIR || process.env.GSD_CODING_AGENT_DIR || join(process.env.HOME || "", ".lsd", "agent"), "agents");
+		const projectCandidates = [".lsd", ".gsd", ".pi"].map((dir) => join(this._cwd, dir, "agents"));
+		for (const [dirPath, source] of [[userAgentsDir, "user"], ...projectCandidates.map((p) => [p, "project"] as const)]) {
+			if (!existsSync(dirPath)) continue;
+			let entries: string[] = [];
+			try {
+				entries = readdirSync(dirPath);
+			} catch {
+				continue;
+			}
+			for (const entry of entries) {
+				if (!entry.endsWith(".md")) continue;
+				const filePath = join(dirPath, entry);
+				try {
+					if (!statSync(filePath).isFile()) continue;
+					const raw = readFileSync(filePath, "utf-8");
+					const match = raw.match(/^---\s*[\r\n]+([\s\S]*?)[\r\n]+---/);
+					const frontmatter = match?.[1] ?? "";
+					const nameMatch = frontmatter.match(/^name:\s*(.+)$/m);
+					const name = nameMatch?.[1]?.trim().replace(/^['"]|['"]$/g, "");
+					if (name?.toLowerCase() === normalized) {
+						return { name, source };
+					}
+				} catch {
+					continue;
+				}
+			}
+		}
+
+		return undefined;
+	}
+
 	private _formatMissingSkillMessage(skillName: string): string {
+		const knownSubagent = this._findKnownSubagentByName(skillName);
+		if (knownSubagent) {
+			return `\"${knownSubagent.name}\" is an available subagent (${knownSubagent.source}), not a skill. Use the subagent tool directly with { agent: \"${knownSubagent.name}\", task: \"...\" }.`;
+		}
 		const availableSkills = this.resourceLoader.getSkills().skills.map((skill) => skill.name).join(", ") || "(none)";
 		return `Skill "${skillName}" not found. Available skills: ${availableSkills}`;
 	}
@@ -1059,6 +1104,7 @@ export class AgentSession {
 			"Scout-first reconnaissance policy: when you need architecture context across multiple files or folders, do not map the subsystem by reading file-after-file yourself. Launch the scout subagent first, then continue with lsp and targeted reads.",
 			"If your next step would be broad exploration rather than a targeted lookup, prefer scout before doing more read/find/grep sweeps yourself.",
 			"When you choose scout, call subagent directly with valid parameters: { agent, task } for one scout, or { tasks: [{ agent, task }, ...] } for parallel scouts.",
+			"If the user explicitly names a subagent such as scout, worker, reviewer, or planner, invoke the subagent tool directly rather than the Skill tool or ad-hoc discovery.",
 			"Scout is reconnaissance-only. Do not use it as the reviewer, auditor, or final issue-ranker; use it to map files, ownership, and likely hotspots for later evaluation.",
 			"If the work spans multiple loosely-coupled subsystems, prefer parallel scout subagents so each scout maps one area and the parent model reads the summaries instead of the raw files.",
 			"For broad review or audit requests, use scout only as a prep step to map architecture and hotspots; the parent model or a reviewer should make the final judgments.",
@@ -1354,7 +1400,7 @@ export class AgentSession {
 			name: "Skill",
 			label: "Skill",
 			description:
-				"Execute a skill within the main conversation. Use this tool when users ask for a slash command or reference a skill by name. Returns the expanded skill block and appends args after it.",
+				"Execute a listed skill within the main conversation. Use this tool only for actual available skills or explicit /skill:name-style requests — not for launching subagents like scout, worker, reviewer, or planner. Returns the expanded skill block and appends args after it.",
 			parameters: skillSchema,
 			execute: async (_toolCallId, params: unknown) => {
 				const input = params as { skill: string; args?: string };
@@ -2371,7 +2417,9 @@ export class AgentSession {
 
 		const nextActiveToolNames = options?.activeToolNames
 			? [...options.activeToolNames]
-			: [...previousActiveToolNames];
+			: this.settingsManager.getToolProfile() === "full"
+				? Array.from(toolRegistry.keys())
+				: [...previousActiveToolNames];
 
 		if (options?.includeAllExtensionTools) {
 			for (const tool of wrappedExtensionTools) {

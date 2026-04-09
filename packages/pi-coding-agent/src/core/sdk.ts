@@ -279,7 +279,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
         ? ["hashline_read", "bash", "hashline_edit", "write", "lsp", "bg_shell", "tool_search", "tool_enable", "Skill", "subagent", "await_subagent", "ask_user_questions"]
         : ["read", "bash", "edit", "write", "lsp", "bg_shell", "tool_search", "tool_enable", "Skill", "subagent", "await_subagent", "ask_user_questions"];
     const defaultActiveToolNames: string[] = toolProfile === "full"
-        ? Object.keys(allTools)
+        ? []
         : balancedToolNames;
     const initialActiveToolNames: string[] = options.tools
         ? options.tools.map((t) => t.name).filter((n): n is string => typeof n === "string" && n in allTools)

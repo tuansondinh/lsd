@@ -13,4 +13,5 @@
 - [ ] Add reviewer subagent
 - [ ] Fix subagent not outputting sometimes the first time
 - [ ] Add Claude Code usage indicator and Codex
+- [ ] Add fast mode for Codex/GPT (single toggle that sets model to gpt-5.4-mini, tokenProfile: speed, permissionMode: auto)
 

@@ -4,6 +4,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import { getAgentDir, parseFrontmatter } from "@gsd/pi-coding-agent";
 
 const PROJECT_AGENT_DIR_CANDIDATES = [".lsd", ".gsd", ".pi"] as const;
@@ -16,7 +17,7 @@ export interface AgentConfig {
 	tools?: string[];
 	model?: string;
 	systemPrompt: string;
-	source: "user" | "project";
+	source: "bundled" | "user" | "project";
 	filePath: string;
 }
 
@@ -35,7 +36,7 @@ function normalizeAgentModel(model: string | undefined): string | undefined {
 	return parts.length === 2 && parts.every(Boolean) ? trimmed : undefined;
 }
 
-function loadAgentsFromDir(dir: string, source: "user" | "project"): AgentConfig[] {
+function loadAgentsFromDir(dir: string, source: "bundled" | "user" | "project"): AgentConfig[] {
 	const agents: AgentConfig[] = [];
 
 	if (!fs.existsSync(dir)) {
@@ -110,22 +111,35 @@ function findNearestProjectAgentsDir(cwd: string): string | null {
 	}
 }
 
+function getBundledAgentsDir(): string {
+	const here = path.dirname(fileURLToPath(import.meta.url));
+	return path.resolve(here, "../../agents");
+}
+
 export function discoverAgents(cwd: string, scope: AgentScope): AgentDiscoveryResult {
 	const userDir = path.join(getAgentDir(), "agents");
+	const bundledDir = getBundledAgentsDir();
 	const projectAgentsDir = findNearestProjectAgentsDir(cwd);
 
+	const bundledAgents = scope === "project" ? [] : loadAgentsFromDir(bundledDir, "bundled");
 	const userAgents = scope === "project" ? [] : loadAgentsFromDir(userDir, "user");
 	const projectAgents = scope === "user" || !projectAgentsDir ? [] : loadAgentsFromDir(projectAgentsDir, "project");
 
 	const agentMap = new Map<string, AgentConfig>();
 
+	const addAgents = (items: AgentConfig[]) => {
+		for (const agent of items) agentMap.set(agent.name, agent);
+	};
+
 	if (scope === "both") {
-		for (const agent of userAgents) agentMap.set(agent.name, agent);
-		for (const agent of projectAgents) agentMap.set(agent.name, agent);
+		addAgents(bundledAgents);
+		addAgents(userAgents);
+		addAgents(projectAgents);
 	} else if (scope === "user") {
-		for (const agent of userAgents) agentMap.set(agent.name, agent);
+		addAgents(bundledAgents);
+		addAgents(userAgents);
 	} else {
-		for (const agent of projectAgents) agentMap.set(agent.name, agent);
+		addAgents(projectAgents);
 	}
 
 	return { agents: Array.from(agentMap.values()), projectAgentsDir };

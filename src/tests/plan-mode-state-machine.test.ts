@@ -235,6 +235,49 @@ test('re-running /plan while plan mode is active re-shows the saved plan instead
   assert.deepEqual(ctx.ui.notifyCalls.at(-1), { message: 'Presented the current plan again.', type: 'info' })
 })
 
+test('plan mode enters with immediate reasoning-model switch when auto-switch is enabled', async (t) => {
+  const tmp = mkdtempSync(join(tmpdir(), 'plan-mode-test-'))
+  t.after(() => rmSync(tmp, { recursive: true, force: true }))
+
+  const oldAgentDir = process.env.LSD_CODING_AGENT_DIR
+  process.env.LSD_CODING_AGENT_DIR = tmp
+  mkdirSync(tmp, { recursive: true })
+  writeFileSync(
+    join(tmp, 'settings.json'),
+    JSON.stringify({
+      autoSwitchPlanModel: true,
+      planModeReasoningModel: 'anthropic/claude-sonnet-4-6',
+    }),
+  )
+  t.after(() => {
+    if (oldAgentDir === undefined) delete process.env.LSD_CODING_AGENT_DIR
+    else process.env.LSD_CODING_AGENT_DIR = oldAgentDir
+  })
+
+  const planModule = await import('../resources/extensions/slash-commands/plan.ts')
+  const planCommand = planModule.default
+  const testing = planModule.__testing
+  testing.resetState()
+  setPermissionMode('accept-on-edit')
+
+  const pi = makeMockPi()
+  planCommand(pi as any)
+
+  const preplanModel = { provider: 'openai', id: 'gpt-5.4' }
+  const ctx = makeCtx({ model: preplanModel })
+
+  await pi.commands.plan.handler('Immediate switch', ctx)
+  assert.deepEqual(pi.modelSwitches, ['anthropic/claude-sonnet-4-6'])
+  assert.equal(getPermissionMode(), 'plan')
+
+  await pi.handlers.before_agent_start({}, makeCtx({ model: preplanModel }))
+  assert.deepEqual(
+    pi.modelSwitches,
+    ['anthropic/claude-sonnet-4-6'],
+    'before_agent_start should not perform the first switch redundantly when entry switch already happened',
+  )
+})
+
 test('plan mode pending → approved switches to configured reasoning model and auto mode', async (t) => {
   const tmp = mkdtempSync(join(tmpdir(), 'plan-mode-test-'))
   t.after(() => rmSync(tmp, { recursive: true, force: true }))

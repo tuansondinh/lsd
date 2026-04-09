@@ -25,9 +25,9 @@ import {
     getAgentDir,
     getMarkdownTheme,
 } from "@gsd/pi-coding-agent";
-import { Container, Markdown, Spacer, Text } from "@gsd/pi-tui";
+import { Container, Key, Markdown, Spacer, Text } from "@gsd/pi-tui";
 import { Type } from "@sinclair/typebox";
-import { formatTokenCount } from "../shared/mod.js";
+import { formatTokenCount, shortcutDesc } from "../shared/mod.js";
 import { type AgentConfig, type AgentScope, discoverAgents } from "./agents.js";
 import { buildSubagentProcessArgs, getBundledExtensionPathsFromEnv } from "./launch-helpers.js";
 import {
@@ -314,7 +314,7 @@ interface UsageStats {
 
 interface SingleResult {
     agent: string;
-    agentSource: "user" | "project" | "unknown";
+    agentSource: "bundled" | "user" | "project" | "unknown";
     task: string;
     exitCode: number;
     messages: Message[];
@@ -325,6 +325,20 @@ interface SingleResult {
     errorMessage?: string;
     step?: number;
     backgroundJobId?: string;
+}
+
+interface ForegroundSingleRunControl {
+    agentName: string;
+    task: string;
+    cwd: string;
+    abortController: AbortController;
+    resultPromise: Promise<{ summary: string; stderr: string; exitCode: number; model?: string }>;
+    adoptToBackground: (jobId: string) => boolean;
+}
+
+interface ForegroundSingleRunHooks {
+    onStart?: (control: ForegroundSingleRunControl) => void;
+    onFinish?: () => void;
 }
 
 interface SubagentDetails {
@@ -501,7 +515,8 @@ async function runSingleAgent(
     parentModel: { provider: string; id: string } | undefined,
     signal: AbortSignal | undefined,
     onUpdate: OnUpdateCallback | undefined,
-    makeDetails: (results: SingleResult[]) => SubagentDetails
+    makeDetails: (results: SingleResult[]) => SubagentDetails,
+    foregroundHooks?: ForegroundSingleRunHooks,
 ): Promise<SingleResult> {
     const agent = agents.find((a) => a.name === agentName);
 
@@ -551,6 +566,27 @@ async function runSingleAgent(
         }
     };
 
+    let wasAborted = false;
+    let deferTempPromptCleanup = false;
+    let tempPromptCleanupDone = false;
+
+    const cleanupTempPromptFiles = () => {
+        if (tempPromptCleanupDone) return;
+        tempPromptCleanupDone = true;
+        if (tmpPromptPath)
+            try {
+                fs.unlinkSync(tmpPromptPath);
+            } catch {
+                /* ignore */
+            }
+        if (tmpPromptDir)
+            try {
+                fs.rmdirSync(tmpPromptDir);
+            } catch {
+                /* ignore */
+            }
+    };
+
     try {
         if (agent.systemPrompt.trim()) {
             const tmp = writePromptToTempFile(agent.name, agent.systemPrompt);
@@ -558,7 +594,6 @@ async function runSingleAgent(
             tmpPromptPath = tmp.filePath;
         }
         const args = buildSubagentProcessArgs(agent, task, tmpPromptPath, inferredModel);
-        let wasAborted = false;
 
         const exitCode = await new Promise<number>((resolve) => {
             const bundledPaths = getBundledExtensionPathsFromEnv();
@@ -581,6 +616,7 @@ async function runSingleAgent(
             let buffer = "";
             let completionSeen = false;
             let resolved = false;
+            let foregroundReleased = false;
             const procAbortController = new AbortController();
             let resolveBackgroundResult: ((value: { summary: string; stderr: string; exitCode: number; model?: string }) => void) | undefined;
             let rejectBackgroundResult: ((reason?: unknown) => void) | undefined;
@@ -595,7 +631,27 @@ async function runSingleAgent(
                 resolve(code);
             };
 
+            const adoptToBackground = (jobId: string): boolean => {
+                if (resolved || foregroundReleased) return false;
+                foregroundReleased = true;
+                deferTempPromptCleanup = true;
+                currentResult.backgroundJobId = jobId;
+                finishForeground(0);
+                return true;
+            };
 
+            backgroundResultPromise.finally(() => {
+                if (deferTempPromptCleanup) cleanupTempPromptFiles();
+            });
+
+            foregroundHooks?.onStart?.({
+                agentName,
+                task,
+                cwd: cwd ?? defaultCwd,
+                abortController: procAbortController,
+                resultPromise: backgroundResultPromise,
+                adoptToBackground,
+            });
 
             proc.stdout.on("data", (data) => {
                 buffer += data.toString();
@@ -631,12 +687,14 @@ async function runSingleAgent(
                     exitCode: finalExitCode,
                     model: currentResult.model,
                 });
+                foregroundHooks?.onFinish?.();
                 finishForeground(finalExitCode);
             });
 
             proc.on("error", (error) => {
                 liveSubagentProcesses.delete(proc);
                 rejectBackgroundResult?.(error);
+                foregroundHooks?.onFinish?.();
                 finishForeground(1);
             });
 
@@ -670,18 +728,7 @@ async function runSingleAgent(
         if (wasAborted) throw new Error("Subagent was aborted");
         return currentResult;
     } finally {
-        if (tmpPromptPath)
-            try {
-                fs.unlinkSync(tmpPromptPath);
-            } catch {
-                /* ignore */
-            }
-        if (tmpPromptDir)
-            try {
-                fs.rmdirSync(tmpPromptDir);
-            } catch {
-                /* ignore */
-            }
+        if (!deferTempPromptCleanup) cleanupTempPromptFiles();
     }
 }
 
@@ -754,6 +801,10 @@ const SubagentParams = Type.Object({
 
 export default function(pi: ExtensionAPI) {
     let bgManager: BackgroundJobManager | null = null;
+    const foregroundSubagentStatusKey = "foreground-subagent";
+    const foregroundSubagentHint = "Ctrl+B: move foreground subagent to background";
+    type ActiveForegroundSubagent = ForegroundSingleRunControl & { claimed: boolean };
+    let activeForegroundSubagent: ActiveForegroundSubagent | null = null;
 
     function getBgManager(): BackgroundJobManager {
         if (!bgManager) throw new Error("BackgroundJobManager not initialized.");
@@ -792,6 +843,7 @@ export default function(pi: ExtensionAPI) {
 
 
     pi.on("session_before_switch", async () => {
+        activeForegroundSubagent = null;
         if (bgManager) {
             for (const job of bgManager.getRunningJobs()) {
                 bgManager.cancel(job.id);
@@ -800,6 +852,7 @@ export default function(pi: ExtensionAPI) {
     });
 
     pi.on("session_shutdown", async () => {
+        activeForegroundSubagent = null;
         await stopLiveSubagents();
         if (bgManager) {
             bgManager.shutdown();
@@ -919,6 +972,49 @@ export default function(pi: ExtensionAPI) {
         },
     });
 
+    pi.registerShortcut(Key.ctrl("b"), {
+        description: shortcutDesc("Move foreground subagent to background", "/subagents list"),
+        handler: async (ctx) => {
+            const running = activeForegroundSubagent;
+            if (!running || running.claimed) return;
+            const manager = bgManager;
+            if (!manager) {
+                ctx.ui.notify("Background subagent manager is not available.", "error");
+                return;
+            }
+
+            running.claimed = true;
+            let jobId: string;
+            try {
+                jobId = manager.adoptRunning(
+                    running.agentName,
+                    running.task,
+                    running.cwd,
+                    running.abortController,
+                    running.resultPromise,
+                );
+            } catch (error) {
+                running.claimed = false;
+                ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
+                return;
+            }
+
+            const released = running.adoptToBackground(jobId);
+            if (!released) {
+                running.claimed = false;
+                manager.cancel(jobId);
+                return;
+            }
+
+            activeForegroundSubagent = null;
+            ctx.ui.setStatus(foregroundSubagentStatusKey, undefined);
+            ctx.ui.notify(
+                `Moved ${running.agentName} to background as ${jobId}. Use /subagents wait ${jobId}, /subagents output ${jobId}, or /subagents cancel ${jobId}.`,
+                "info",
+            );
+        },
+    });
+
     pi.registerTool({
         name: "await_subagent",
         label: "Await Background Subagent",
@@ -949,13 +1045,15 @@ export default function(pi: ExtensionAPI) {
             "Model selection can be overridden per call, otherwise it is inferred from the agent config, delegated-task preferences, or the current session model.",
             "Modes: single ({ agent, task }), parallel ({ tasks: [{agent, task},...] }), chain ({ chain: [{agent, task},...] } with {previous} placeholder).",
             "Agents are defined as .md files in the configured user agent directory (for LSD this is typically ~/.lsd/agent/agents/) or project-local .lsd/agents/, with legacy support for .gsd/agents/ and .pi/agents/.",
+            "If the user asks for a named subagent such as scout, worker, reviewer, or planner, invoke this tool directly rather than the Skill tool.",
             "Use the /subagent command to list available agents and their descriptions.",
             "Set background: true (single mode only) to run detached — returns immediately with a sa_xxxx job ID. Completion is announced back into the session. Use await_subagent or /subagents to manage background jobs.",
         ].join(" "),
         promptGuidelines: [
             "Use subagent to delegate self-contained tasks that benefit from an isolated context window.",
-            "When scout is the right fit, call the subagent tool directly — do not type '/subagent' as a shell-like command.",
+            "The subagent tool is available directly as a tool call — invoke it programmatically like any other tool, not via a slash command. Do NOT type '/scout' or '/subagent' in the chat; call this tool with the correct parameters instead.",
             "Valid call shapes: single mode uses { agent, task }, parallel mode uses { tasks: [{ agent, task }, ...] }, and chain mode uses { chain: [{ agent, task }, ...] }.",
+            "If the user names a subagent such as scout, worker, reviewer, or planner, use this subagent tool directly rather than the Skill tool or ad-hoc search.",
             "Recon planning rule: use no scout for narrow known-file work, one scout for one broad unfamiliar subsystem, and parallel scouts only when the work spans multiple loosely-coupled subsystems.",
             "Use scout only for broad or unfamiliar codebase reconnaissance before you read many files yourself; save direct reads for targeted lookups once the relevant files are known.",
             "Do not use scout as the reviewer, auditor, or final judge. Scout should map architecture, files, ownership, and likely hotspots for another agent or the parent model to evaluate.",
@@ -1301,7 +1399,26 @@ export default function(pi: ExtensionAPI) {
                         signal,
                         onUpdate,
                         makeDetails("single"),
+                        !isolation
+                            ? {
+                                onStart: (control) => {
+                                    activeForegroundSubagent = { ...control, claimed: false };
+                                    ctx.ui.setStatus(foregroundSubagentStatusKey, foregroundSubagentHint);
+                                },
+                                onFinish: () => {
+                                    activeForegroundSubagent = null;
+                                    ctx.ui.setStatus(foregroundSubagentStatusKey, undefined);
+                                },
+                            }
+                            : undefined,
                     );
+
+                    if (result.backgroundJobId) {
+                        return {
+                            content: [{ type: "text", text: `Moved ${result.agent} to background as **${result.backgroundJobId}**. Use \`await_subagent\`, \`/subagents wait ${result.backgroundJobId}\`, or \`/subagents output ${result.backgroundJobId}\`.` }],
+                            details: makeDetails("single")([result]),
+                        };
+                    }
 
                     // Capture and merge delta if isolated
                     if (isolation) {
@@ -1463,6 +1580,9 @@ export default function(pi: ExtensionAPI) {
                 else {
                     text += `\n${renderDisplayItems(displayItems, COLLAPSED_ITEM_COUNT)}`;
                     if (displayItems.length > COLLAPSED_ITEM_COUNT) text += `\n${theme.fg("muted", "(Ctrl+O to expand)")}`;
+                }
+                if (!isError && !r.backgroundJobId && !finalOutput) {
+                    text += `\n${theme.fg("muted", "Hint: Ctrl+B to move running foreground subagent to background")}`;
                 }
                 const usageStr = formatUsageStats(r.usage, r.model);
                 if (usageStr) text += `\n${theme.fg("dim", usageStr)}`;
