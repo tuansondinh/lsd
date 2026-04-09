@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.2.3] - 2026-04-09
+
+### Fixed
+- **tools**: honor the full tool profile at startup by activating the fully loaded registry, including extension-registered tools like `subagent`
+- **subagents**: improve scout/subagent routing guidance and redirect mistaken `Skill("scout")` calls toward the `subagent` tool
+
 ## [1.2.2] - 2026-04-09
 
 ### Added
@@ -2275,7 +2281,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 - License updated to MIT
 
-[Unreleased]: https://github.com/gsd-build/gsd-2/compare/v1.2.2...HEAD
+[Unreleased]: https://github.com/gsd-build/gsd-2/compare/v1.2.3...HEAD
+[1.2.3]: https://github.com/gsd-build/gsd-2/compare/v1.2.2...v1.2.3
 [1.2.2]: https://github.com/gsd-build/gsd-2/compare/v1.2.0...v1.2.2
 [1.2.0]: https://github.com/gsd-build/gsd-2/compare/v1.1.8...v1.2.0
 [1.1.8]: https://github.com/gsd-build/gsd-2/compare/v2.58.0...v1.1.8
