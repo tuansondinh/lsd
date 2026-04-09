@@ -6,6 +6,16 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-04-09
+
+### Added
+- **docs**: add `docs/ARCHITECTURE_AUDIO.md`, a narrative architecture overview source for LSD
+- **cli**: export additional coding-agent surfaces through `src/cli.ts` and package entrypoints
+
+### Changed
+- **docs**: consolidate and simplify architecture documentation around `docs/architecture.md`
+- **settings**: refine settings-manager exports and related package wiring
+
 ## [1.2.1] - 2026-04-08
 
 ### Added
@@ -2265,7 +2275,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 - License updated to MIT
 
-[Unreleased]: https://github.com/gsd-build/gsd-2/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/gsd-build/gsd-2/compare/v1.2.2...HEAD
+[1.2.2]: https://github.com/gsd-build/gsd-2/compare/v1.2.0...v1.2.2
 [1.2.0]: https://github.com/gsd-build/gsd-2/compare/v1.1.8...v1.2.0
 [1.1.8]: https://github.com/gsd-build/gsd-2/compare/v2.58.0...v1.1.8
 [2.58.0]: https://github.com/gsd-build/gsd-2/compare/v2.57.0...v2.58.0
