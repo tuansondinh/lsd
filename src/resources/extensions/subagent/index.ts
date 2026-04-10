@@ -1483,6 +1483,38 @@ export default function(pi: ExtensionAPI) {
                         ctx.ui.notify("Live runtime is no longer available for this subagent. It may have completed.", "warning");
                         return;
                     }
+
+                    // Adopt the foreground subagent to background before switching sessions.
+                    // switchSession calls abort() which would fire the tool signal and SIGTERM
+                    // the running subagent process. Adopting to background detaches the process
+                    // from the foreground abort chain so it survives the session switch.
+                    const foreground = activeForegroundSubagent;
+                    if (foreground && !foreground.claimed && bgManager) {
+                        foreground.claimed = true;
+                        try {
+                            const jobId = bgManager.adoptRunning(
+                                foreground.agentName,
+                                foreground.task,
+                                foreground.cwd,
+                                foreground.abortController,
+                                foreground.resultPromise,
+                                {
+                                    parentSessionFile: foreground.parentSessionFile ?? ctx.sessionManager.getSessionFile(),
+                                },
+                            );
+                            const released = foreground.adoptToBackground(jobId);
+                            if (!released) {
+                                foreground.claimed = false;
+                                bgManager.cancel(jobId);
+                            } else {
+                                activeForegroundSubagent = null;
+                                ctx.ui.setStatus(foregroundSubagentStatusKey, undefined);
+                            }
+                        } catch {
+                            foreground.claimed = false;
+                        }
+                    }
+
                     const switched = await ctx.switchSession(target.sessionFile);
                     if (switched.cancelled) {
                         ctx.ui.notify("Session switch was cancelled.", "warning");
@@ -1714,7 +1746,7 @@ export default function(pi: ExtensionAPI) {
             "For broad review or audit requests, use scout only as a prep step; the parent model or a reviewer should make the final judgments.",
             "Skip scout when the user already named the exact file/function to inspect or the task is obviously narrow.",
             "Use parallel mode when tasks are independent and don't need each other's output.",
-            "Use background: true when the user wants to keep chatting while a long-running agent works in parallel.",
+            "Default to foreground (background: false) for single-mode subagents. Only set background: true when the user explicitly asks to run it in the background or to keep chatting while it runs.",
             "If the user wants to wait for a background subagent result, use await_subagent.",
         ],
         parameters: SubagentParams,
