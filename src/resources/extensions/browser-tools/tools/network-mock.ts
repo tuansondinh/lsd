@@ -3,7 +3,8 @@ import { Type } from "@sinclair/typebox";
 import type { ToolDeps } from "../state.js";
 
 /**
- * Network interception & mocking tools — mock API responses, block URLs, simulate errors.
+ * Consolidated network interception tools — mock API responses, block URLs, manage routes.
+ * Merged from: browser_mock_route, browser_block_urls, browser_clear_routes.
  */
 
 interface ActiveRoute {
@@ -20,108 +21,45 @@ const activeRoutes: ActiveRoute[] = [];
 const routeCleanups: Map<number, () => Promise<void>> = new Map();
 
 export function registerNetworkMockTools(pi: ExtensionAPI, deps: ToolDeps): void {
-	// -------------------------------------------------------------------------
-	// browser_mock_route
-	// -------------------------------------------------------------------------
 	pi.registerTool({
-		name: "browser_mock_route",
-		label: "Browser Mock Route",
+		name: "browser_network",
+		label: "Browser Network",
 		description:
-			"Intercept network requests matching a URL pattern and respond with custom status, body, and headers. " +
-			"Supports simulating slow responses via delay parameter. " +
-			"Routes survive page navigation within the same context. Use browser_clear_routes to remove all mocks.",
+			"Manage browser network interception: mock API responses, block URL patterns, or clear active routes. " +
+			"Routes survive page navigation within the same context.",
 		parameters: Type.Object({
-			url: Type.String({
-				description: "URL pattern to intercept. Supports glob patterns (e.g., '**/api/users*') or exact URLs.",
-			}),
-			status: Type.Optional(
-				Type.Number({ description: "HTTP status code for the mock response (default: 200)." }),
-			),
-			body: Type.Optional(
-				Type.String({ description: "Response body string. For JSON responses, pass a JSON string." }),
-			),
-			contentType: Type.Optional(
-				Type.String({ description: "Content-Type header (default: 'application/json' if body looks like JSON, else 'text/plain')." }),
-			),
-			headers: Type.Optional(
-				Type.Record(Type.String(), Type.String(), {
-					description: "Additional response headers as key-value pairs.",
-				}),
-			),
-			delay: Type.Optional(
-				Type.Number({ description: "Delay in milliseconds before sending the response. Simulates slow responses." }),
-			),
+			action: Type.Union([
+				Type.Literal("mock"),
+				Type.Literal("block"),
+				Type.Literal("clear"),
+			], { description: "'mock' — intercept and respond, 'block' — abort matching requests, 'clear' — remove all active routes" }),
+			url: Type.Optional(Type.String({
+				description: "URL pattern to intercept (glob or exact). Required for mock/block.",
+			})),
+			status: Type.Optional(Type.Number({ description: "HTTP status code for mock response (default: 200)." })),
+			body: Type.Optional(Type.String({ description: "Response body string for mock." })),
+			contentType: Type.Optional(Type.String({ description: "Content-Type header for mock." })),
+			headers: Type.Optional(Type.Record(Type.String(), Type.String(), {
+				description: "Additional response headers for mock.",
+			})),
+			delay: Type.Optional(Type.Number({ description: "Delay in ms before sending mock response." })),
+			patterns: Type.Optional(Type.Array(Type.String(), {
+				description: "URL patterns to block (for block action). Glob syntax.",
+			})),
 		}),
 
 		async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
 			try {
-				const { page: p } = await deps.ensureBrowser();
-				const routeId = nextRouteId++;
-
-				const status = params.status ?? 200;
-				const body = params.body ?? "";
-				const delay = params.delay ?? 0;
-
-				// Auto-detect content type
-				let contentType = params.contentType;
-				if (!contentType) {
-					try {
-						JSON.parse(body);
-						contentType = "application/json";
-					} catch {
-						contentType = "text/plain";
-					}
+				if (params.action === "mock") {
+					return await handleMock(deps, params);
+				} else if (params.action === "block") {
+					return await handleBlock(deps, params);
+				} else {
+					return await handleClear(deps);
 				}
-
-				const headers: Record<string, string> = {
-					"content-type": contentType,
-					"access-control-allow-origin": "*",
-					...(params.headers ?? {}),
-				};
-
-				const handler = async (route: any) => {
-					if (delay > 0) {
-						await new Promise((resolve) => setTimeout(resolve, delay));
-					}
-					await route.fulfill({
-						status,
-						body,
-						headers,
-					});
-				};
-
-				await p.route(params.url, handler);
-
-				const cleanup = async () => {
-					try {
-						await p.unroute(params.url, handler);
-					} catch {
-						// Page may be closed
-					}
-				};
-
-				const routeInfo: ActiveRoute = {
-					id: routeId,
-					pattern: params.url,
-					type: "mock",
-					status,
-					delay: delay > 0 ? delay : undefined,
-					description: `Mock ${params.url} → ${status}${delay > 0 ? ` (${delay}ms delay)` : ""}`,
-				};
-
-				activeRoutes.push(routeInfo);
-				routeCleanups.set(routeId, cleanup);
-
-				return {
-					content: [{
-						type: "text",
-						text: `Route mocked: ${routeInfo.description}\nRoute ID: ${routeId}\nActive routes: ${activeRoutes.length}`,
-					}],
-					details: { routeId, ...routeInfo, activeRouteCount: activeRoutes.length },
-				};
 			} catch (err: any) {
 				return {
-					content: [{ type: "text", text: `Mock route failed: ${err.message}` }],
+					content: [{ type: "text" as const, text: `Network action '${params.action}' failed: ${err.message}` }],
 					details: { error: err.message },
 					isError: true,
 				};
@@ -129,116 +67,87 @@ export function registerNetworkMockTools(pi: ExtensionAPI, deps: ToolDeps): void
 		},
 	});
 
-	// -------------------------------------------------------------------------
-	// browser_block_urls
-	// -------------------------------------------------------------------------
-	pi.registerTool({
-		name: "browser_block_urls",
-		label: "Browser Block URLs",
-		description:
-			"Block network requests matching URL patterns. Useful for blocking analytics, ads, or third-party scripts. " +
-			"Accepts glob patterns. Routes survive page navigation.",
-		parameters: Type.Object({
-			patterns: Type.Array(Type.String(), {
-				description: "URL patterns to block (glob syntax, e.g., ['**/analytics*', '**/ads*']).",
-			}),
-		}),
+	async function handleMock(deps: ToolDeps, params: any) {
+		if (!params.url) {
+			return { content: [{ type: "text" as const, text: "Mock requires a 'url' parameter." }], details: { error: "missing_url" }, isError: true };
+		}
+		const { page: p } = await deps.ensureBrowser();
+		const routeId = nextRouteId++;
+		const status = params.status ?? 200;
+		const body = params.body ?? "";
+		const delay = params.delay ?? 0;
 
-		async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-			try {
-				const { page: p } = await deps.ensureBrowser();
-				const results: ActiveRoute[] = [];
+		let contentType = params.contentType;
+		if (!contentType) {
+			try { JSON.parse(body); contentType = "application/json"; } catch { contentType = "text/plain"; }
+		}
 
-				for (const pattern of params.patterns) {
-					const routeId = nextRouteId++;
+		const respHeaders: Record<string, string> = {
+			"content-type": contentType,
+			"access-control-allow-origin": "*",
+			...(params.headers ?? {}),
+		};
 
-					const handler = async (route: any) => {
-						await route.abort("blockedbyclient");
-					};
+		const handler = async (route: any) => {
+			if (delay > 0) await new Promise((r) => setTimeout(r, delay));
+			await route.fulfill({ status, body, headers: respHeaders });
+		};
 
-					await p.route(pattern, handler);
+		await p.route(params.url, handler);
+		const cleanup = async () => { try { await p.unroute(params.url, handler); } catch { /* page may be closed */ } };
 
-					const cleanup = async () => {
-						try {
-							await p.unroute(pattern, handler);
-						} catch { /* cleanup — route may already be removed or page closed */ }
-					};
+		const routeInfo: ActiveRoute = {
+			id: routeId, pattern: params.url, type: "mock", status,
+			delay: delay > 0 ? delay : undefined,
+			description: `Mock ${params.url} → ${status}${delay > 0 ? ` (${delay}ms delay)` : ""}`,
+		};
+		activeRoutes.push(routeInfo);
+		routeCleanups.set(routeId, cleanup);
 
-					const routeInfo: ActiveRoute = {
-						id: routeId,
-						pattern,
-						type: "block",
-						description: `Block ${pattern}`,
-					};
+		return {
+			content: [{ type: "text" as const, text: `Route mocked: ${routeInfo.description}\nRoute ID: ${routeId}\nActive routes: ${activeRoutes.length}` }],
+			details: { routeId, ...routeInfo, activeRouteCount: activeRoutes.length },
+		};
+	}
 
-					activeRoutes.push(routeInfo);
-					routeCleanups.set(routeId, cleanup);
-					results.push(routeInfo);
-				}
+	async function handleBlock(deps: ToolDeps, params: any) {
+		const patterns = params.patterns ?? (params.url ? [params.url] : []);
+		if (patterns.length === 0) {
+			return { content: [{ type: "text" as const, text: "Block requires 'patterns' or 'url' parameter." }], details: { error: "missing_patterns" }, isError: true };
+		}
+		const { page: p } = await deps.ensureBrowser();
+		const results: ActiveRoute[] = [];
 
-				return {
-					content: [{
-						type: "text",
-						text: `Blocked ${results.length} URL pattern(s):\n${results.map((r) => `  - ${r.description} (ID: ${r.id})`).join("\n")}\nActive routes: ${activeRoutes.length}`,
-					}],
-					details: { blocked: results, activeRouteCount: activeRoutes.length },
-				};
-			} catch (err: any) {
-				return {
-					content: [{ type: "text", text: `Block URLs failed: ${err.message}` }],
-					details: { error: err.message },
-					isError: true,
-				};
-			}
-		},
-	});
+		for (const pattern of patterns) {
+			const routeId = nextRouteId++;
+			const handler = async (route: any) => { await route.abort("blockedbyclient"); };
+			await p.route(pattern, handler);
+			const cleanup = async () => { try { await p.unroute(pattern, handler); } catch { /* cleanup */ } };
+			const routeInfo: ActiveRoute = { id: routeId, pattern, type: "block", description: `Block ${pattern}` };
+			activeRoutes.push(routeInfo);
+			routeCleanups.set(routeId, cleanup);
+			results.push(routeInfo);
+		}
 
-	// -------------------------------------------------------------------------
-	// browser_clear_routes
-	// -------------------------------------------------------------------------
-	pi.registerTool({
-		name: "browser_clear_routes",
-		label: "Browser Clear Routes",
-		description:
-			"Remove all active route mocks and URL blocks. Also lists currently active routes if called with no routes active.",
-		parameters: Type.Object({}),
+		return {
+			content: [{ type: "text" as const, text: `Blocked ${results.length} URL pattern(s):\n${results.map((r) => `  - ${r.description} (ID: ${r.id})`).join("\n")}\nActive routes: ${activeRoutes.length}` }],
+			details: { blocked: results, activeRouteCount: activeRoutes.length },
+		};
+	}
 
-		async execute(_toolCallId, _params, _signal, _onUpdate, _ctx) {
-			try {
-				await deps.ensureBrowser();
-				const count = activeRoutes.length;
-
-				if (count === 0) {
-					return {
-						content: [{ type: "text", text: "No active routes to clear." }],
-						details: { cleared: 0 },
-					};
-				}
-
-				const routeDescriptions = activeRoutes.map((r) => r.description);
-
-				// Clean up all routes
-				for (const [id, cleanup] of routeCleanups) {
-					await cleanup();
-				}
-
-				activeRoutes.length = 0;
-				routeCleanups.clear();
-
-				return {
-					content: [{
-						type: "text",
-						text: `Cleared ${count} route(s):\n${routeDescriptions.map((d) => `  - ${d}`).join("\n")}`,
-					}],
-					details: { cleared: count, routes: routeDescriptions },
-				};
-			} catch (err: any) {
-				return {
-					content: [{ type: "text", text: `Clear routes failed: ${err.message}` }],
-					details: { error: err.message },
-					isError: true,
-				};
-			}
-		},
-	});
+	async function handleClear(_deps: ToolDeps) {
+		await _deps.ensureBrowser();
+		const count = activeRoutes.length;
+		if (count === 0) {
+			return { content: [{ type: "text" as const, text: "No active routes to clear." }], details: { cleared: 0 } };
+		}
+		const descriptions = activeRoutes.map((r) => r.description);
+		for (const [, cleanup] of routeCleanups) await cleanup();
+		activeRoutes.length = 0;
+		routeCleanups.clear();
+		return {
+			content: [{ type: "text" as const, text: `Cleared ${count} route(s):\n${descriptions.map((d) => `  - ${d}`).join("\n")}` }],
+			details: { cleared: count, routes: descriptions },
+		};
+	}
 }

@@ -6,6 +6,28 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.3.3] - 2026-04-11
+
+### Added
+- **standard tool profile** (~32 tools) as new default, bridging the gap between balanced (12) and full (105)
+- `/tools standard` command to switch to the standard profile
+
+### Changed
+- **browser tools consolidated from 61 → 45** tools (16 removed, 8 merged tools added):
+  - `browser_navigate` now handles goto, go_back, go_forward, and reload via `action` param
+  - `browser_pages` replaces list_pages, switch_page, close_page
+  - `browser_frames` replaces list_frames, select_frame
+  - `browser_trace` replaces trace_start, trace_stop, export_har
+  - `browser_debug` replaces timeline, session_summary, debug_bundle
+  - `browser_state` replaces save_state, restore_state
+  - `browser_network` replaces mock_route, block_urls, clear_routes
+  - `browser_ref` replaces snapshot_refs, get_ref, click_ref, fill_ref, hover_ref
+- compressed bg_shell prompt guidelines from 16 → 6 items (~200 tokens saved)
+- compressed mac-tools prompt guidelines from 20 → 5 items, made context block conditional on mac tools being active (~650 tokens saved when inactive)
+- slim memory system prompt when no memories exist (~800 tokens saved for new projects)
+- capped skill descriptions at 200 characters (~300 tokens saved)
+- default tool profile changed from "full" to "standard" for new sessions
+
 ## [1.3.2] - 2026-04-11
 
 ### Changed

@@ -625,7 +625,7 @@ export function formatVersionedRef(version: number, key: string): string {
 }
 
 export function staleRefGuidance(refDisplay: string, reason: string): string {
-	return `Ref ${refDisplay} could not be resolved (${reason}). The ref is likely stale after DOM/navigation changes. Call browser_snapshot_refs again to refresh refs.`;
+	return `Ref ${refDisplay} could not be resolved (${reason}). The ref is likely stale after DOM/navigation changes. Call browser_ref with action='snapshot' to refresh refs.`;
 }
 
 // ---------------------------------------------------------------------------

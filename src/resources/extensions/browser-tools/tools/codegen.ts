@@ -84,9 +84,10 @@ export function registerCodegenTools(pi: ExtensionAPI, deps: ToolDeps): void {
 							break;
 						}
 
-						case "browser_click_ref": {
+						case "browser_ref": {
 							// Refs are session-specific — add comment
-							testLines.push(`    // browser_click_ref: ${entry.paramsSummary} — replace with stable selector`);
+							const refAction = params.action ?? "click";
+							testLines.push(`    // browser_ref (${refAction}): ${entry.paramsSummary} — replace with stable selector`);
 							actionCount++;
 							break;
 						}
@@ -101,9 +102,8 @@ export function registerCodegenTools(pi: ExtensionAPI, deps: ToolDeps): void {
 							break;
 						}
 
-						case "browser_fill_ref": {
-							testLines.push(`    // browser_fill_ref: ${entry.paramsSummary} — replace with stable selector`);
-							actionCount++;
+						case "browser_fill_ref_handled": {
+							// Already handled by browser_ref above
 							break;
 						}
 
