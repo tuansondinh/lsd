@@ -48,6 +48,32 @@ function getBalancedToolNames(activeToolNames: string[]): string[] {
         ];
 }
 
+const STANDARD_TOOLS = [
+    // Core
+    "read", "bash", "edit", "write", "lsp", "grep", "find", "ls",
+    // Background
+    "bg_shell",
+    // Search
+    "web_search", "fetch_page",
+    // Docs
+    "resolve_library", "get_library_docs",
+    // Agent
+    "subagent", "await_subagent", "Skill",
+    // User interaction
+    "ask_user_questions", "secure_env_collect",
+    // Browser (essential)
+    "browser_navigate", "browser_click", "browser_type", "browser_screenshot",
+    "browser_scroll", "browser_key_press", "browser_evaluate",
+    "browser_find", "browser_wait_for", "browser_close",
+    "browser_assert", "browser_batch",
+    // Tool management
+    "tool_search", "tool_enable",
+];
+
+function getStandardToolNames(): string[] {
+    return [...STANDARD_TOOLS];
+}
+
 function getFullToolNames(pi: ExtensionAPI): string[] {
     return pi.getAllTools().map((tool) => tool.name).filter((name): name is string => Boolean(name));
 }
@@ -180,7 +206,8 @@ export default function toolSearchExtension(pi: ExtensionAPI) {
                         currentActive.length > 0 ? currentActive.join(", ") : "(none)",
                         "",
                         "Usage:",
-                        "  /tools balanced   Switch to the balanced tool profile",
+                        "  /tools balanced   Switch to the balanced tool profile (12 tools)",
+                        "  /tools standard   Switch to the standard tool profile (~32 tools)",
                         "  /tools full       Switch to the full tool profile (all available tools)",
                         "  /tools on         Alias for /tools full",
                         "  /tools off        Alias for /tools balanced",
@@ -196,7 +223,19 @@ export default function toolSearchExtension(pi: ExtensionAPI) {
                 pi.setActiveTools(nextActive);
                 pi.sendMessage({
                     customType: "tools:mode",
-                    content: `Balanced tool profile active: ${pi.getActiveTools().join(", ")}`,
+                    content: `Balanced tool profile active (${pi.getActiveTools().length} tools): ${pi.getActiveTools().join(", ")}`,
+                    display: true,
+                });
+                return;
+            }
+
+            if (input === "standard") {
+                settings.setToolProfile("standard");
+                const nextActive = getStandardToolNames();
+                pi.setActiveTools(nextActive);
+                pi.sendMessage({
+                    customType: "tools:mode",
+                    content: `Standard tool profile active (${pi.getActiveTools().length} tools): ${pi.getActiveTools().join(", ")}`,
                     display: true,
                 });
                 return;
@@ -208,7 +247,7 @@ export default function toolSearchExtension(pi: ExtensionAPI) {
                 pi.setActiveTools(nextActive);
                 pi.sendMessage({
                     customType: "tools:mode",
-                    content: `Full tool profile active: ${pi.getActiveTools().join(", ")}`,
+                    content: `Full tool profile active (${pi.getActiveTools().length} tools): ${pi.getActiveTools().join(", ")}`,
                     display: true,
                 });
                 return;
@@ -216,7 +255,7 @@ export default function toolSearchExtension(pi: ExtensionAPI) {
 
             pi.sendMessage({
                 customType: "tools:help",
-                content: `Unknown /tools subcommand: ${input}\n\nTry /tools, /tools balanced, /tools full, /tools on, or /tools off.`,
+                content: `Unknown /tools subcommand: ${input}\n\nTry /tools, /tools balanced, /tools standard, /tools full, /tools on, or /tools off.`,
                 display: true,
             });
         },
