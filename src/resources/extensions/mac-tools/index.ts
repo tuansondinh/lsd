@@ -204,9 +204,7 @@ export default function (pi: ExtensionAPI) {
 			"List all running macOS applications. Returns an array of { name, bundleId, pid, isActive } " +
 			"for user-facing apps (regular activation policy). Set includeBackground to true to also " +
 			"include accessory/background apps.",
-		promptGuidelines: [
-			"Use to discover what apps are running before interacting with them.",
-		],
+		promptGuidelines: [] as string[],
 		parameters: Type.Object({
 			includeBackground: Type.Optional(Type.Boolean({ description: "Include background/accessory apps (default: false)" })),
 		}),
@@ -235,9 +233,6 @@ export default function (pi: ExtensionAPI) {
 			"Launch a macOS application by name or bundle ID. " +
 			"Returns { launched, name, bundleId, pid } on success. " +
 			"Provide either 'name' (e.g. 'TextEdit') or 'bundleId' (e.g. 'com.apple.TextEdit').",
-		promptGuidelines: [
-			"Use app name for well-known apps; use bundleId when the name is ambiguous.",
-		],
 		parameters: Type.Object({
 			name: Type.Optional(Type.String({ description: "Application name (e.g. 'TextEdit', 'Safari')" })),
 			bundleId: Type.Optional(Type.String({ description: "Bundle identifier (e.g. 'com.apple.TextEdit')" })),
@@ -310,9 +305,7 @@ export default function (pi: ExtensionAPI) {
 			"Quit a running macOS application. " +
 			"Returns { quit, name } on success. Errors if the app is not running. " +
 			"Provide either 'name' or 'bundleId'.",
-		promptGuidelines: [
-			"Use to clean up apps launched during automation — don't leave apps running unnecessarily.",
-		],
+		promptGuidelines: [] as string[],
 		parameters: Type.Object({
 			name: Type.Optional(Type.String({ description: "Application name" })),
 			bundleId: Type.Optional(Type.String({ description: "Bundle identifier" })),
@@ -349,9 +342,7 @@ export default function (pi: ExtensionAPI) {
 			"The windowId can be used with getWindowInfo for detailed inspection or with screenshotWindow for capture. " +
 			"Returns an empty array (not error) if the app is running but has no visible windows. " +
 			"Errors if the app is not running.",
-		promptGuidelines: [
-			"Use to get windowId values needed by mac_screenshot.",
-		],
+		promptGuidelines: [] as string[],
 		parameters: Type.Object({
 			app: Type.String({ description: "Application name (e.g. 'TextEdit') or bundle identifier (e.g. 'com.apple.TextEdit')" }),
 		}),
@@ -393,8 +384,7 @@ export default function (pi: ExtensionAPI) {
 			"The 'app' param accepts an app name (e.g. 'Finder') or bundle ID (e.g. 'com.apple.Finder').",
 		promptGuidelines: [
 			"Prefer for targeted element search — use role/title/value criteria to narrow results.",
-			"Use mode:focused to check the current focus target without search criteria.",
-			"Use mac_get_tree instead of mode:tree when you just need to understand app structure.",
+			"Use mac_get_tree instead of mode:tree for quick structure inspection.",
 		],
 		parameters: Type.Object({
 			app: Type.String({ description: "Application name or bundle identifier" }),
@@ -524,9 +514,7 @@ export default function (pi: ExtensionAPI) {
 			"Each line: `role \"title\" [value]` with 2-space indent per depth level. " +
 			"Omits title/value when nil or empty.",
 		promptGuidelines: [
-			"Use for understanding app UI structure — start with low limits and increase if needed.",
 			"Prefer mac_find search mode when you know what you're looking for.",
-			"Check the truncation note to know if the tree was cut short.",
 		],
 		parameters: Type.Object({
 			app: Type.String({ description: "Application name or bundle identifier" }),
@@ -581,8 +569,7 @@ export default function (pi: ExtensionAPI) {
 			"Finds the first element matching the given criteria (role, title, value, identifier) and clicks it. " +
 			"At least one criterion is required. Returns the clicked element's attributes.",
 		promptGuidelines: [
-			"Verify the click worked by reading the resulting state with mac_find or mac_read.",
-			"Use mac_find first to discover the right role/title/value criteria before clicking.",
+			"Use mac_find first to discover the right criteria before clicking.",
 		],
 		parameters: Type.Object({
 			app: Type.String({ description: "Application name or bundle identifier" }),
@@ -638,8 +625,7 @@ export default function (pi: ExtensionAPI) {
 			"Returns the actual value after setting (read-back verification). " +
 			"At least one criterion is required.",
 		promptGuidelines: [
-			"Read back the value after typing to verify — the return value includes actual content.",
-			"Target text fields/areas by role (AXTextArea, AXTextField) for reliability.",
+			"Target text fields by role (AXTextArea, AXTextField) for reliability.",
 		],
 		parameters: Type.Object({
 			app: Type.String({ description: "Application name or bundle identifier" }),
@@ -697,9 +683,7 @@ export default function (pi: ExtensionAPI) {
 			"Returns the screenshot as an image content block for visual analysis, alongside text metadata " +
 			"(dimensions and format). Requires Screen Recording permission — use mac_check_permissions to verify.",
 		promptGuidelines: [
-			"Use for visual verification when accessibility attributes aren't sufficient.",
-			"Prefer nominal resolution unless retina detail is needed — retina doubles payload size.",
-			"Requires Screen Recording permission — run mac_check_permissions first if screenshot fails.",
+			"Prefer nominal resolution; retina doubles payload. Run mac_check_permissions if it fails.",
 		],
 		parameters: Type.Object({
 			windowId: Type.Number({ description: "Window ID from mac_list_windows output" }),
@@ -747,9 +731,7 @@ export default function (pi: ExtensionAPI) {
 			"Finds the first element matching the given criteria and reads the named attribute(s). " +
 			"AXValue subtypes (CGPoint, CGSize, CGRect, CFRange) are automatically unpacked to structured dicts. " +
 			"Use 'attribute' for a single attribute or 'attributes' for multiple. At least one search criterion is required.",
-		promptGuidelines: [
-			"Use to verify state after actions — read AXValue to confirm text was typed, AXEnabled to check if a button is active.",
-		],
+		promptGuidelines: [] as string[],
 		parameters: Type.Object({
 			app: Type.String({ description: "Application name or bundle identifier" }),
 			attribute: Type.Optional(Type.String({ description: "Single attribute name to read (e.g. 'AXValue', 'AXPosition', 'AXRole')" })),
@@ -824,8 +806,13 @@ export default function (pi: ExtensionAPI) {
 
 	// -----------------------------------------------------------------
 	// System prompt injection — mac-tools usage guidelines
+	// Only inject when mac tools are actually active.
 	// -----------------------------------------------------------------
 	pi.on("before_agent_start", async (event) => {
+		const activeTools = new Set(pi.getActiveTools());
+		const hasMacTools = [...activeTools].some((name) => name.startsWith("mac_"));
+		if (!hasMacTools) return;
+
 		const guidelines = `
 
 [SYSTEM CONTEXT — Mac Tools]
@@ -834,18 +821,16 @@ export default function (pi: ExtensionAPI) {
 
 You have mac-tools for controlling native macOS applications (Finder, TextEdit, Safari, Xcode, etc.) via Accessibility APIs.
 
-**Mac-tools vs browser-tools:** Use mac-tools for native macOS apps. Use browser-tools for web pages inside a browser. If you need to interact with a website in Safari or Chrome, use browser-tools — mac-tools controls the browser's native UI chrome (menus, tabs, address bar), not web page content.
+**Mac-tools vs browser-tools:** Use mac-tools for native macOS apps. Use browser-tools for web pages inside a browser.
 
-**Permissions:** If any mac tool returns a permission error, run \`mac_check_permissions\` to diagnose. Accessibility and Screen Recording permissions are granted in System Settings > Privacy & Security.
+**Permissions:** If any mac tool returns a permission error, run \`mac_check_permissions\` to diagnose.
 
 **Interaction pattern — discover → act → verify:**
-1. **Discover** the UI structure with \`mac_find\` (search for specific elements) or \`mac_get_tree\` (see overall layout)
-2. **Act** with \`mac_click\` (press buttons/menus) or \`mac_type\` (enter text into fields)
-3. **Verify** the result with \`mac_read\` (check attribute values) or \`mac_screenshot\` (visual confirmation)
+1. **Discover** with \`mac_find\` or \`mac_get_tree\`
+2. **Act** with \`mac_click\` or \`mac_type\`
+3. **Verify** with \`mac_read\` or \`mac_screenshot\`
 
-**Tree queries:** Start with default limits (mac_get_tree: maxDepth:3, maxCount:50). Increase only if the element you need isn't visible in the output. Large trees waste context.
-
-**Screenshots:** Use \`mac_screenshot\` only when visual verification is genuinely needed — the image payload is large. Prefer \`mac_read\` or \`mac_find\` for checking text values and element state.`;
+Start with default tree limits (maxDepth:3, maxCount:50). Use \`mac_screenshot\` sparingly — the payload is large.`;
 
 		return { systemPrompt: event.systemPrompt + guidelines };
 	});

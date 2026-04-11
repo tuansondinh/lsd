@@ -1125,6 +1125,25 @@ export class AgentSession {
 		return guidelines;
 	}
 
+	private static readonly STANDARD_TOOL_NAMES: readonly string[] = [
+		"read", "bash", "edit", "write", "lsp", "grep", "find", "ls",
+		"bg_shell",
+		"web_search", "fetch_page",
+		"resolve_library", "get_library_docs",
+		"subagent", "await_subagent", "Skill",
+		"ask_user_questions", "secure_env_collect",
+		"browser_navigate", "browser_click", "browser_type", "browser_screenshot",
+		"browser_scroll", "browser_key_press", "browser_evaluate",
+		"browser_find", "browser_wait_for", "browser_close",
+		"browser_assert", "browser_batch",
+		"tool_search", "tool_enable",
+	];
+
+	private _getStandardToolNames(toolRegistry: Map<string, any>): string[] {
+		const available = new Set(toolRegistry.keys());
+		return AgentSession.STANDARD_TOOL_NAMES.filter((name) => available.has(name));
+	}
+
 	private _rebuildSystemPrompt(toolNames: string[]): string {
 		const validToolNames = toolNames.filter((name) => this._toolRegistry.has(name));
 		const toolSnippets: Record<string, string> = {};
@@ -2440,7 +2459,9 @@ export class AgentSession {
 			? [...options.activeToolNames]
 			: this.settingsManager.getToolProfile() === "full"
 				? Array.from(toolRegistry.keys())
-				: [...previousActiveToolNames];
+				: this.settingsManager.getToolProfile() === "standard"
+					? this._getStandardToolNames(toolRegistry)
+					: [...previousActiveToolNames];
 
 		if (options?.includeAllExtensionTools) {
 			for (const tool of wrappedExtensionTools) {

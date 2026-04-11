@@ -6,6 +6,23 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-04-11
+
+### Added
+- refreshed adaptive thinking, routing, and session handling across agent core and interactive UI
+- expanded architecture, review, and token-management documentation
+- improved CLI help, welcome, update, and onboarding flows
+
+### Changed
+- updated native platform package versions and synced workspace package metadata
+- refined classifier, loader, theme, and interactive-mode behavior
+- tightened shared path and branding helpers used by runtime bootstrap
+
+### Fixed
+- reduced friction in subagent discovery, settings selection, and chat/controller coordination
+- improved prompt/update handling, status messaging, and help-text consistency
+- cleaned up several docs and generated review artifacts
+
 ## [1.3.0] - 2026-04-10
 
 ### Added
@@ -2453,7 +2470,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 - License updated to MIT
 
-[Unreleased]: https://github.com/gsd-build/gsd-2/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/gsd-build/gsd-2/compare/v1.3.1...HEAD
+[1.3.1]: https://github.com/gsd-build/gsd-2/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/gsd-build/gsd-2/compare/v1.2.3...v1.3.0
 [1.2.3]: https://github.com/gsd-build/gsd-2/compare/v1.2.2...v1.2.3
 [1.2.2]: https://github.com/gsd-build/gsd-2/compare/v1.2.0...v1.2.2

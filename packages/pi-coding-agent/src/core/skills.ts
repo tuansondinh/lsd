@@ -332,9 +332,12 @@ export function formatSkillsForPrompt(skills: Skill[]): string {
 	];
 
 	for (const skill of visibleSkills) {
+		const cappedDescription = skill.description.length > 200
+			? skill.description.slice(0, 197) + "..."
+			: skill.description;
 		lines.push("  <skill>");
 		lines.push(`    <name>${escapeXml(skill.name)}</name>`);
-		lines.push(`    <description>${escapeXml(skill.description)}</description>`);
+		lines.push(`    <description>${escapeXml(cappedDescription)}</description>`);
 		lines.push(`    <location>${escapeXml(skill.filePath)}</location>`);
 		lines.push("  </skill>");
 	}

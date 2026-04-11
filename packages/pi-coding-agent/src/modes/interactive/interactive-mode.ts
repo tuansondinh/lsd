@@ -180,14 +180,32 @@ export interface InteractiveModeOptions {
 }
 
 function getToolNamesForProfile(
-	profile: "balanced" | "full",
+	profile: "balanced" | "standard" | "full",
 	editMode: "standard" | "hashline",
 	availableToolNames: string[],
 ): string[] {
 	const balancedToolNames = editMode === "hashline"
 		? ["hashline_read", "bash", "hashline_edit", "write", "lsp", "bg_shell", "tool_search", "tool_enable", "Skill", "subagent", "await_subagent", "ask_user_questions"]
 		: ["read", "bash", "edit", "write", "lsp", "bg_shell", "tool_search", "tool_enable", "Skill", "subagent", "await_subagent", "ask_user_questions"];
-	return profile === "full" ? availableToolNames : balancedToolNames;
+	const standardToolNames = [
+		"read", "bash", "edit", "write", "lsp", "grep", "find", "ls",
+		"bg_shell",
+		"web_search", "fetch_page",
+		"resolve_library", "get_library_docs",
+		"subagent", "await_subagent", "Skill",
+		"ask_user_questions", "secure_env_collect",
+		"browser_navigate", "browser_click", "browser_type", "browser_screenshot",
+		"browser_scroll", "browser_key_press", "browser_evaluate",
+		"browser_find", "browser_wait_for", "browser_close",
+		"browser_assert", "browser_batch",
+		"tool_search", "tool_enable",
+	];
+	if (profile === "full") return availableToolNames;
+	if (profile === "standard") {
+		const available = new Set(availableToolNames);
+		return standardToolNames.filter((name) => available.has(name));
+	}
+	return balancedToolNames;
 }
 
 export class InteractiveMode {

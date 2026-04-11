@@ -44,22 +44,12 @@ export function registerBgShellTool(pi: ExtensionAPI, state: BgShellSharedState)
 			"group_status (health of a process group), highlights (significant output lines only).",
 
 		promptGuidelines: [
-			"Use bg_shell to start long-running processes (servers, watchers, builds) that should not block the agent.",
-			"After starting a server, use 'wait_for_ready' to efficiently block until it's listening — avoids polling loops entirely.",
-			"Use 'digest' instead of 'output' when you just need status — it returns a structured ~30-token summary instead of ~2000 tokens of raw output.",
-			"Use 'highlights' to see only significant output (errors, URLs, results) — typically 5-15 lines instead of hundreds.",
-			"Use 'output' only when you need raw lines for debugging — add filter:'error|warning' to narrow results.",
-			"The 'output' action returns only new output since the last check (incremental). Repeated calls are cheap on context.",
-			"Set type:'server' and ready_port:3000 for dev servers so readiness detection is automatic.",
-			"Set group:'my-stack' on related processes to manage them together with 'group_status'.",
-			"Use 'run' to execute a command on a persistent shell session and block until it completes — returns structured output + exit code. Shell state (env vars, cwd, virtualenvs) persists across runs.",
-			"Use 'send_and_wait' for interactive CLIs: send input and wait for expected output pattern.",
-			"Use 'env' to check the current working directory and active environment variables of a shell session — useful after cd, source, or export commands.",
-			"Background processes are session-scoped by default: a new session reaps them unless you set persist_across_sessions:true.",
-			"Use 'restart' to kill and relaunch with the same config — preserves restart count.",
-			"Background processes are auto-classified (server/build/test/watcher) based on the command.",
-			"Process crashes and errors are automatically surfaced as alerts at the start of your next turn — you don't need to poll.",
-			"To create a persistent shell session: bg_shell start with type:'shell'. The session stays alive for interactive use with 'send', 'send_and_wait', or 'run'.",
+			"Use bg_shell for long-running processes (servers, watchers, builds). Set type:'server' and ready_port for dev servers.",
+			"Use 'digest' for status (~30 tokens), 'highlights' for key output, 'output' only for raw debugging. All are incremental.",
+			"Use 'run' to execute a command on a persistent shell (state persists). Use 'send_and_wait' for interactive CLIs.",
+			"Use 'wait_for_ready' after starting a server — blocks until the port/pattern matches.",
+			"Use group:'name' to manage related processes together; 'group_status' for health.",
+			"Crashes are auto-surfaced next turn. Use persist_across_sessions:true to survive session restarts.",
 		],
 
 		parameters: Type.Object({

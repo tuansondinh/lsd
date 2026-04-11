@@ -93,8 +93,28 @@ function truncateEntrypointContent(raw: string): {
  * @param memoryDir  Absolute path to the project's memory directory.
  * @param entrypointContent  The (possibly truncated) contents of MEMORY.md.
  */
-function buildMemoryPrompt(memoryDir: string, entrypointContent: string): string {
+function buildMemoryPrompt(memoryDir: string, entrypointContent: string, hasMemories: boolean): string {
 	const sections: string[] = [];
+
+	if (!hasMemories) {
+		// Slim prompt when no memories exist — just enough to know the system is there
+		// and how to save the first memory. Full instructions are deferred until needed.
+		sections.push(`# Memory
+
+You have a persistent, file-based memory system at \`${memoryDir}\`.
+This directory already exists — write to it directly with the file write tool.
+
+If the user explicitly asks you to remember something, save it immediately. If they ask you to forget, find and remove it.
+
+To save a memory:
+1. Write a markdown file to the memory directory with YAML frontmatter (name, description, type: user|feedback|project|reference)
+2. Add a one-line pointer to MEMORY.md: \`- [Title](file.md) — one-line hook\`
+
+Your MEMORY.md is currently empty.`);
+		return sections.join('\n\n');
+	}
+
+	// ── Full prompt when memories exist ──
 
 	// ── Header ──
 	sections.push(`# Memory
@@ -196,7 +216,7 @@ export default function memoryExtension(pi: ExtensionAPI) {
 			entrypointContent = content;
 		}
 
-		const prompt = buildMemoryPrompt(memoryDir, entrypointContent);
+		const prompt = buildMemoryPrompt(memoryDir, entrypointContent, !!entrypointContent.trim());
 
 		return {
 			systemPrompt: event.systemPrompt + '\n\n' + prompt,

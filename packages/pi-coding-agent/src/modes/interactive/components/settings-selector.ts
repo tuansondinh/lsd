@@ -39,7 +39,7 @@ export interface SettingsConfig {
 	autoResizeImages: boolean;
 	blockImages: boolean;
 	enableSkillCommands: boolean;
-	toolProfile: "balanced" | "full";
+	toolProfile: "balanced" | "standard" | "full";
 	codexRotate: boolean;
 	cacheTimer: boolean;
 	pinLastPrompt: boolean;
@@ -103,7 +103,7 @@ export interface SettingsCallbacks {
 	onAutoResizeImagesChange: (enabled: boolean) => void;
 	onBlockImagesChange: (blocked: boolean) => void;
 	onEnableSkillCommandsChange: (enabled: boolean) => void;
-	onToolProfileChange: (profile: "balanced" | "full") => void;
+	onToolProfileChange: (profile: "balanced" | "standard" | "full") => void;
 	onCodexRotateChange: (enabled: boolean) => void;
 	onCacheTimerChange: (enabled: boolean) => void;
 	onPinLastPromptChange: (enabled: boolean) => void;
@@ -498,9 +498,9 @@ export class SettingsSelectorComponent extends Container {
 		items.splice(skillCommandsIndex + 1, 0, {
 			id: "tool-profile",
 			label: "Tool profile",
-			description: "Choose the default active tool set: balanced for day-to-day coding, full to enable all available tools",
+			description: "Choose the default active tool set: balanced for day-to-day coding, standard for broader coverage, full to enable all available tools",
 			currentValue: config.toolProfile,
-			values: ["balanced", "full"],
+			values: ["balanced", "standard", "full"],
 		});
 
 		// Codex rotate toggle (insert after tool-profile)
@@ -698,7 +698,7 @@ export class SettingsSelectorComponent extends Container {
 						callbacks.onEnableSkillCommandsChange(newValue === "true");
 						break;
 					case "tool-profile":
-						callbacks.onToolProfileChange(newValue as "balanced" | "full");
+						callbacks.onToolProfileChange(newValue as "balanced" | "standard" | "full");
 						break;
 					case "codex-rotate":
 						callbacks.onCodexRotateChange(newValue === "true");
