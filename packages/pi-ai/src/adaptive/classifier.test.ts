@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import type { Message } from "../types.js";
-import { ADAPTIVE_SCORE_BANDS, classifyAdaptiveThinking } from "./classifier.js";
+import { ADAPTIVE_SCORE_BANDS, classifyAdaptiveThinkingWithLLM } from "./classifier.js";
 
 function user(text: string): Message {
 	return {
@@ -11,35 +11,20 @@ function user(text: string): Message {
 	};
 }
 
-describe("classifyAdaptiveThinking", () => {
-	it("classifies short acknowledgements as low", () => {
-		const result = classifyAdaptiveThinking({ latestUserMessage: user("thanks") });
-		assert.equal(result.level, "low");
-		assert.match(result.reasons.join(" "), /short_acknowledgement/);
-	});
-
-	it("classifies explain-style requests as medium", () => {
-		const result = classifyAdaptiveThinking({ latestUserMessage: user("Can you explain how this cache invalidation works?") });
-		assert.equal(result.level, "medium");
-	});
-
-	it("classifies broad refactor tasks as high", () => {
-		const result = classifyAdaptiveThinking({ latestUserMessage: user("Refactor and migrate auth across the entire codebase") });
-		assert.equal(result.level, "high");
-	});
-
-	it("biases to high when plan mode is active", () => {
-		const result = classifyAdaptiveThinking({
-			latestUserMessage: user("Fix typo in footer"),
-			planModeActive: true,
-		});
-		assert.equal(result.level, "high");
-		assert.match(result.reasons.join(" "), /plan_mode_bias_high/);
-	});
-
-	it("throws for empty user text", () => {
-		assert.throws(
-			() => classifyAdaptiveThinking({ latestUserMessage: user("   ") }),
+describe("classifyAdaptiveThinkingWithLLM", () => {
+	it("throws for empty user text", async () => {
+		await assert.rejects(
+			() => classifyAdaptiveThinkingWithLLM({
+				latestUserMessage: user("   "),
+				classifierModel: {
+					provider: "test",
+					id: "fake",
+					name: "fake",
+					api: "openai-completions",
+					maxTokens: 1000,
+					reasoning: true,
+				} as any,
+			}),
 			/non-empty user text/,
 		);
 	});

@@ -1,6 +1,6 @@
 # LSD
 
-**Looks Sort of Done** — a standalone coding-agent CLI built on the Pi SDK. Use all your AI providers and all your loved features from Claude Code, Codex, and Gemini in one place.
+**Looks Sort of Done** — a standalone AI coding-agent CLI built on the Pi SDK. Use all your AI providers and all your loved features from Claude Code, Codex, and Gemini in one place.
 
 ![LSD Screenshot](./lsd.png)
 
@@ -12,24 +12,28 @@ npm install -g lsd-pi@latest
 
 ## What LSD is
 
-LSD is a general-purpose coding agent CLI. It combines:
+LSD is a general-purpose coding agent that lives in your terminal. It combines:
 
-- **Interactive TUI** inspired by Gemini CLI — including an embedded interactive terminal inside the LSD CLI that both you and the agent can use, so the agent is not blocked by commands or tools that require terminal interaction
-- **Memory system and permission modes** inspired by Claude Code
-- **Sandbox isolation** inspired by Codex
-- **Auto mode** — a classifier-based autonomous execution mode
-- **Remote questions** — relay agent prompts to Telegram, Discord, or Slack so you can respond from your phone
-- **Background subagents, skills, worktrees, sessions, usage tracking, and more**
+- **Interactive TUI** with an embedded terminal — both you and the agent can interact with CLI programs, so the agent never gets blocked by interactive commands
+- **Multi-provider LLM support** — Claude, GPT, Gemini, Mistral, Bedrock, Vertex AI, and more
+- **Persistent memory** — remembers your preferences and project context across sessions
+- **Browser automation** — full Playwright integration for web testing and scraping
+- **Code intelligence** — LSP-based navigation (go-to-definition, references, rename) in typed codebases
+- **Auto mode** — classifier-based autonomous execution for low-risk operations
+- **Remote questions** — relay prompts to Telegram, Discord, or Slack so you can respond from your phone
+- **Background subagents** — delegate tasks to isolated workers (scout, reviewer, planner)
+- **Worktrees** — isolated git branches for parallel workstreams
+- **Sessions** — resumable conversation history per project directory
+- **Voice input** — speak your prompts (macOS native, Linux via Groq)
+- **Usage tracking** — token consumption and cost reporting
+- **~25 bundled extensions** — memory, browser-tools, subagent, codex-rotate, search, and more
+- **Sandbox isolation** — restrict filesystem writes to the project directory
 
-- **Package:** `lsd-pi`
-- **Binary:** `lsd`
-- **Alt binary:** `lsd-cli`
-- **Project config dir:** `.lsd/`
-- **User config dir:** `~/.lsd/`
+**Package:** `lsd-pi` · **Binary:** `lsd` · **Project config:** `.lsd/` · **User config:** `~/.lsd/`
 
 ### Fork lineage
 
-LSD is a fork of **GSD 2**. The GSD-specific project workflow layer was stripped out. LSD is centered on being a general-purpose coding agent CLI — the agent shell, tools, TUI, browser tools, sessions, worktrees, and integrations remain core.
+LSD is a fork of **GSD 2** with the GSD-specific project workflow layer stripped out. The agent shell, tools, TUI, browser automation, sessions, worktrees, and integrations remain core.
 
 ---
 
@@ -674,6 +678,8 @@ See [`docs/`](./docs/) for deeper details:
 - [Troubleshooting](./docs/troubleshooting.md)
 - [Skills](./docs/skills.md)
 - [Custom Models](./docs/custom-models.md)
+
+For contributors: [LEARNING.md](./LEARNING.md) is the developer onboarding guide.
 
 ---
 

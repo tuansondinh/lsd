@@ -3,32 +3,30 @@
  * output (welcome screen, sessions list, worktree CLI, update prompt, onboarding).
  *
  * Colors are read lazily from active theme via getResolvedThemeColors() so
- * that custom user themes propagate to CLI output automatically.
+ * that custom user themes and accent presets propagate to CLI output automatically.
  * Falls back to built-in dark-theme defaults if the theme cannot be loaded.
  */
 
 import { getResolvedThemeColors } from '@gsd/pi-coding-agent'
 
-// ── Lazy theme cache ─────────────────────────────────────────────────────────
-
-let _colors: Record<string, string> | null = null
+// ── Theme color resolver ──────────────────────────────────────────────────────
+// Not cached — getResolvedThemeColors() reads the globalThis theme instance which
+// is updated whenever initTheme() or setTheme() is called (e.g. by cli.ts before
+// the welcome screen, or by InteractiveMode when the user changes the accent).
 
 function colors(): Record<string, string> {
-  if (!_colors) {
-    try {
-      const resolved = getResolvedThemeColors()
-      _colors = resolved ?? { accent: '#4a8cf7', borderAccent: '#4a8cf7', borderMuted: '#1e3a8a' }
-    } catch {
-      // Theme not yet on disk (first run) — use built-in dark defaults
-      _colors = { accent: '#4a8cf7', borderAccent: '#4a8cf7', borderMuted: '#1e3a8a' }
-    }
+  try {
+    const resolved = getResolvedThemeColors()
+    return resolved ?? { accent: '#4a8cf7', borderAccent: '#4a8cf7', borderMuted: '#1e3a8a' }
+  } catch {
+    // Theme not yet initialised (first run) — use built-in dark defaults
+    return { accent: '#4a8cf7', borderAccent: '#4a8cf7', borderMuted: '#1e3a8a' }
   }
-  return _colors
 }
 
 // ── Hex accessor (for chalk.hex()) ───────────────────────────────────────────
 
-/** Returns an accent hex color from the active theme (e.g. `'#4a8cf7'`). */
+/** Returns the accent hex color from the active theme (e.g. `'#4a8cf7'`). */
 export function accentHex(): string {
   return colors().accent ?? '#4a8cf7'
 }

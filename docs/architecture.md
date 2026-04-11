@@ -1,6 +1,8 @@
 # LSD Architecture Documentation
 
 > **For new contributors** — LSD is a branded, extended fork of the `pi` coding agent. The core agent engine lives in the `packages/` workspace. Everything in `src/` is the LSD layer that wraps, brands, and extends that core.
+>
+> **Quick start?** Read [LEARNING.md](../LEARNING.md) for a developer onboarding guide.
 
 ---
 
@@ -8,14 +10,15 @@
 
 1. [Big Picture](#big-picture)
 2. [Repository Layout](#repository-layout)
-3. [Startup Flow](#startup-flow)
-4. [Package Architecture (Core Engine)](#package-architecture-core-engine)
-5. [Extension System](#extension-system)
-6. [Session & Memory System](#session--memory-system)
-7. [Operating Modes](#operating-modes)
-8. [Configuration & Preferences](#configuration--preferences)
-9. [Worktrees (Isolated Workspaces)](#worktrees-isolated-workspaces)
-10. [Key Data Flows](#key-data-flows)
+3. [Source File Reference](#source-file-reference)
+4. [Startup Flow](#startup-flow)
+5. [Package Architecture (Core Engine)](#package-architecture-core-engine)
+6. [Extension System](#extension-system)
+7. [Session & Memory System](#session--memory-system)
+8. [Operating Modes](#operating-modes)
+9. [Configuration & Preferences](#configuration--preferences)
+10. [Worktrees (Isolated Workspaces)](#worktrees-isolated-workspaces)
+11. [Key Data Flows](#key-data-flows)
 
 ---
 
@@ -76,47 +79,42 @@ lsd/
 ├── src/                        # LSD layer (TypeScript source)
 │   ├── loader.ts               # Entry point: env setup, workspace linking, boots cli.ts
 │   ├── cli.ts                  # Main CLI: arg parsing, mode routing, session init
-│   ├── app-paths.ts            # ~/.lsd path constants (appRoot, agentDir, sessionsDir)
 │   ├── headless.ts             # Headless/auto mode orchestrator (spawns RPC child)
-│   ├── headless-events.ts      # Event classification (terminal signals, exit codes)
-│   ├── headless-types.ts       # HeadlessJsonResult, OutputFormat types
-│   ├── headless-ui.ts          # Progress formatting for headless output
-│   ├── headless-answers.ts     # Pre-supplied answer injection for headless
-│   ├── headless-context.ts     # Context file loading for headless
-│   ├── extension-registry.ts   # Extension enable/disable state (registry.json)
-│   ├── extension-discovery.ts  # Scans directories for extension entry points
-│   ├── resource-loader.ts      # Syncs bundled resources to ~/.lsd/agent/
-│   ├── models-resolver.ts      # Resolves models.json path (LSD → pi fallback)
-│   ├── shared-preferences.ts   # PREFERENCES.md loading + merging
-│   ├── shared-paths.ts         # Project state root (.lsd/ or legacy .gsd/)
-│   ├── project-sessions.ts     # Per-directory session path encoding
-│   ├── tool-bootstrap.ts       # Ensures fd/rg managed binaries are available
-│   ├── rtk.ts                  # RTK (shell command compression) bootstrap
-│   ├── worktree-cli.ts         # `lsd worktree` subcommand + -w flag
 │   ├── onboarding.ts           # First-run setup wizard
+│   ├── resource-loader.ts      # Syncs bundled resources to ~/.lsd/agent/
+│   ├── extension-discovery.ts  # Scans directories for extension entry points
+│   ├── extension-registry.ts   # Extension manifest types, enable/disable state
+│   ├── app-paths.ts            # ~/.lsd path constants (appRoot, agentDir, sessionsDir)
+│   ├── shared-paths.ts         # Walks up to find .lsd/ project root
+│   ├── shared-preferences.ts   # PREFERENCES.md YAML parser + merge logic
+│   ├── worktree-cli.ts         # Git worktree subcommand + -w flag
 │   ├── welcome-screen.ts       # Branded welcome banner
-│   ├── mcp-server.ts           # `--mode mcp` MCP server entry
+│   ├── mcp-server.ts           # --mode mcp MCP server entry
 │   ├── cli-theme.ts            # Accent color helpers
-│   ├── lsd-brand.ts            # LSD branding constants
+│   ├── lsd-brand.ts            # Brand color constants
+│   ├── rtk.ts                  # RTK shell command compression bootstrap
+│   ├── tool-bootstrap.ts       # fd/rg managed binary setup
+│   ├── models-resolver.ts      # models.json path (LSD → pi fallback)
+│   ├── tests/                  # Unit and integration tests
 │   └── resources/
-│       └── extensions/         # Bundled extensions (synced to ~/.lsd/agent/extensions/)
-│           ├── memory/         # Persistent memory system
-│           ├── claude-code-cli/# Claude provider via Anthropic SDK
-│           ├── remote-questions/# Slack/Discord/Telegram question routing
-│           ├── mac-tools/      # macOS native UI automation
-│           ├── context7/       # Context7 docs integration
-│           ├── google-search/  # Web search tool
-│           ├── browser-tools/  # Playwright browser automation
-│           ├── ttsr/           # Tool-to-system-prompt rules
-│           ├── usage/          # Token usage tracking
-│           └── ...
+│       ├── extensions/         # ~25 bundled extensions (synced to ~/.lsd/agent/extensions/)
+│       │   ├── memory/         # Persistent memory system
+│       │   ├── browser-tools/  # Playwright browser automation
+│       │   ├── subagent/       # Background subagent system
+│       │   ├── claude-code-cli/# Claude provider via Anthropic SDK
+│       │   ├── codex-rotate/   # Multi-account OAuth rotation
+│       │   ├── remote-questions/# Slack/Discord/Telegram question routing
+│       │   ├── bg-shell/       # Background shell process management
+│       │   ├── search-the-web/ # Brave/Tavily/Jina web search
+│       │   ├── mac-tools/      # macOS native UI automation
+│       │   └── ...             # context7, google-search, usage, voice, etc.
+│       └── skills/             # Bundled skills (review, test, lint, etc.)
 │
-├── packages/                   # Core engine workspace packages (vendored)
+├── packages/                   # Core engine workspace packages (vendored from pi-mono)
 │   ├── pi-coding-agent/        # Agent session, built-in tools, RPC, TUI shell
 │   ├── pi-ai/                  # LLM provider abstraction layer
 │   ├── pi-tui/                 # Terminal UI renderer
 │   ├── pi-agent-core/          # Base agent primitives
-│   ├── pi-tui/                 # Terminal UI renderer
 │   ├── native/                 # Native binaries (fd, rg wrappers)
 │   ├── rpc-client/             # JSON-RPC client for headless mode
 │   ├── mcp-server/             # MCP server implementation
@@ -129,8 +127,87 @@ lsd/
 │
 ├── pkg/                        # Shim: piConfig + theme assets (no src/)
 │                               # Lets pi read LSD branding without its own entry point
-└── scripts/                    # Build, release, postinstall helpers
+├── docs/                       # User-facing documentation
+├── scripts/                    # Build, release, postinstall helpers
+├── LEARNING.md                 # Developer onboarding guide
+├── CONTRIBUTING.md             # Contribution guidelines
+└── VISION.md                   # Project philosophy
 ```
+
+---
+
+## Source File Reference
+
+Every file in `src/` with its responsibility:
+
+| File | Purpose |
+|------|---------|
+| `loader.ts` | Entry point. Fast-path `--version`/`--help`, env setup, workspace linking, boots `cli.ts` |
+| `cli.ts` | Main CLI. Arg parsing, mode routing (TUI/headless/print/RPC/MCP), session init |
+| `headless.ts` | Headless orchestrator. Spawns RPC child, auto-responds to UI, streams progress |
+| `headless-events.ts` | Event classification (terminal signals, blocked/cancelled detection, exit codes) |
+| `headless-types.ts` | Type definitions for headless output formats (`HeadlessJsonResult`, `OutputFormat`) |
+| `headless-ui.ts` | Progress formatting for headless stderr (tool calls, thinking, text streaming) |
+| `headless-answers.ts` | Pre-supplied answer injection for headless (answer file parsing + auto-response) |
+| `headless-context.ts` | Context loading for headless (`--context` file/stdin + project bootstrapping) |
+| `app-paths.ts` | Path constants: `appRoot` (`~/.lsd`), `agentDir`, `sessionsDir`, `authFilePath` |
+| `shared-paths.ts` | Walks up from cwd to find `.lsd/` or `.gsd/` project state root |
+| `shared-preferences.ts` | PREFERENCES.md YAML frontmatter parser (global + project merge) |
+| `project-sessions.ts` | Per-directory session path encoding (cwd → safe filesystem path) |
+| `extension-discovery.ts` | Scans directories for extension entry points (package.json → index.ts/js fallback) |
+| `extension-registry.ts` | Extension manifest types, registry persistence, enable/disable state |
+| `resource-loader.ts` | Syncs bundled resources to `~/.lsd/agent/`, builds `DefaultResourceLoader` |
+| `models-resolver.ts` | Resolves `models.json` path (LSD → pi fallback for migration) |
+| `onboarding.ts` | First-run setup wizard (LLM provider auth, tool keys, search provider) |
+| `onboarding-llm.ts` | LLM provider options and budget model configuration for onboarding |
+| `welcome-screen.ts` | Branded two-panel welcome banner shown on interactive session start |
+| `worktree-cli.ts` | Git worktree subcommands (list, merge, clean, remove) and `-w` flag |
+| `worktree-name-gen.ts` | Generates random adjective-noun worktree names |
+| `rtk.ts` | RTK shell command compression bootstrap (download, install, PATH setup) |
+| `tool-bootstrap.ts` | Ensures `fd` and `rg` managed binaries are available in `~/.lsd/agent/bin/` |
+| `mcp-server.ts` | MCP server entry (`--mode mcp`), exposes LSD tools to external AI clients |
+| `cli-theme.ts` | Accent color helpers, reads from active theme for CLI output |
+| `lsd-brand.ts` | Brand color constants (yellow/blue/pink) and ANSI rendering helpers |
+| `logo.ts` | ASCII art logo rendering |
+| `help-text.ts` | `--help` output and subcommand help text |
+| `startup-timings.ts` | Lightweight perf timing utility (opt-in via `GSD_STARTUP_TIMING=1`) |
+| `startup-model-validation.ts` | Validates configured model exists after extensions register their models |
+| `pi-migration.ts` | Migrates credentials from `~/.pi/` to `~/.lsd/` on first run |
+| `update-check.ts` | Non-blocking update check with cached result |
+| `update-cmd.ts` | `lsd update` command — runs `npm install -g lsd-pi@latest` |
+| `wizard.ts` | Shared wizard utilities (env key loading, provider detection) |
+| `codex-rotate-settings.ts` | Checks if Codex multi-account rotation is enabled |
+| `bedrock-auth.ts` | AWS Bedrock credential storage and validation |
+| `bundled-extension-paths.ts` | Serializes/deserializes extension paths for env var passing |
+| `bundled-resource-path.ts` | Resolves bundled resource file paths from package root |
+
+### Bundled Extensions (`src/resources/extensions/`)
+
+| Extension | Purpose |
+|-----------|---------|
+| `memory/` | Persistent memory system (MEMORY.md index, auto-extract, dream consolidation) |
+| `browser-tools/` | Full Playwright browser automation (screenshots, forms, assertions, navigation) |
+| `subagent/` | Background subagent system (scout, worker, parallel/chain execution) |
+| `claude-code-cli/` | Claude provider via Anthropic SDK (streaming, partial builder) |
+| `codex-rotate/` | Multi-account ChatGPT/Codex OAuth rotation (round-robin, auto-refresh) |
+| `remote-questions/` | Relay agent questions to Telegram, Discord, or Slack |
+| `bg-shell/` | Background shell process management (persistent sessions, readiness detection) |
+| `search-the-web/` | Web search (Brave, Tavily, native) + page fetch (Jina) |
+| `context7/` | Context7 library documentation lookup |
+| `mac-tools/` | macOS native UI automation via Accessibility APIs |
+| `usage/` | Token usage tracking and reporting (`/usage` command) |
+| `usage-tips/` | Contextual usage tips and cost-saving suggestions |
+| `voice/` | Voice input (macOS Swift, Linux Groq) |
+| `async-jobs/` | Async bash execution with job management |
+| `cache-timer/` | Prompt cache countdown display in footer |
+| `ttsr/` | Tool-to-system-prompt rules engine |
+| `mcp-client/` | MCP server client integration |
+| `universal-config/` | Discovers config files from other AI tools (Claude, Cursor, etc.) |
+| `cmux/` | Terminal multiplexer integration |
+| `aws-auth/` | AWS authentication helpers |
+| `slash-commands/` | Built-in slash commands (audit, plan, clear, context, tools) |
+| `google-search/` | Google-backed web search via Gemini |
+| `shared/` | Shared utilities (UI helpers, formatters, preference readers, tests) |
 
 ---
 

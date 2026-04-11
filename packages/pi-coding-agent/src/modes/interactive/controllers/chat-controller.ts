@@ -59,10 +59,18 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 					return;
 				case "set_model":
 				case "set_thinking_level":
-				case "adaptive_classified":
 					host.updateEditorBorderColor();
 					host.ui.requestRender();
 					return;
+				case "adaptive_classified": {
+					const reasons = host.session?.lastAdaptiveDecision?.reasons ?? [];
+					if (reasons.includes("adaptive_classifier_model_not_set")) {
+						host.showError("adaptive classifier model not set");
+					}
+					host.updateEditorBorderColor();
+					host.ui.requestRender();
+					return;
+				}
 				default:
 					host.ui.requestRender();
 					return;

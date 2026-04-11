@@ -1,3 +1,8 @@
+/**
+ * Shared wizard utilities — env hydration from stored credentials and
+ * provider detection helpers used by both onboarding.ts and cli.ts.
+ */
+
 import type { AuthStorage } from '@gsd/pi-coding-agent'
 import { BEDROCK_PROVIDER_ID, applyBedrockCredentialToEnv, decodeBedrockCredential } from './bedrock-auth.js'
 

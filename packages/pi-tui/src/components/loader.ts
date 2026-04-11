@@ -59,9 +59,11 @@ export class Loader extends Text {
 	private visibleChars = 0;
 	private wordAnimId: NodeJS.Timeout | null = null;
 
-	// ── shimmer gradient: theme blueHigh → blueXhigh ─────────────────────────
-	private readonly gradStart: [number, number, number] = [147, 197, 253]; // #93c5fd (blue-300)
-	private readonly gradEnd:   [number, number, number] = [191, 219, 254]; // #bfdbfe (blue-200)
+	// ── shimmer gradient: derived from messageColorFn accent ─────────────────
+	// Parsed lazily from a sample render of _messageColorFn so it tracks the live theme.
+	private gradStart: [number, number, number] = [147, 197, 253]; // fallback blue-300
+	private gradEnd:   [number, number, number] = [191, 219, 254]; // fallback blue-200
+	private gradParsed = false;
 
 	// Shimmer ticks independently at ~40ms for smooth gradient movement
 	private shimmerTick = 0;
@@ -203,7 +205,33 @@ export class Loader extends Text {
 
 	// ── rendering ─────────────────────────────────────────────────────────────
 
+	/** Parse the accent color from the theme's messageColorFn and build a shimmer gradient. */
+	private parseGradient(): void {
+		try {
+			// Render a single char through the accent color function and extract the RGB escape
+			const sample = this._messageColorFn("x");
+			const m = sample.match(/\x1b\[38;2;(\d+);(\d+);(\d+)m/);
+			if (!m) return;
+			const r = parseInt(m[1]), g = parseInt(m[2]), b = parseInt(m[3]);
+			// gradStart = accent lightened slightly, gradEnd = accent lightened more
+			this.gradStart = [
+				Math.min(255, Math.round(r + (255 - r) * 0.15)),
+				Math.min(255, Math.round(g + (255 - g) * 0.15)),
+				Math.min(255, Math.round(b + (255 - b) * 0.15)),
+			];
+			this.gradEnd = [
+				Math.min(255, Math.round(r + (255 - r) * 0.40)),
+				Math.min(255, Math.round(g + (255 - g) * 0.40)),
+				Math.min(255, Math.round(b + (255 - b) * 0.40)),
+			];
+			this.gradParsed = true;
+		} catch {
+			// keep fallback blue gradient
+		}
+	}
+
 	private renderAnimatedWord(): string {
+		if (!this.gradParsed) this.parseGradient();
 		const word = this.currentWord();
 		const visible = word.slice(0, this.visibleChars);
 		if (!visible) return DIM + " " + RESET;

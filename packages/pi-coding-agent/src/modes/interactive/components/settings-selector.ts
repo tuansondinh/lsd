@@ -238,7 +238,7 @@ export class SettingsSelectorComponent extends Container {
 			{
 				id: "adaptive-classifier-model",
 				label: "Adaptive classifier model",
-				description: "LLM used to pick reasoning level when adaptive mode is on (default: heuristic)",
+				description: "LLM used to pick reasoning level when adaptive mode is on (required for non-Anthropic models)",
 				currentValue: config.adaptiveClassifierModel,
 				submenu: config.adaptiveClassifierModelSubmenu,
 			},

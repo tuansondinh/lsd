@@ -6,6 +6,171 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-04-10
+
+### Added
+- overhaul architecture docs and enable dynamic tool mutation
+- agent PTY terminal focus + live pty_wait updates
+- enhance subagent discovery, agent session management, and Anthropic provider configuration
+- refresh architecture docs and CLI exports
+- **plan**: split large plans across sequential subagents and add post-execution review
+- scout-first recon policy, codex model mirroring, usage userPrompts tracking
+- show /bg hint after bg_shell start/list/digest tool calls
+- detect privilege escalation errors and show manual run callout
+- add memory extraction helper script and export auth-storage
+- add configurable sandbox manager
+- background subagent sessions (PLAN-4)
+- add usage reports and memory auto-dream
+- **theme**: add configurable main accent presets
+- plan mode auto-switch approval dialog
+- add bedrock onboarding support
+- verify custom subagents and skills
+- subagent model resolution and extension awareness
+- add LSP server install step to onboarding wizard
+- add LSP server install utility and settings fields
+- port teams workflow skills and agents
+- improve subagent config
+- **ui**: add configurable tool output density
+- **subagent**: infer model for spawned agents
+- commit unrelated UI and core improvements
+- **extensions**: wire up topological sort and unified registry filtering (#3152)
+- **widget**: add last commit display and dashboard layout improvements (#3226)
+- **model-routing**: enable dynamic routing by default (#3120)
+
+### Fixed
+- restore full tool profile startup and improve subagent routing
+- **bash-interceptor**: clarify routing block message (fix B)
+- **plan-mode**: persist permission mode to settings.json (fix A)
+- **prompts**: add secret redaction to compaction system prompt (fix 4)
+- **prompts**: rewrite main prompt to compact 8-bullet format (fix 2)
+- **prompts**: gate pi docs block on file existence and compress (fix 5)
+- **prompts**: document customPrompt and fix ordering bug (fix 3)
+- **prompts**: extract unified classifier prompt constant (fix 1)
+- subagent approval requests now properly forward to user
+- **plan**: improve plan badge reliability and plan-mode steering; release 1.1.8
+- left-align README intro content
+- editor dropped image marker path normalization and leading space preservation
+- skip Thinking... label when thinking is disabled; refactor buildAutoExtractHelperScript
+- retry handler improvements and chat rebuild on auto-retry
+- remove duplicate codex rotate retry hook
+- soften language server install prompt copy
+- show already-installed language servers before the install prompt
+- resolve defaults.json via relative path to avoid package exports restriction
+- auto memory extraction — support --context generically in headless mode
+- address review findings — Windows shell flag and wire lspAutoInstall setting
+- improve LSP 'no server found' messages with install hints and /setup prompt
+- load bundled teams skills and slash aliases
+- repair extension typecheck tests
+- use packaged tool approval helpers
+- **extensions**: update provides.hooks in 7 extension manifests to match actual registrations (#3157)
+- surface nativeCommit errors in reconcileMergeState instead of silently swallowing (#3052)
+- **parallel**: scope commits to milestone boundaries in parallel mode (#3047)
+- add windowsHide to all web-mode subprocess spawns (#2628) (#3046)
+- skip auto-mode pause on empty-content aborted messages (#2695) (#3045)
+- detect and remove nested .git dirs in worktree cleanup to prevent data loss (#3044)
+- prevent data loss when git isolation default changes (#2625) (#3043)
+- **read-tool**: clamp offset to file bounds instead of throwing (#3007) (#3042)
+- **gsd**: preserve queued milestones with worktrees in ghost detection (#3041)
+- **compaction**: add chunked fallback when messages exceed model context window (#3038)
+- preserve interactive terminal across tab switches and project changes (#3055)
+- call cleanupQuickBranch on turn_end to squash-merge quick branch back (#3054)
+- align run-uat artifact path to ASSESSMENT, preventing false stuck retries (#3053)
+- replace invalid Discord invite links with canonical URL (#3056)
+- add Windows shell guard to remaining spawn sites (#3058)
+- route `gsd auto` to headless runner to prevent hang on piped stdin/stdout (#3057)
+- respect .gitignore for .gsd/ in rethink prompt (#3059)
+- migrate unit ownership from JSON to SQLite to eliminate read-modify-write race (#3061)
+- **roadmap**: handle numbered, bracketed, and indented prose H3 headers in slice parser (#3063)
+- add worktree-merge to resolveModelWithFallbacksForUnit switch and update KNOWN_UNIT_TYPES (#3066)
+- clean up MERGE_HEAD on all error paths in mergeMilestoneToMain (#2912) (#3068)
+- prevent LLM from confusing background task output with user input (#3069)
+- add openai-codex provider and modern OpenAI models to MODEL_CAPABILITY_TIER and cost tables (#3070)
+- preserve active tab when switching projects (#3071)
+- include project name in desktop notifications (#3072)
+- recover from many-image dimension overflow by stripping older images (#3075)
+- resolve bare model IDs to anthropic over claude-code provider (#3076)
+- **auto**: move selectAndApplyModel before updateProgressWidget (#3079)
+- detect project relocation and recover state without data loss (#3080)
+- add free-text input to ask-user-questions when "None of the above" is selected (#3081)
+- block work execution during /gsd queue mode (#2545) (#3082)
+- detect worktree basePath in gsdRoot() to prevent escaping to project root (#3083)
+- invalidate stale quick-task captures across milestone boundaries (#3084)
+- defer model validation until after extensions register (#3089)
+- repair YAML bullet lists in malformed tool-call JSON (#3090)
+- unify SUMMARY.md render paths for projection fidelity (#3091)
+- chat mode misrepresents terminal output, looks stuck, omits user messages (#3092)
+- resolve 4 state corruption bugs in milestone/slice completion (#2945) (#3093)
+- isolate guided-flow session state and key discussion milestone queries (#2985) (#3094)
+- **guided-flow**: route dispatchWorkflow through dynamic routing pipeline (#3153)
+- skip external state migration inside git worktrees (#2970) (#3227)
+- coerce non-numeric strings in DB columns during manifest serialization (#2962) (#3229)
+- route allDiscussed and zero-slices paths to queued milestone discussion (#3150) (#3230)
+- use loose equality for null checks in secure_env_collect (#2997) (#3231)
+- prevent prompt explosion from $' in template replacement values (#2968) (#3232)
+- resolve OAuth API key in buildMemoryLLMCall via modelRegistry (#2959) (#3233)
+- **forensics**: read completion status from DB instead of legacy file (#3129) (#3234)
+- use camelCase parameter names in execute-task and complete-slice prompts (#2933) (#3236)
+- check bootstrap completeness in init wizard gate, not just .gsd/ existence (#2942) (#3237)
+- specify write tool for PROJECT.md in milestone/slice prompts (#3238)
+- widen completing-milestone gate to accept "None required" and similar phrasings (#2931) (#3239)
+- prevent ask_user_questions from poisoning auto-mode dispatch (#2936) (#3240)
+- guard null s.currentUnit in runUnitPhase closeout after stopAuto race (#2939) (#3241)
+- replace `web_search` with `search-the-web` in prompts and agent frontmatter (#2920) (#3245)
+- preserve milestone title in upsertMilestonePlanning when DB row pre-exists (#2879) (#3247)
+- invalidate stale milestone validation on roadmap reassessment (#2957) (#3242)
+- **discuss**: add roadmap fallback when DB is open but empty (#2892) (#3244)
+- integrate Codex & Gemini CLI into provider routes and rate-limit handling (#2922) (#3246)
+- **error-classifier**: widen STREAM_RE to cover all 7 V8 JSON parse error variants (#2916) (#3243)
+- prevent git stash from destroying queued milestone CONTEXT files (#2505) (#3273)
+- skip staleness rebuild in npm tarball installs (#2877) (#3250)
+- **parallel**: check worktree DB for milestone completion in merge (#2812) (#3256)
+- make claude-code provider stateful with full context and sidechain events (#2859) (#3254)
+- **worktree**: preserve non-empty gsd.db during sync to prevent truncation (#2815) (#3255)
+- align @gsd/native module type with compiled output (#3253)
+- parse hook/* completed-unit keys correctly in forensics + doctor (#2826) (#3252)
+- copy mcp.json into auto-mode worktrees (#2791) (#3251)
+- add gsd_requirement_save and upsert path for requirement updates (#3249)
+- handle pause_turn stop reason to prevent 400 errors with native web search (#2869) (#3248)
+- use authoritative milestone status in web roadmap (#2807) (#3258)
+- classify long-context entitlement 429 as quota_exhausted, not rate_limit (#2803) (#3257)
+- **docs**: use ~/.pi/agent/extensions/ for community extension install path (#3131) (#3259)
+- add disk→DB slice reconciliation in deriveStateFromDb (#2533) (#3262)
+- run forensics duplicate detection before investigation (#2704) (#3260)
+- skip TUI render loop on non-TTY stdout to prevent CPU burn (#3095) (#3263)
+- persist forensics report context across follow-up turns (#2941) (#3261)
+- invalidate workspace state on turn_end so milestones list stays current (#2706) (#3266)
+- eliminate 3 recurring doctor audit false positives (#3105) (#3264)
+- **web**: reconcile auto-mode state with on-disk lock in dashboard (#2705) (#3265)
+- treat ghost milestones as ineligible for parallel execution (#2501) (#3268)
+- redirect auto-mode to headless when stdout is piped (#2732) (#3269)
+- attempt VACUUM recovery when initSchema fails with corrupt freelist (#2519) (#3270)
+- resolve db_unavailable loop in worktree/symlink layouts (#2517) (#3271)
+- correct OAuth fallback request shape for google_search (#2963) (#3272)
+- prevent UAT stuck-loop and orphaned worktree after milestone completion (#3065)
+- **mcp**: handle server names with spaces in mcp_discover (#3037)
+- **gsd**: detect markdown body verdicts and guard plan-milestone against completed slices (#2960) (#3035)
+
+### Changed
+- sync native platform versions to 1.2.4
+- release v1.2.3
+- release v1.2.2
+- release v1.2.1
+- sync native platform package versions to 1.1.10
+- bump version to 1.1.10, fix changelog version
+- bump version to 1.1.10
+- sync platform package versions to 1.1.9
+- bump version to 1.1.9
+- update extensions, remote-questions, memory, slash-commands, and SDK improvements
+- sync native platform package versions to 1.1.6
+- rebrand LSD expansion to Looks Sort of Done v1.1.6
+- various improvements and fixes across multiple components
+- release 1.1.4
+- ignore project-local .lsd state
+- **pi-ai**: sync generate-models.ts from upstream
+- **pi-ai**: sync models.generated.ts from upstream
+- remove bundled gsd extension
+- **state**: centralize pipeline logging through workflow logger (#3282)
+
 ## [1.2.4] - 2026-04-09
 
 ### Enhanced
@@ -2288,7 +2453,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 - License updated to MIT
 
-[Unreleased]: https://github.com/gsd-build/gsd-2/compare/v1.2.3...HEAD
+[Unreleased]: https://github.com/gsd-build/gsd-2/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/gsd-build/gsd-2/compare/v1.2.3...v1.3.0
 [1.2.3]: https://github.com/gsd-build/gsd-2/compare/v1.2.2...v1.2.3
 [1.2.2]: https://github.com/gsd-build/gsd-2/compare/v1.2.0...v1.2.2
 [1.2.0]: https://github.com/gsd-build/gsd-2/compare/v1.1.8...v1.2.0

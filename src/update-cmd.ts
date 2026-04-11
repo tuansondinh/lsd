@@ -1,3 +1,8 @@
+/**
+ * The `lsd update` command — fetches the latest version from npm and runs
+ * npm install -g lsd-pi@latest in-place.
+ */
+
 import { execFileSync } from 'node:child_process'
 import { compareSemver } from './update-check.js'
 

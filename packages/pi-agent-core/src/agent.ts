@@ -4,7 +4,6 @@
  */
 
 import {
-	classifyAdaptiveThinking,
 	classifyAdaptiveThinkingWithLLM,
 	getModel,
 	supportsAdaptiveThinking,
@@ -114,9 +113,7 @@ export interface AgentOptions {
 
 	/**
 	 * Model to use for LLM-based adaptive thinking classification.
-	 * When set and the current model does not support provider-side adaptive,
-	 * the agent calls this model to decide reasoning level instead of the
-	 * heuristic classifier. Falls back to heuristic on error.
+	 * When unset, the active inference model is used as classifier.
 	 */
 	adaptiveClassifierModel?: Model<any>;
 }
@@ -517,17 +514,25 @@ export class Agent {
 			(msg): msg is Message => msg.role === "user" || msg.role === "assistant" || msg.role === "toolResult",
 		);
 
-		const result = this._adaptiveClassifierModel
-			? await classifyAdaptiveThinkingWithLLM({
-					latestUserMessage,
-					priorMessages: priorMessages.slice(-6),
-					classifierModel: this._adaptiveClassifierModel,
-					signal: this.abortController?.signal,
-				})
-			: classifyAdaptiveThinking({
-					latestUserMessage,
-					priorMessages: priorMessages.slice(-6),
-				});
+		if (!this._adaptiveClassifierModel) {
+			const decision = {
+				level: "medium" as const,
+				score: 55,
+				reasons: ["adaptive_classifier_model_not_set"],
+				at: Date.now(),
+				messageTimestamp: latestUserMessage.timestamp,
+			};
+			this._state.lastAdaptiveDecision = decision;
+			this.emit({ type: "adaptive_classified", decision });
+			return "medium";
+		}
+
+		const result = await classifyAdaptiveThinkingWithLLM({
+			latestUserMessage,
+			priorMessages: priorMessages.slice(-6),
+			classifierModel: this._adaptiveClassifierModel,
+			signal: this.abortController?.signal,
+		});
 
 		const decision = {
 			level: result.level,
@@ -560,6 +565,21 @@ export class Agent {
 		this._state.isStreaming = true;
 		this._state.streamMessage = null;
 		this._state.error = undefined;
+
+		// Start UI loading immediately, before adaptive reasoning/classifier work.
+		this.emit({ type: "agent_start" });
+		const emittedEarlyAgentStart = true;
+
+		// Optimistically render submitted messages immediately so user input appears
+		// without waiting for adaptive reasoning/classifier resolution.
+		const hasInjectedMessages = !!messages && messages.length > 0;
+		if (hasInjectedMessages) {
+			for (const message of messages) {
+				this.emit({ type: "message_start", message });
+				this.emit({ type: "message_end", message });
+				this.appendMessage(message);
+			}
+		}
 
 		const reasoning = await this._resolveReasoningForTurn(messages);
 
@@ -601,11 +621,16 @@ export class Agent {
 		let partial: AgentMessage | null = null;
 
 		try {
-			const stream = messages
-				? agentLoop(messages, context, config, this.abortController.signal, this.streamFn)
-				: agentLoopContinue(context, config, this.abortController.signal, this.streamFn);
+			const stream = hasInjectedMessages
+				? agentLoopContinue(context, config, this.abortController.signal, this.streamFn)
+				: messages
+					? agentLoop(messages, context, config, this.abortController.signal, this.streamFn)
+					: agentLoopContinue(context, config, this.abortController.signal, this.streamFn);
 
 			for await (const event of stream) {
+				if (emittedEarlyAgentStart && event.type === "agent_start") {
+					continue;
+				}
 				// Update internal state based on events
 				switch (event.type) {
 					case "message_start":

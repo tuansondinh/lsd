@@ -1,3 +1,8 @@
+/**
+ * Loads user preferences from global (~/agent/) and project-level (.lsd/settings.json)
+ * config files, with project settings taking precedence.
+ */
+
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { parse as parseYaml } from 'yaml'

@@ -1,3 +1,9 @@
+/**
+ * LLM provider registry and onboarding wizard helpers — lists available providers,
+ * presents picker options for browser vs API-key auth flows, and decides whether
+ * the first-run onboarding should trigger.
+ */
+
 import type { AuthStorage } from '@gsd/pi-coding-agent'
 import { BEDROCK_PROVIDER_ID } from './bedrock-auth.js'
 

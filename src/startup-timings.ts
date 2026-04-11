@@ -1,3 +1,8 @@
+/**
+ * Lightweight startup performance profiler. Opt-in via GSD_STARTUP_TIMING=1 or PI_TIMING=1;
+ * prints a delta timeline on startup when enabled.
+ */
+
 const flag = (process.env.GSD_STARTUP_TIMING ?? process.env.PI_TIMING ?? "").toLowerCase();
 const ENABLED = flag === "1" || flag === "true" || flag === "yes";
 

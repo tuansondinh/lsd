@@ -1,3 +1,8 @@
+/**
+ * Help text for every `lsd` subcommand. Rendered by the CLI when the user
+ * passes --help or an unknown subcommand.
+ */
+
 const SUBCOMMAND_HELP: Record<string, string> = {
   config: [
     'Usage: lsd config',

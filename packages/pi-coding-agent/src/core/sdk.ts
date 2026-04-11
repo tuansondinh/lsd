@@ -148,13 +148,11 @@ function shouldPreferAdaptiveThinkingByDefault(
         return false;
     }
 
-    if (settingsManager.getClientAdaptiveByDefault()) {
-        return true;
+    if (model.provider === "anthropic" && supportsAdaptiveThinking(model.id)) {
+        return settingsManager.getClientAdaptiveByDefault() || settingsManager.getAnthropicAdaptiveByDefault();
     }
 
-    return model.provider === "anthropic" &&
-        settingsManager.getAnthropicAdaptiveByDefault() &&
-        supportsAdaptiveThinking(model.id);
+    return settingsManager.getClientAdaptiveByDefault() && !!settingsManager.getAdaptiveClassifierModel();
 }
 
 /**

@@ -3572,7 +3572,7 @@ export class InteractiveMode {
 							? this.session.modelRegistry.find(parts[0]!, parts[1]!) ?? undefined
 							: undefined;
 						this.session.agent.setAdaptiveClassifierModel(resolved);
-						this.showStatus(`Adaptive classifier model: ${modelRef === "default" ? "heuristic (default)" : modelRef}`);
+						this.showStatus(`Adaptive classifier model: ${modelRef === "default" ? "not set" : modelRef}`);
 					},
 					onBudgetSubagentModelChange: (modelRef) => {
 						this.settingsManager.setBudgetSubagentModel(modelRef === "default" ? undefined : modelRef);

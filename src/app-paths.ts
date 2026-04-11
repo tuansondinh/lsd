@@ -1,3 +1,8 @@
+/**
+ * Central path constants for the entire app. Everything resolves off appRoot
+ * (defaults to ~/.lsd, overridable via LSD_HOME / GSD_HOME env vars).
+ */
+
 import { homedir } from 'os'
 import { join } from 'path'
 

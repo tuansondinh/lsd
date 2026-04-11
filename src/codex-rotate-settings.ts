@@ -1,3 +1,8 @@
+/**
+ * Checks whether Codex rotation is enabled for a project, reading from
+ * project settings, global settings, or preferences YAML (in that priority order).
+ */
+
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { agentDir } from './app-paths.js'

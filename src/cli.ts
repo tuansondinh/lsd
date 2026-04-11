@@ -11,6 +11,7 @@ import {
   resetStdinForTui,
   runPrintMode,
   runRpcMode,
+  initTheme,
 } from '@gsd/pi-coding-agent'
 import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
@@ -703,6 +704,12 @@ if (!process.stdin.isTTY || !process.stdout.isTTY) {
   process.stderr.write('[lsd]   lsd headless                   Auto-mode without TUI\n')
   process.exit(1)
 }
+
+// Initialise the theme (including accent preset) before the welcome screen so
+// that accentHex() returns the user's saved accent colour instead of the
+// base-theme default.  InteractiveMode will call initTheme() again with the
+// file-watcher enabled — this early call is intentionally watcher-free.
+initTheme(settingsManager.getTheme() || undefined, false, settingsManager.getThemeAccent())
 
 // Welcome screen — shown on every fresh interactive session before TUI takes over.
 // Skip when the first-run banner was already printed in loader.ts (prevents double banner).

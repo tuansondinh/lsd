@@ -35,7 +35,7 @@ const dark: ThemeJson = {
 		blueHigh: "#60a5fa",
 		blueXhigh: "#93c5fd",
 		selectedBg: "#323640",
-		userMsgBg: "#252930",
+		userMsgBg: "#272727",
 		toolPendingBg: "#1e2230",
 		toolSuccessBg: "#1a2330",
 		toolErrorBg: "#2a1e30",

@@ -165,7 +165,7 @@ export type ThemeBg =
 
 type ColorMode = "truecolor" | "256color";
 
-export const THEME_ACCENT_PRESETS = ["default", "golden-yellow", "blue", "green", "violet", "red"] as const;
+export const THEME_ACCENT_PRESETS = ["default", "claude", "golden-yellow", "blue", "green", "violet", "red"] as const;
 
 export type ThemeAccentPreset = (typeof THEME_ACCENT_PRESETS)[number];
 
@@ -181,9 +181,15 @@ type ResolvedThemeAccentPreset = Exclude<ThemeAccentPreset, "default">;
 const THEME_ACCENT_INFO: Record<ThemeAccentPreset, ThemeAccentInfo> = {
 	default: {
 		label: "Default",
-		description: "Use the active theme’s native accent colors.",
+		description: "Use the active theme's native accent colors.",
 		accent: undefined,
 		thinking: undefined,
+	},
+	claude: {
+		label: "Claude orange",
+		description: "Warm orange Claude accent (#F97316).",
+		accent: "#F97316",
+		thinking: ["#7C2D12", "#C2410C", "#EA580C", "#F97316", "#FB923C", "#FDBA74"],
 	},
 	"golden-yellow": {
 		label: "Golden yellow",
@@ -506,7 +512,7 @@ export class Theme {
 			case "off":
 				return (str: string) => this.fg("thinkingOff", str);
 			case "adaptive":
-				return (str: string) => this.fg("thinkingHigh", str);
+				return (str: string) => this.fg("accent", str);
 			case "low":
 				return (str: string) => this.fg("thinkingLow", str);
 			case "medium":
@@ -1169,7 +1175,7 @@ export function getLanguageFromPath(filePath: string): string | undefined {
 	return extToLang[ext];
 }
 
-// File path detection regex — matches strings that look like file paths:
+// File path detection regex - matches strings that look like file paths:
 // - Contains a `/` or `\` separator, OR
 // - Ends with a known file extension
 const FILE_PATH_PATTERN = /^(?:\.{0,2}\/|~\/|[a-zA-Z]:\\)[\w\-./\\]+$|^[\w\-./]+\.(?:ts|tsx|js|jsx|json|md|yaml|yml|toml|css|scss|html|py|rs|go|rb|java|c|cpp|h|hpp|sh|bash|zsh|sql|graphql|proto|xml|svg|txt|env|lock|cfg|ini|conf|log|gitignore|dockerignore|editorconfig|prettierrc|eslintrc)$/;

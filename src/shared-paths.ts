@@ -1,3 +1,8 @@
+/**
+ * Walks up from a given directory to find the nearest .lsd/ or .gsd/ project
+ * state directory. Shared between CLI entry points and the agent runtime.
+ */
+
 import { existsSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 

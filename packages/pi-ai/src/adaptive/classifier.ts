@@ -33,108 +33,6 @@ function getUserText(message: Message): string {
 		.trim();
 }
 
-function clampScore(score: number): number {
-	if (score < 0) return 0;
-	if (score > 100) return 100;
-	return score;
-}
-
-function countCodeblockLines(text: string): number {
-	const codeBlocks = text.match(/```[\s\S]*?```/g) ?? [];
-	let total = 0;
-	for (const block of codeBlocks) {
-		total += block.split("\n").length;
-	}
-	return total;
-}
-
-function stripCodeBlocks(text: string): string {
-	return text.replace(/```[\s\S]*?```/g, " ");
-}
-
-export function classifyAdaptiveThinking(input: AdaptiveClassifierInput): AdaptiveClassifierResult {
-	const text = getUserText(input.latestUserMessage);
-	if (!text) {
-		throw new Error("Adaptive classifier requires non-empty user text");
-	}
-	const normalized = text.toLowerCase();
-	const normalizedNoCode = stripCodeBlocks(normalized);
-	const noCodeWords = normalizedNoCode.split(/\s+/).filter(Boolean);
-	const codeLines = countCodeblockLines(text);
-	const reasons: string[] = [];
-	let score = 45;
-
-	if (/^\s*(hi|hey|hello|thanks|thank you|thx|ok|okay|yes|yep|continue|go ahead)\s*[.!?]*\s*$/i.test(text)) {
-		return { level: "low", reasons: ["short_acknowledgement"], score: 8 };
-	}
-
-	if (text.trim().length < 40 && codeLines === 0) {
-		score -= 8;
-		reasons.push("very_short_prompt");
-	}
-
-	if (/\b(fix|rename|format|typo|lint)\b/.test(normalized)) {
-		score -= 4;
-		reasons.push("small_edit_language");
-	}
-
-	const filePaths = normalized.match(/[\w./-]+\.[a-z0-9]{1,6}\b/g) ?? [];
-	if (filePaths.length >= 3 || /\bacross the codebase\b|\bentire\b|\ball\b/.test(normalized)) {
-		score += 28;
-		reasons.push("broad_scope");
-	} else if (filePaths.length === 1) {
-		score -= 5;
-		reasons.push("single_file_scope");
-	}
-
-	if (/\b(why|explain|how does|how do)\b/.test(normalized)) {
-		score += 12;
-		reasons.push("explanatory_request");
-	}
-
-	if (/\b(refactor|migrate|design|architect|debug)\b/.test(normalized)) {
-		score += 30;
-		reasons.push("high_complexity_verb");
-	}
-
-	if (/\b(typeerror|panic|exception|error:)\b/.test(normalized)) {
-		score += 12;
-		reasons.push("error_context");
-	}
-
-	if (codeLines > 0 && codeLines <= 40) {
-		score -= 4;
-		reasons.push("small_code_block");
-	}
-
-	if (noCodeWords.length > 300) {
-		score += 12;
-		reasons.push("long_prompt");
-	}
-
-	if (input.planModeActive) {
-		score = Math.max(score + 20, 71);
-		reasons.push("plan_mode_bias_high");
-	}
-
-	score = clampScore(score);
-	const level = score <= ADAPTIVE_SCORE_BANDS.lowMax
-		? "low"
-		: score <= ADAPTIVE_SCORE_BANDS.mediumMax
-			? "medium"
-			: "high";
-
-	return {
-		level,
-		reasons,
-		score,
-	};
-}
-
-// ---------------------------------------------------------------------------
-// LLM-based classifier
-// ---------------------------------------------------------------------------
-
 const LLM_CLASSIFIER_SYSTEM = `You are a reasoning-effort classifier for a coding assistant.
 
 Given the user's message, decide how much thinking effort the assistant should use:
@@ -152,9 +50,9 @@ export interface LLMClassifierInput extends AdaptiveClassifierInput {
 }
 
 /**
- * LLM-based adaptive thinking classifier.
- * Uses a configured small model to decide the reasoning level for the current turn.
- * Falls back to the heuristic classifier on error.
+ * Adaptive thinking classifier using only an LLM decision.
+ *
+ * If the classifier call fails or returns invalid output, defaults to medium.
  */
 export async function classifyAdaptiveThinkingWithLLM(
 	input: LLMClassifierInput,
@@ -195,13 +93,15 @@ export async function classifyAdaptiveThinkingWithLLM(
 			.toLowerCase();
 
 		if (raw === "low" || raw === "medium" || raw === "high") {
-			return { level: raw, reasons: ["llm_classified"], score: raw === "low" ? 10 : raw === "medium" ? 55 : 85 };
+			return {
+				level: raw,
+				reasons: ["llm_classified"],
+				score: raw === "low" ? 10 : raw === "medium" ? 55 : 85,
+			};
 		}
 
-		// Unexpected output — fall through to heuristic
+		return { level: "medium", reasons: ["llm_invalid_output_default_medium"], score: 55 };
 	} catch {
-		// Network/timeout/etc — fall through to heuristic
+		return { level: "medium", reasons: ["llm_error_default_medium"], score: 55 };
 	}
-
-	return classifyAdaptiveThinking(input);
 }

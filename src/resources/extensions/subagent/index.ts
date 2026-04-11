@@ -1048,6 +1048,10 @@ async function runSingleAgent(
             }
 
             const killProc = () => {
+                // If the process has been adopted to the background (e.g. via Ctrl+B or
+                // /agent attach_live), foregroundReleased is true and the process should
+                // survive the parent session's abort — don't kill it.
+                if (foregroundReleased) return;
                 wasAborted = true;
                 procAbortController.abort();
                 proc.kill("SIGTERM");

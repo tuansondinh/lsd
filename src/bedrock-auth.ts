@@ -1,3 +1,8 @@
+/**
+ * AWS Bedrock credential handling — encodes/decodes SSO or access-key credentials
+ * to JSON for storage in auth.json, and hydrates AWS_* env vars at runtime.
+ */
+
 import type { AuthStorage } from '@gsd/pi-coding-agent'
 
 export const BEDROCK_PROVIDER_ID = 'amazon-bedrock'

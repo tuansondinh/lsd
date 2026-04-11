@@ -2040,14 +2040,18 @@ export class AgentSession {
 		if (explicitLevel !== undefined) {
 			return explicitLevel;
 		}
-		if (targetModel.reasoning === true && this.settingsManager.getClientAdaptiveByDefault()) {
-			return "adaptive";
-		}
 		if (
 			targetModel.provider === "anthropic" &&
 			targetModel.reasoning === true &&
-			this.settingsManager.getAnthropicAdaptiveByDefault() &&
-			supportsAdaptiveThinking(targetModel.id)
+			supportsAdaptiveThinking(targetModel.id) &&
+			(this.settingsManager.getClientAdaptiveByDefault() || this.settingsManager.getAnthropicAdaptiveByDefault())
+		) {
+			return "adaptive";
+		}
+		if (
+			targetModel.reasoning === true &&
+			this.settingsManager.getClientAdaptiveByDefault() &&
+			!!this.settingsManager.getAdaptiveClassifierModel()
 		) {
 			return "adaptive";
 		}

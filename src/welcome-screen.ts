@@ -65,7 +65,7 @@ export function printWelcomeScreen(opts: WelcomeScreenOptions): void {
 
   // Narrow terminal fallback
   if (termWidth < 70) {
-    process.stderr.write(`\n  Looks Sort of Done v${version}\n  ${shortCwd}\n\n`)
+    process.stderr.write(`\n  Lucent Software Developer v${version}\n  ${shortCwd}\n\n`)
     return
   }
 
@@ -73,8 +73,8 @@ export function printWelcomeScreen(opts: WelcomeScreenOptions): void {
   // Keep welcome colors anchored to the active CLI theme accent so the banner
   // feels native regardless of custom themes.
   const ACCENT = accentHex()
-  const LOGO_EDGE = chalk.hex(mixHex(ACCENT, '#111111', 0.55))
-  const LOGO_CENTER = chalk.hex(mixHex(ACCENT, '#ffffff', 0.3))
+  const LOGO_EDGE = chalk.white
+  const LOGO_CENTER = chalk.whiteBright
   const TITLE_BASE = chalk.bold
   const TITLE_MARK = chalk.hex(mixHex(ACCENT, '#ffffff', 0.35)).bold
   const VERSION = chalk.dim
@@ -96,7 +96,7 @@ export function printWelcomeScreen(opts: WelcomeScreenOptions): void {
   const leftRows: (readonly [string, string, string] | null)[] = [null, ...GSD_LOGO_SEGMENTS, null]
 
   // ── Right rows (8 total, null = divider) ────────────────────────────────────
-  const titleLeft = `  ${TITLE_MARK('L')}${TITLE_BASE('ooks Sort of ')}${TITLE_MARK('D')}${TITLE_BASE('one')}`
+  const titleLeft = `  ${TITLE_MARK('L')}${TITLE_BASE('ucent Software ')}${TITLE_MARK('D')}${TITLE_BASE('eveloper')}`
   const titleRight = VERSION(`v${version}`)
   const titleFill = RIGHT_INNER - visLen(titleLeft) - visLen(titleRight)
   const titleRow = titleLeft + ' '.repeat(Math.max(1, titleFill)) + titleRight

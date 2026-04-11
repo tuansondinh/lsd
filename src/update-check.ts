@@ -1,3 +1,8 @@
+/**
+ * Periodic update checker — queries npm once per 24h for the latest lsd-pi version
+ * and notifies the user when a newer version is available.
+ */
+
 import { existsSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import chalk from 'chalk'

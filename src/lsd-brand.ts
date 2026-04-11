@@ -1,3 +1,8 @@
+/**
+ * Brand color constants (yellow/blue/pink) and chalk helpers for consistent
+ * terminal theming across the CLI.
+ */
+
 import chalk from 'chalk'
 
 export const LSD_YELLOW = '#facc15'
