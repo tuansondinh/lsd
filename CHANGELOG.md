@@ -6,6 +6,16 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.3.5] - 2026-04-12
+
+### Added
+- improved interactive tool summaries and BTW overlay
+
+### Changed
+- refined plan command flow, keybindings, footer, chat, and input controllers
+- updated slash-command handling and plan-mode state machine coverage
+- bumped package and platform versions for release
+
 ## [1.3.4] - 2026-04-12
 
 ### Added
