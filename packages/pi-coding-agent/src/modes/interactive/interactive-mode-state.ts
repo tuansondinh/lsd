@@ -11,6 +11,7 @@ export interface InteractiveModeStateHost {
 	chatContainer: any;
 	settingsManager: any;
 	pendingTools: Map<string, any>;
+	collapsedToolSummaryLine?: any;
 	toolOutputExpanded: boolean;
 	hideThinkingBlock: boolean;
 	notificationSoundEnabled: boolean;

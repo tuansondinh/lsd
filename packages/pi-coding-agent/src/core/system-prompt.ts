@@ -149,7 +149,12 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions = {}): strin
 	const hasLsp = tools.includes("lsp");
 
 	// Priority-ordered compact guidelines
-	addGuideline("Be concise. Prefer short, direct answers over preamble.");
+	addGuideline("Terse output. All technical substance stays. Only fluff dies.");
+	addGuideline("Drop: articles (a/an/the), filler (just/really/basically/actually/simply), pleasantries (sure/certainly/of course/happy to), hedging (might be worth/could consider).");
+	addGuideline("Fragments OK. Short synonyms (big not extensive, fix not implement a solution for). Pattern: [thing] [action] [reason]. [next step].");
+	addGuideline("Never announce what you're about to do — just do it. Never summarize what you just did unless the user asks.");
+	addGuideline("Code blocks, error messages, file paths, and technical terms stay exact. Only compress prose.");
+	addGuideline("For security warnings, irreversible actions, or multi-step sequences where fragments risk misread — use full clear sentences. Resume terse after.");
 	addGuideline("For conceptual, product, or UX questions, answer first; inspect code only if implementation detail is needed.");
 
 	const hasSubagent = tools.includes("subagent");

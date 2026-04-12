@@ -92,6 +92,7 @@ interface LiveSubagentRuntime {
 
 const liveRuntimeBySessionFile = new Map<string, LiveSubagentRuntime>();
 const inProcessSubagentDepthBySessionId = new Map<string, number>();
+const inProcessSubagentAncestryBySessionId = new Map<string, string[]>();
 let agentSessionLinkCounter = 0;
 
 function listSessionFiles(sessionDir: string): string[] {
@@ -809,6 +810,7 @@ export default function(pi: ExtensionAPI) {
         parentSessionByChild.clear();
         liveRuntimeBySessionFile.clear();
         inProcessSubagentDepthBySessionId.clear();
+        inProcessSubagentAncestryBySessionId.clear();
         liveStreamBufferBySession.clear();
     });
 
@@ -1230,7 +1232,15 @@ export default function(pi: ExtensionAPI) {
             const cmuxSplitsEnabled = cmuxClient.getConfig().splits;
             const invokingSessionFile = ctx.sessionManager.getSessionFile();
             const invokingSessionId = ctx.sessionManager.getSessionId();
-            const currentSubagentDepth = inProcessSubagentDepthBySessionId.get(invokingSessionId) ?? 0;
+            const invokingMetadata = getCurrentSessionSubagentMetadata(invokingSessionFile);
+            const currentSubagentName = invokingMetadata?.subagentName;
+            const trackedAncestry = inProcessSubagentAncestryBySessionId.get(invokingSessionId);
+            const currentAncestry = trackedAncestry ?? (currentSubagentName ? [currentSubagentName] : []);
+            const inferredCurrentDepth = currentSubagentName ? Math.max(currentAncestry.length, 1) : 0;
+            const currentSubagentDepth = Math.max(
+                inProcessSubagentDepthBySessionId.get(invokingSessionId) ?? 0,
+                inferredCurrentDepth,
+            );
             const nextSubagentDepth = currentSubagentDepth + 1;
 
             // Resolve isolation mode
@@ -1251,14 +1261,36 @@ export default function(pi: ExtensionAPI) {
                         results,
                     });
 
-            const trackInProcessDepth = (started: { handle: SubagentHandle; resultPromise: Promise<SingleResult> }, depth: number) => {
+            const trackInProcessDepth = (
+                started: { handle: SubagentHandle; resultPromise: Promise<SingleResult> },
+                depth: number,
+                ancestry: string[],
+            ) => {
                 const sessionId = started.handle.sessionId;
                 if (!sessionId) return;
                 inProcessSubagentDepthBySessionId.set(sessionId, depth);
+                inProcessSubagentAncestryBySessionId.set(sessionId, ancestry);
                 void started.resultPromise.finally(() => {
                     inProcessSubagentDepthBySessionId.delete(sessionId);
+                    inProcessSubagentAncestryBySessionId.delete(sessionId);
                 });
             };
+
+            const buildChildAncestry = (childAgentName: string): string[] => [...currentAncestry, childAgentName];
+
+            const requestedAgentNames = hasSingle
+                ? [params.agent!]
+                : hasChain
+                    ? (params.chain ?? []).map((step) => step.agent)
+                    : (params.tasks ?? []).map((task) => task.agent);
+
+            if (currentSubagentName && requestedAgentNames.some((name) => name === currentSubagentName)) {
+                return {
+                    content: [{ type: "text", text: `Subagent "${currentSubagentName}" cannot spawn another subagent with the same name as itself.` }],
+                    details: makeDetails(hasChain ? "chain" : hasTasks ? "parallel" : "single")([]),
+                    isError: true,
+                };
+            }
 
             if (modeCount !== 1) {
                 const available = agents.map((a) => `${a.name} (${a.source})`).join(", ") || "none";
@@ -1277,6 +1309,14 @@ export default function(pi: ExtensionAPI) {
                 return {
                     content: [{ type: "text", text: "background: true is only supported in single mode ({ agent, task }). Not valid for parallel or chain modes." }],
                     details: makeDetails(hasChain ? "chain" : "parallel")([]),
+                    isError: true,
+                };
+            }
+
+            if (params.background && currentSubagentDepth > 0) {
+                return {
+                    content: [{ type: "text", text: "Nested background subagent launches are not supported yet. Run the nested subagent in foreground mode." }],
+                    details: makeDetails("single")([]),
                     isError: true,
                 };
             }
@@ -1353,8 +1393,10 @@ export default function(pi: ExtensionAPI) {
                                 makeDetails("chain"),
                                 invokingSessionFile,
                                 nextSubagentDepth,
+                                invokingSessionId,
+                                currentAncestry,
                             );
-                            trackInProcessDepth(started, nextSubagentDepth);
+                            trackInProcessDepth(started, nextSubagentDepth, buildChildAncestry(step.agent));
                             return started.resultPromise;
                         })()
                         : await runLegacySingleAgent(
@@ -1465,8 +1507,10 @@ export default function(pi: ExtensionAPI) {
                                     makeDetails("parallel"),
                                     invokingSessionFile,
                                     nextSubagentDepth,
+                                    invokingSessionId,
+                                    currentAncestry,
                                 );
-                                trackInProcessDepth(started, nextSubagentDepth);
+                                trackInProcessDepth(started, nextSubagentDepth, buildChildAncestry(t.agent));
                                 return started.resultPromise;
                             })()
                             : runLegacySingleAgent(
@@ -1571,8 +1615,10 @@ export default function(pi: ExtensionAPI) {
                                 makeDetails("single"),
                                 invokingSessionFile,
                                 nextSubagentDepth,
+                                invokingSessionId,
+                                currentAncestry,
                             );
-                            trackInProcessDepth(started, nextSubagentDepth);
+                            trackInProcessDepth(started, nextSubagentDepth, buildChildAncestry(params.agent));
 
                             const effectiveCwd = params.cwd ?? ctx.cwd;
                             jobId = manager.adoptHandle(
@@ -1721,8 +1767,10 @@ export default function(pi: ExtensionAPI) {
                             makeDetails("single"),
                             invokingSessionFile,
                             nextSubagentDepth,
+                            invokingSessionId,
+                            currentAncestry,
                         );
-                        trackInProcessDepth(started, nextSubagentDepth);
+                        trackInProcessDepth(started, nextSubagentDepth, buildChildAncestry(params.agent));
 
                         const effectiveRunCwd = params.cwd ?? ctx.cwd;
                         let releaseToBackground: ((jobId: string) => void) | undefined;

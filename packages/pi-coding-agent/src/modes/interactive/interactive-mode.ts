@@ -99,6 +99,7 @@ import { SessionSelectorComponent } from "./components/session-selector.js";
 import { SettingsSelectorComponent } from "./components/settings-selector.js";
 import { SkillInvocationMessageComponent } from "./components/skill-invocation-message.js";
 import { ToolExecutionComponent } from "./components/tool-execution.js";
+import { ToolSummaryLine } from "./components/tool-summary-line.js";
 import { TreeSelectorComponent } from "./components/tree-selector.js";
 import { UserMessageComponent } from "./components/user-message.js";
 import { UserMessageSelectorComponent } from "./components/user-message-selector.js";
@@ -320,6 +321,7 @@ export class InteractiveMode {
 
 	// Tool execution tracking: toolCallId -> component
 	private pendingTools = new Map<string, ToolExecutionComponent>();
+	private collapsedToolSummaryLine: ToolSummaryLine | undefined = undefined;
 	private agentPtyComponents = new Map<string, EmbeddedTerminalComponent>();
 
 	// Tool output expansion state
@@ -3068,6 +3070,12 @@ export class InteractiveMode {
 		for (const child of this.chatContainer.children) {
 			if (isExpandable(child)) {
 				child.setExpanded(expanded);
+			}
+			if (child instanceof ToolExecutionComponent) {
+				child.setHidden(!expanded && child.shouldHideWhenCollapsed());
+			}
+			if (child instanceof ToolSummaryLine) {
+				child.setHidden(expanded);
 			}
 		}
 		if (this.bashComponent) {

@@ -5,6 +5,8 @@ import type { InteractiveModeEvent, InteractiveModeStateHost } from "../interact
 import { theme } from "../theme/theme.js";
 import { AssistantMessageComponent } from "../components/assistant-message.js";
 import { ToolExecutionComponent } from "../components/tool-execution.js";
+import { ToolSummaryLine } from "../components/tool-summary-line.js";
+import { shouldCollapse } from "../../../core/tool-priority.js";
 import { appKey } from "../components/keybinding-hints.js";
 
 export async function handleAgentEvent(host: InteractiveModeStateHost & {
@@ -36,12 +38,28 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 
 	host.footer.invalidate();
 
+	const resetCollapsedToolSummary = (): void => {
+		host.collapsedToolSummaryLine = undefined;
+	};
+
+	const appendCollapsedToolSummary = (toolName: string, elapsed: number): void => {
+		let summary = host.collapsedToolSummaryLine;
+		if (!summary || !host.chatContainer.children.includes(summary)) {
+			summary = new ToolSummaryLine();
+			summary.setHidden(host.toolOutputExpanded);
+			host.chatContainer.addChild(summary);
+			host.collapsedToolSummaryLine = summary;
+		}
+		summary.addTool(toolName, elapsed);
+	};
+
 	switch (event.type) {
 		case "session_state_changed":
 			switch (event.reason) {
 				case "new_session":
 				case "switch_session":
 				case "fork":
+					resetCollapsedToolSummary();
 					host.streamingComponent = undefined;
 					host.streamingMessage = undefined;
 					host.pendingTools.clear();
@@ -118,6 +136,7 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 				host.updatePendingMessagesDisplay();
 				host.ui.requestRender();
 			} else if (event.message.role === "assistant") {
+				resetCollapsedToolSummary();
 				host.streamingComponent = new AssistantMessageComponent(
 					undefined,
 					host.hideThinkingBlock,
@@ -137,6 +156,9 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 				host.streamingMessage = event.message;
 				host.streamingComponent.updateContent(host.streamingMessage);
 				for (const content of host.streamingMessage.content) {
+					if (content.type === "text") {
+						resetCollapsedToolSummary();
+					}
 					if (content.type === "toolCall") {
 						if (content.name === "pty_start" || content.name === "pty_send" || content.name === "pty_read" || content.name === "pty_wait" || content.name === "pty_resize" || content.name === "pty_kill") {
 							continue;
@@ -227,6 +249,7 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 				}
 				host.streamingComponent = undefined;
 				host.streamingMessage = undefined;
+				resetCollapsedToolSummary();
 				host.footer.invalidate();
 			}
 			host.ui.requestRender();
@@ -301,6 +324,13 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 			const component = host.pendingTools.get(event.toolCallId);
 			if (component) {
 				component.updateResult({ ...event.result, isError: event.isError });
+				if (shouldCollapse(event.toolName, event.isError)) {
+					component.setHidden(true);
+					appendCollapsedToolSummary(event.toolName, component.getElapsed());
+				} else {
+					component.setHidden(false);
+					resetCollapsedToolSummary();
+				}
 				host.pendingTools.delete(event.toolCallId);
 				host.ui.requestRender();
 			}
@@ -319,6 +349,7 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 				host.streamingMessage = undefined;
 			}
 			host.pendingTools.clear();
+			resetCollapsedToolSummary();
 			// Update hint: show expand/collapse if tool outputs exist, else clear
 			host.defaultEditor.bottomHint = "";
 			host.updateEditorExpandHint();

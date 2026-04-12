@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 const projectRoot = join(fileURLToPath(import.meta.url), '..', '..', '..')
 
 test('subagent launch resolves CLI path via env, argv, cwd fallbacks, and PATH', () => {
-  const src = readFileSync(join(projectRoot, 'src', 'resources', 'extensions', 'subagent', 'index.ts'), 'utf-8')
+  const src = readFileSync(join(projectRoot, 'src', 'resources', 'extensions', 'subagent', 'legacy-runner.ts'), 'utf-8')
 
   assert.ok(src.includes('function resolveSubagentCliPath'), 'has explicit CLI path resolver')
   assert.ok(src.includes('process.env.GSD_BIN_PATH'), 'checks GSD_BIN_PATH')
@@ -19,7 +19,7 @@ test('subagent launch resolves CLI path via env, argv, cwd fallbacks, and PATH',
 })
 
 test('subagent launch keeps stdin open for approval proxy responses', () => {
-  const src = readFileSync(join(projectRoot, 'src', 'resources', 'extensions', 'subagent', 'index.ts'), 'utf-8')
+  const src = readFileSync(join(projectRoot, 'src', 'resources', 'extensions', 'subagent', 'legacy-runner.ts'), 'utf-8')
 
   assert.ok(src.includes('stdio: ["pipe", "pipe", "pipe"]'), 'launches child with piped stdin/stdout/stderr')
   assert.ok(!src.includes('proc.stdin.end()'), 'does not close child stdin before approval responses can be written')

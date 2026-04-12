@@ -33,11 +33,12 @@ test('background runner forwards session metadata from runSingleAgent', () => {
 })
 
 test('subagent extension captures explicit session-info events and can backfill /agent links from persisted sessions', () => {
+  const legacyRunnerSrc = readFileSync(join(projectRoot, 'src', 'resources', 'extensions', 'subagent', 'legacy-runner.ts'), 'utf-8')
   const indexSrc = readFileSync(join(projectRoot, 'src', 'resources', 'extensions', 'subagent', 'index.ts'), 'utf-8')
   const printModeSrc = readFileSync(join(projectRoot, 'packages', 'pi-coding-agent', 'src', 'modes', 'print-mode.ts'), 'utf-8')
 
   assert.ok(printModeSrc.includes('type: "subagent_session_info"'), 'print mode emits explicit subagent session metadata')
-  assert.ok(indexSrc.includes('if (event.type === "subagent_session_info") {'), 'subagent runner captures explicit session-info events')
+  assert.ok(legacyRunnerSrc.includes('if (event.type === "subagent_session_info") {'), 'subagent runner captures explicit session-info events')
   assert.ok(indexSrc.includes('applyCurrentSessionSubagentTools(ctx);'), 'subagent extension reapplies subagent tool context on session start/switch')
   assert.ok(indexSrc.includes('Do not spawn or delegate to another subagent with the same name as yourself.'), 'subagent extension prevents recursive self-spawning on resumed subagent sessions')
   assert.ok(indexSrc.includes('Attached to running subagent'), 'subagent switching supports live attach messaging for running targets')

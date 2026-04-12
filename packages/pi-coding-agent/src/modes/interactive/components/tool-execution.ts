@@ -13,6 +13,7 @@ import stripAnsi from "strip-ansi";
 import type { ToolDefinition } from "../../../core/extensions/types.js";
 import { computeEditDiff, type EditDiffError, type EditDiffResult } from "../../../core/tools/edit-diff.js";
 import { allTools } from "../../../core/tools/index.js";
+import { shouldCollapse } from "../../../core/tool-priority.js";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize } from "../../../core/tools/truncate.js";
 import { convertToPng } from "../../../utils/image-convert.js";
 import { sanitizeBinaryOutput } from "../../../utils/shell.js";
@@ -124,6 +125,8 @@ export class ToolExecutionComponent extends Container {
 	private writeHighlightCache?: WriteHighlightCache;
 	// When true, this component intentionally renders no lines
 	private hideComponent = false;
+	private manuallyHidden = false;
+	private startTime = Date.now();
 
 	// Tool status spinner state
 	private spinnerTimer: NodeJS.Timeout | null = null;
@@ -380,6 +383,19 @@ export class ToolExecutionComponent extends Container {
 		this.updateDisplay();
 	}
 
+	setHidden(hidden: boolean): void {
+		this.manuallyHidden = hidden;
+		this.updateDisplay();
+	}
+
+	getElapsed(): number {
+		return Date.now() - this.startTime;
+	}
+
+	shouldHideWhenCollapsed(): boolean {
+		return !this.isPartial && shouldCollapse(this.toolName, this.result?.isError ?? false);
+	}
+
 	setRenderMode(mode: "minimal" | "normal"): void {
 		if (this.renderMode !== mode) {
 			this.renderMode = mode;
@@ -450,7 +466,6 @@ export class ToolExecutionComponent extends Container {
 
 		const useBuiltInRenderer = this.shouldUseBuiltInRenderer();
 		let customRendererHasContent = false;
-		this.hideComponent = false;
 
 		// Use built-in rendering for built-in tools (or overrides without custom renderers)
 		if (useBuiltInRenderer) {
@@ -596,9 +611,8 @@ export class ToolExecutionComponent extends Container {
 			}
 		}
 
-		if (!useBuiltInRenderer && this.toolDefinition) {
-			this.hideComponent = !customRendererHasContent && this.imageComponents.length === 0;
-		}
+		const computedHidden = !useBuiltInRenderer && this.toolDefinition ? !customRendererHasContent && this.imageComponents.length === 0 : false;
+		this.hideComponent = this.manuallyHidden || computedHidden;
 	}
 
 	/**
