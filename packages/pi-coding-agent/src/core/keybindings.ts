@@ -36,7 +36,8 @@ export type AppAction =
 	| "resume"
 	| "cyclePermissionMode"
 	| "showHotkeys"
-	| "terminalFocus";
+	| "terminalFocus"
+	| "toggleNotificationSound";
 
 /**
  * All configurable actions.
@@ -76,6 +77,7 @@ const DEFAULT_APP_KEYBINDINGS: Record<AppAction, KeyId | KeyId[]> = {
 	cyclePermissionMode: "shift+tab",
 	showHotkeys: "ctrl+k",
 	terminalFocus: "tab",
+	toggleNotificationSound: "alt+n",
 };
 
 /**
@@ -110,6 +112,7 @@ const APP_ACTIONS: AppAction[] = [
 	"cyclePermissionMode",
 	"showHotkeys",
 	"terminalFocus",
+	"toggleNotificationSound",
 ];
 
 function isAppAction(action: string): action is AppAction {

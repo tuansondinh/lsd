@@ -14,7 +14,7 @@ export class ToolSummaryLine extends Container {
 
 	constructor() {
 		super();
-		this.contentText = new Text("", 0, 0);
+		this.contentText = new Text("", 1, 0);
 		this.addChild(this.contentText);
 	}
 
@@ -52,10 +52,13 @@ export class ToolSummaryLine extends Container {
 			totalElapsed += tool.elapsed;
 		}
 
-		const label = [...counts.entries()]
+		const groupedTools = [...counts.entries()]
 			.map(([name, count]) => (count > 1 ? `${name} ×${count}` : name))
-			.join(", ");
+			.join(" · ");
 		const elapsed = (totalElapsed / 1000).toFixed(1);
-		this.contentText.setText(theme.fg("muted", `⎯ ${label} · ${elapsed}s ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯`));
+		const indicator = theme.fg("success", "●");
+		const title = theme.fg("toolTitle", theme.bold("collapsed tools"));
+		const details = theme.fg("muted", `${groupedTools} · ${elapsed}s`);
+		this.contentText.setText(`${indicator} ${title} ${details}`);
 	}
 }

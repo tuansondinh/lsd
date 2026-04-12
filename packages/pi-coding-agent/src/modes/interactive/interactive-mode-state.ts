@@ -15,6 +15,7 @@ export interface InteractiveModeStateHost {
 	toolOutputExpanded: boolean;
 	hideThinkingBlock: boolean;
 	notificationSoundEnabled: boolean;
+	playNotificationSoundOnAgentEnd: boolean;
 	isBashMode: boolean;
 	onInputCallback?: (text: string) => void;
 	isInitialized: boolean;

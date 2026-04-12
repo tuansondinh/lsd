@@ -74,6 +74,7 @@ const REVISE_LABEL = "Revise plan";
 const CANCEL_LABEL = "Cancel";
 const DEFAULT_PLAN_REVIEW_AGENT = "generic";
 const DEFAULT_PLAN_CODING_AGENT = "worker";
+const MIN_PLAN_CONFIDENCE = 8;
 
 type PlanApprovalStatus = "pending" | "approved" | "revising" | "cancelled";
 type RestorablePermissionMode = Exclude<PermissionMode, "plan">;
@@ -449,6 +450,9 @@ function buildPlanModeSystemPrompt(): string {
     "You are currently in plan mode.",
     "Investigate, clarify scope, and produce a persisted execution plan before making source changes.",
     "If requirements are ambiguous or constraints are missing, ask concise clarifying questions before drafting or saving a plan.",
+    `Before writing or updating a plan artifact, make sure your confidence is at least ${MIN_PLAN_CONFIDENCE}/10. If confidence is lower, investigate more or ask clarifying questions first.`,
+    "Include an explicit confidence line in every saved plan, for example: \"Confidence: 8/10\" or higher.",
+    "When adjusting an existing saved plan, prefer the edit tool for targeted changes. Rewrite the whole file only when the structure changes substantially or an exact edit is impractical.",
     "Do not modify source files or run side-effect commands while plan mode is active.",
     "Persist plan artifacts under .lsd/plan/.",
   ];
@@ -483,7 +487,7 @@ function buildApprovalActionInstructions(): string {
 
   return [
     "Ask for plan approval now via exactly one ask_user_questions tool call.",
-    `Question 1 (single-select) id \"${PLAN_APPROVAL_ACTION_QUESTION_ID}\": ask what to do next with the plan.`,
+    `Question 1 (single-select) id \"${PLAN_APPROVAL_ACTION_QUESTION_ID}\": ask what to do next with the plan. In the question text, tell the user that if they choose \"${REVISE_LABEL}\" they should type exact requested changes in the dialog notes field before submitting.`,
     `Question 1 options: ${APPROVE_LABEL}, ${REVIEW_LABEL}, ${REVISE_LABEL}. Put "${APPROVE_LABEL}" first with a "(Recommended)" suffix in the description, not in the label.`,
     `Do not include \"${CANCEL_LABEL}\" as an explicit option — if the user wants to cancel they should choose \"None of the above\" and type \"${CANCEL_LABEL}\" in the note.`,
     `Question 2 (single-select) id \"${PLAN_APPROVAL_PERMISSION_QUESTION_ID}\": ask which execution mode to use.`,
@@ -554,6 +558,25 @@ function buildReviewSteeringMessage(planPath: string, planMarkdown?: string): st
   return details.join("\n\n");
 }
 
+function buildRevisionSteeringMessage(planPath: string, requestedChanges?: string): string {
+  const details = [
+    `The user selected \"${REVISE_LABEL}\" for ${planPath}.`,
+    "Revise the existing saved plan instead of drafting a fresh replacement unless a full rewrite is genuinely necessary.",
+    "Prefer the edit tool for targeted adjustments to the current plan artifact. Use write only if the structure changes substantially or an exact edit is impractical.",
+    `Before saving the revised plan, make sure confidence is at least ${MIN_PLAN_CONFIDENCE}/10. If lower, investigate more or ask clarifying questions first.`,
+    "Keep an explicit confidence line in the plan, for example: \"Confidence: 8/10\" or higher.",
+  ];
+
+  if (requestedChanges) {
+    details.push(`User-requested changes: ${requestedChanges}`);
+  } else {
+    details.push("No concrete revision note was provided yet. Ask one concise clarifying question about what should change before editing the plan.");
+  }
+
+  details.push("After revising the saved plan artifact, ask for approval again.");
+  return details.join("\n\n");
+}
+
 function approvalSelectionToExecutionMode(
   selected: string | undefined,
 ): { permissionMode: RestorablePermissionMode; executeWithSubagent: boolean } | undefined {
@@ -583,6 +606,12 @@ function getAnswerValues(answer: AskUserAnswer | undefined): string[] {
   return values;
 }
 
+function getAnswerNote(answer: AskUserAnswer | undefined): string | undefined {
+  if (typeof answer?.notes !== "string") return undefined;
+  const note = answer.notes.trim();
+  return note.length > 0 ? note : undefined;
+}
+
 function selectionRequestsCancel(selected: string[]): boolean {
   return selected.some((value) => {
     if (typeof value !== "string") return false;
@@ -606,6 +635,8 @@ export const __testing = {
   buildApprovalSteeringMessage,
   buildPlanPreviewMessage,
   buildReviewSteeringMessage,
+  buildRevisionSteeringMessage,
+  buildPlanModeSystemPrompt,
   buildAutoSuggestPlanModeSystemPrompt,
   readAutoSuggestPlanModeSetting,
   PLAN_SUGGEST_QUESTION_ID,
@@ -824,9 +855,14 @@ export default function planCommand(pi: ExtensionAPI) {
     }
 
     if (actionSelection.includes(REVISE_LABEL)) {
+      const requestedChanges = getAnswerNote(actionAnswer);
       enablePlanMode(pi, ctx.model ? { provider: ctx.model.provider, id: ctx.model.id } : undefined, {
         approvalStatus: "revising",
       });
+      pi.sendUserMessage(
+        buildRevisionSteeringMessage(state.latestPlanPath ?? "the latest plan", requestedChanges),
+        { deliverAs: "steer" },
+      );
     }
   });
 

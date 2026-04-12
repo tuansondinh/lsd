@@ -10,466 +10,514 @@ import { shouldCollapse } from "../../../core/tool-priority.js";
 import { appKey } from "../components/keybinding-hints.js";
 
 export async function handleAgentEvent(host: InteractiveModeStateHost & {
-	init: () => Promise<void>;
-	getMarkdownThemeWithSettings: () => any;
-	addMessageToChat: (message: any, options?: any) => void;
-	formatWebSearchResult: (content: unknown) => string;
-	getRegisteredToolDefinition: (toolName: string) => any;
-	checkShutdownRequested: () => Promise<void>;
-	rebuildChatFromMessages: () => void;
-	flushCompactionQueue: (options?: { willRetry?: boolean }) => Promise<void>;
-	showStatus: (message: string) => void;
-	showError: (message: string) => void;
-	updatePendingMessagesDisplay: () => void;
-	updateTerminalTitle: () => void;
-	updateEditorBorderColor: () => void;
-	updateEditorExpandHint: () => void;
-	getAgentPtyComponent: (sessionId: string) => any;
-	ensureAgentPtyComponent: (sessionId: string, command?: string) => any;
-	updateAgentPtyComponent: (sessionId: string, options?: { command?: string; screenText?: string; completed?: boolean; cancelled?: boolean; exitCode?: number }) => void;
-	clearAgentPtyComponents: () => void;
-	pendingMessagesContainer: { clear: () => void };
-	startLoadingTips: () => void;
-	stopLoadingTips: () => void;
+    init: () => Promise<void>;
+    getMarkdownThemeWithSettings: () => any;
+    addMessageToChat: (message: any, options?: any) => void;
+    formatWebSearchResult: (content: unknown) => string;
+    getRegisteredToolDefinition: (toolName: string) => any;
+    checkShutdownRequested: () => Promise<void>;
+    rebuildChatFromMessages: () => void;
+    flushCompactionQueue: (options?: { willRetry?: boolean }) => Promise<void>;
+    showStatus: (message: string) => void;
+    showError: (message: string) => void;
+    updatePendingMessagesDisplay: () => void;
+    updateTerminalTitle: () => void;
+    updateEditorBorderColor: () => void;
+    updateEditorExpandHint: () => void;
+    getAgentPtyComponent: (sessionId: string) => any;
+    ensureAgentPtyComponent: (sessionId: string, command?: string) => any;
+    updateAgentPtyComponent: (sessionId: string, options?: { command?: string; screenText?: string; completed?: boolean; cancelled?: boolean; exitCode?: number }) => void;
+    clearAgentPtyComponents: () => void;
+    pendingMessagesContainer: { clear: () => void };
+    startLoadingTips: () => void;
+    stopLoadingTips: () => void;
 }, event: InteractiveModeEvent): Promise<void> {
-	if (!host.isInitialized) {
-		await host.init();
-	}
+    if (!host.isInitialized) {
+        await host.init();
+    }
 
-	host.footer.invalidate();
+    host.footer.invalidate();
 
-	const resetCollapsedToolSummary = (): void => {
-		host.collapsedToolSummaryLine = undefined;
-	};
+    const resetCollapsedToolSummary = (): void => {
+        host.collapsedToolSummaryLine = undefined;
+    };
 
-	const appendCollapsedToolSummary = (toolName: string, elapsed: number): void => {
-		let summary = host.collapsedToolSummaryLine;
-		if (!summary || !host.chatContainer.children.includes(summary)) {
-			summary = new ToolSummaryLine();
-			summary.setHidden(host.toolOutputExpanded);
-			host.chatContainer.addChild(summary);
-			host.collapsedToolSummaryLine = summary;
-		}
-		summary.addTool(toolName, elapsed);
-	};
+    const hasVisibleRender = (child: { render?: (width: number) => string[] } | undefined): boolean => {
+        if (!child?.render) return true;
+        try {
+            return child.render(80).length > 0;
+        } catch {
+            return true;
+        }
+    };
 
-	switch (event.type) {
-		case "session_state_changed":
-			switch (event.reason) {
-				case "new_session":
-				case "switch_session":
-				case "fork":
-					resetCollapsedToolSummary();
-					host.streamingComponent = undefined;
-					host.streamingMessage = undefined;
-					host.pendingTools.clear();
-					host.clearAgentPtyComponents();
-					host.pendingMessagesContainer.clear();
-					host.compactionQueuedMessages = [];
-					host.rebuildChatFromMessages();
-					host.updatePendingMessagesDisplay();
-					host.updateTerminalTitle();
-					host.updateEditorBorderColor();
-					host.ui.requestRender();
-					return;
-				case "set_session_name":
-					host.updateTerminalTitle();
-					host.ui.requestRender();
-					return;
-				case "set_model":
-				case "set_thinking_level":
-					host.updateEditorBorderColor();
-					host.ui.requestRender();
-					return;
-				case "adaptive_classified": {
-					const reasons = host.session?.lastAdaptiveDecision?.reasons ?? [];
-					if (reasons.includes("adaptive_classifier_model_not_set")) {
-						host.showError("adaptive classifier model not set");
-					}
-					host.updateEditorBorderColor();
-					host.ui.requestRender();
-					return;
-				}
-				default:
-					host.ui.requestRender();
-					return;
-			}
-		case "agent_start":
-			if (host.retryEscapeHandler) {
-				host.defaultEditor.onEscape = host.retryEscapeHandler;
-				host.retryEscapeHandler = undefined;
-			}
-			if (host.retryLoader) {
-				host.retryLoader.stop();
-				host.retryLoader = undefined;
-			}
-			if (host.loadingAnimation) {
-				host.loadingAnimation.stop();
-			}
-			host.statusContainer.clear();
-			host.loadingAnimation = new Loader(
-				host.ui,
-				(spinner) => theme.fg("text", spinner),
-				(text) => theme.fg("accent", text),
-				host.defaultWorkingMessage,
-			);
-			host.loadingAnimation.setCycleMessages(host.workingMessages, 3000);
-			host.statusContainer.addChild(host.loadingAnimation);
-			host.startLoadingTips();
-			// Show steer/queue + expand hint in editor bottom border while agent is running
-			host.updateEditorExpandHint();
-			if (host.pendingWorkingMessage !== undefined) {
-				if (host.pendingWorkingMessage) {
-					host.loadingAnimation.setMessage(host.pendingWorkingMessage);
-				}
-				host.pendingWorkingMessage = undefined;
-			}
-			host.ui.requestRender();
-			break;
+    const findAdjacentCollapsedToolSummary = (
+        anchor?: { render: (width: number) => string[] },
+    ): ToolSummaryLine | undefined => {
+        const anchorIndex = anchor ? host.chatContainer.children.indexOf(anchor) : host.chatContainer.children.length;
+        for (let i = anchorIndex - 1; i >= 0; i--) {
+            const child = host.chatContainer.children[i];
+            if (child instanceof ToolSummaryLine) {
+                return child;
+            }
+            if (child instanceof ToolExecutionComponent && child.isHidden()) {
+                continue;
+            }
+            if (!hasVisibleRender(child)) {
+                continue;
+            }
+            break;
+        }
+        return undefined;
+    };
 
-		case "message_start":
-			if (event.message.role === "custom") {
-				host.addMessageToChat(event.message);
-				host.ui.requestRender();
-			} else if (event.message.role === "user") {
-				host.addMessageToChat(event.message);
-				host.updatePendingMessagesDisplay();
-				host.ui.requestRender();
-			} else if (event.message.role === "assistant") {
-				resetCollapsedToolSummary();
-				host.streamingComponent = new AssistantMessageComponent(
-					undefined,
-					host.hideThinkingBlock,
-					host.getMarkdownThemeWithSettings(),
-					host.settingsManager.getTimestampFormat(),
-					host.session?.thinkingLevel || "off",
-				);
-				host.streamingMessage = event.message;
-				host.chatContainer.addChild(host.streamingComponent);
-				host.streamingComponent.updateContent(host.streamingMessage);
-				host.ui.requestRender();
-			}
-			break;
+    const appendCollapsedToolSummary = (toolName: string, elapsed: number, anchor?: { render: (width: number) => string[] }): void => {
+        let summary = host.collapsedToolSummaryLine;
+        if ((!summary || !host.chatContainer.children.includes(summary)) && anchor) {
+            summary = findAdjacentCollapsedToolSummary(anchor);
+            if (summary) {
+                host.collapsedToolSummaryLine = summary;
+            }
+        }
+        if (!summary || !host.chatContainer.children.includes(summary)) {
+            summary = new ToolSummaryLine();
+            summary.setHidden(host.toolOutputExpanded);
+            if (anchor) {
+                const anchorIndex = host.chatContainer.children.indexOf(anchor);
+                if (anchorIndex >= 0) {
+                    host.chatContainer.children.splice(anchorIndex, 0, summary);
+                } else {
+                    host.chatContainer.addChild(summary);
+                }
+            } else {
+                host.chatContainer.addChild(summary);
+            }
+            host.collapsedToolSummaryLine = summary;
+        }
+        summary.addTool(toolName, elapsed);
+    };
 
-		case "message_update":
-			if (host.streamingComponent && event.message.role === "assistant") {
-				host.streamingMessage = event.message;
-				host.streamingComponent.updateContent(host.streamingMessage);
-				for (const content of host.streamingMessage.content) {
-					if (content.type === "text") {
-						resetCollapsedToolSummary();
-					}
-					if (content.type === "toolCall") {
-						if (content.name === "pty_start" || content.name === "pty_send" || content.name === "pty_read" || content.name === "pty_wait" || content.name === "pty_resize" || content.name === "pty_kill") {
-							continue;
-						}
-						if (!host.pendingTools.has(content.id)) {
-							const component = new ToolExecutionComponent(
-								content.name,
-								content.arguments,
-								{
-									showImages: host.settingsManager.getShowImages(),
-									renderMode: host.settingsManager.getToolOutputMode(),
-									editorScheme: host.settingsManager.getEditorScheme(),
-								},
-								host.getRegisteredToolDefinition(content.name),
-								host.ui,
-							);
-							component.setExpanded(host.toolOutputExpanded);
-							host.chatContainer.addChild(component);
-							host.pendingTools.set(content.id, component);
-						} else {
-							host.pendingTools.get(content.id)?.updateArgs(content.arguments);
-						}
-					} else if (content.type === "serverToolUse") {
-						if (!host.pendingTools.has(content.id)) {
-							const component = new ToolExecutionComponent(
-								content.name,
-								content.input ?? {},
-								{
-									showImages: host.settingsManager.getShowImages(),
-									renderMode: host.settingsManager.getToolOutputMode(),
-									editorScheme: host.settingsManager.getEditorScheme(),
-								},
-								undefined,
-								host.ui,
-							);
-							component.setExpanded(host.toolOutputExpanded);
-							host.chatContainer.addChild(component);
-							host.pendingTools.set(content.id, component);
-						}
-					} else if (content.type === "webSearchResult") {
-						const component = host.pendingTools.get(content.toolUseId);
-						if (component) {
-							if (process.env.PI_OFFLINE === "1") {
-								component.updateResult({
-									content: [{ type: "text", text: "Web search disabled (offline mode)" }],
-									isError: false,
-								});
-							} else {
-								const searchContent = content.content;
-								const isError = searchContent && typeof searchContent === "object" && "type" in (searchContent as any) && (searchContent as any).type === "web_search_tool_result_error";
-								component.updateResult({
-									content: [{ type: "text", text: host.formatWebSearchResult(searchContent) }],
-									isError: !!isError,
-								});
-							}
-						}
-					}
-				}
-				host.ui.requestRender();
-			}
-			break;
+    switch (event.type) {
+        case "session_state_changed":
+            switch (event.reason) {
+                case "new_session":
+                case "switch_session":
+                case "fork":
+                    resetCollapsedToolSummary();
+                    host.streamingComponent = undefined;
+                    host.streamingMessage = undefined;
+                    host.pendingTools.clear();
+                    host.clearAgentPtyComponents();
+                    host.pendingMessagesContainer.clear();
+                    host.compactionQueuedMessages = [];
+                    host.rebuildChatFromMessages();
+                    host.updatePendingMessagesDisplay();
+                    host.updateTerminalTitle();
+                    host.updateEditorBorderColor();
+                    host.ui.requestRender();
+                    return;
+                case "set_session_name":
+                    host.updateTerminalTitle();
+                    host.ui.requestRender();
+                    return;
+                case "set_model":
+                case "set_thinking_level":
+                    host.updateEditorBorderColor();
+                    host.ui.requestRender();
+                    return;
+                case "adaptive_classified": {
+                    const reasons = host.session?.lastAdaptiveDecision?.reasons ?? [];
+                    if (reasons.includes("adaptive_classifier_model_not_set")) {
+                        host.showError("adaptive classifier model not set");
+                    }
+                    host.updateEditorBorderColor();
+                    host.ui.requestRender();
+                    return;
+                }
+                default:
+                    host.ui.requestRender();
+                    return;
+            }
+        case "agent_start":
+            host.playNotificationSoundOnAgentEnd = false;
+            if (host.retryEscapeHandler) {
+                host.defaultEditor.onEscape = host.retryEscapeHandler;
+                host.retryEscapeHandler = undefined;
+            }
+            if (host.retryLoader) {
+                host.retryLoader.stop();
+                host.retryLoader = undefined;
+            }
+            if (host.loadingAnimation) {
+                host.loadingAnimation.stop();
+            }
+            host.statusContainer.clear();
+            host.loadingAnimation = new Loader(
+                host.ui,
+                (spinner) => theme.fg("text", spinner),
+                (text) => theme.fg("accent", text),
+                host.defaultWorkingMessage,
+            );
+            host.loadingAnimation.setCycleMessages(host.workingMessages, 3000);
+            host.statusContainer.addChild(host.loadingAnimation);
+            host.startLoadingTips();
+            // Show steer/queue + expand hint in editor bottom border while agent is running
+            host.updateEditorExpandHint();
+            if (host.pendingWorkingMessage !== undefined) {
+                if (host.pendingWorkingMessage) {
+                    host.loadingAnimation.setMessage(host.pendingWorkingMessage);
+                }
+                host.pendingWorkingMessage = undefined;
+            }
+            host.ui.requestRender();
+            break;
 
-		case "message_end":
-			if (event.message.role === "user") break;
-			if (host.streamingComponent && event.message.role === "assistant") {
-				host.streamingMessage = event.message;
-				let errorMessage: string | undefined;
-				if (host.streamingMessage.stopReason === "aborted") {
-					const retryAttempt = host.session.retryAttempt;
-					errorMessage = retryAttempt > 0
-						? `Aborted after ${retryAttempt} retry attempt${retryAttempt > 1 ? "s" : ""}`
-						: "Operation aborted";
-					host.streamingMessage.errorMessage = errorMessage;
-				}
-				host.streamingComponent.updateContent(host.streamingMessage);
-				if (host.streamingMessage.stopReason === "aborted" || host.streamingMessage.stopReason === "error") {
-					if (!errorMessage) {
-						errorMessage = host.streamingMessage.errorMessage || "Error";
-					}
-					for (const [, component] of host.pendingTools.entries()) {
-						component.updateResult({ content: [{ type: "text", text: errorMessage }], isError: true });
-					}
-					host.pendingTools.clear();
-				} else {
-					for (const [, component] of host.pendingTools.entries()) {
-						component.setArgsComplete();
-					}
-				}
-				host.streamingComponent = undefined;
-				host.streamingMessage = undefined;
-				resetCollapsedToolSummary();
-				host.footer.invalidate();
-			}
-			host.ui.requestRender();
-			break;
+        case "message_start":
+            if (event.message.role === "custom") {
+                host.addMessageToChat(event.message);
+                host.ui.requestRender();
+            } else if (event.message.role === "user") {
+                host.addMessageToChat(event.message);
+                host.updatePendingMessagesDisplay();
+                host.ui.requestRender();
+            } else if (event.message.role === "assistant") {
+                resetCollapsedToolSummary();
+                host.streamingComponent = new AssistantMessageComponent(
+                    undefined,
+                    host.hideThinkingBlock,
+                    host.getMarkdownThemeWithSettings(),
+                    host.settingsManager.getTimestampFormat(),
+                    host.session?.thinkingLevel || "off",
+                );
+                host.streamingMessage = event.message;
+                host.chatContainer.addChild(host.streamingComponent);
+                host.streamingComponent.updateContent(host.streamingMessage);
+                host.ui.requestRender();
+            }
+            break;
 
-		case "tool_execution_start":
-			if (event.toolName === "pty_start") {
-				return;
-			}
-			if (event.toolName === "pty_send" || event.toolName === "pty_read" || event.toolName === "pty_wait" || event.toolName === "pty_resize" || event.toolName === "pty_kill") {
-				return;
-			}
-			if (!host.pendingTools.has(event.toolCallId)) {
-				const component = new ToolExecutionComponent(
-					event.toolName,
-					event.args,
-					{
-						showImages: host.settingsManager.getShowImages(),
-						renderMode: host.settingsManager.getToolOutputMode(),
-						editorScheme: host.settingsManager.getEditorScheme(),
-					},
-					host.getRegisteredToolDefinition(event.toolName),
-					host.ui,
-				);
-				component.setExpanded(host.toolOutputExpanded);
-				host.chatContainer.addChild(component);
-				host.pendingTools.set(event.toolCallId, component);
-				host.ui.requestRender();
-			}
-			break;
+        case "message_update":
+            if (host.streamingComponent && event.message.role === "assistant") {
+                host.streamingMessage = event.message;
+                host.streamingComponent.updateContent(host.streamingMessage);
+                for (const content of host.streamingMessage.content) {
+                    // Keep collapsed summary active across assistant text updates.
+                    // Streamed message updates include all prior text blocks, so resetting
+                    // here fragments one contiguous collapsed-tool group into many lines.
+                    if (content.type === "toolCall") {
+                        if (content.name === "pty_start" || content.name === "pty_send" || content.name === "pty_read" || content.name === "pty_wait" || content.name === "pty_resize" || content.name === "pty_kill") {
+                            continue;
+                        }
+                        if (!host.pendingTools.has(content.id)) {
+                            const component = new ToolExecutionComponent(
+                                content.name,
+                                content.arguments,
+                                {
+                                    showImages: host.settingsManager.getShowImages(),
+                                    renderMode: host.settingsManager.getToolOutputMode(),
+                                    editorScheme: host.settingsManager.getEditorScheme(),
+                                },
+                                host.getRegisteredToolDefinition(content.name),
+                                host.ui,
+                            );
+                            component.setExpanded(host.toolOutputExpanded);
+                            host.chatContainer.addChild(component);
+                            host.pendingTools.set(content.id, component);
+                        } else {
+                            host.pendingTools.get(content.id)?.updateArgs(content.arguments);
+                        }
+                    } else if (content.type === "serverToolUse") {
+                        if (!host.pendingTools.has(content.id)) {
+                            const component = new ToolExecutionComponent(
+                                content.name,
+                                content.input ?? {},
+                                {
+                                    showImages: host.settingsManager.getShowImages(),
+                                    renderMode: host.settingsManager.getToolOutputMode(),
+                                    editorScheme: host.settingsManager.getEditorScheme(),
+                                },
+                                undefined,
+                                host.ui,
+                            );
+                            component.setExpanded(host.toolOutputExpanded);
+                            host.chatContainer.addChild(component);
+                            host.pendingTools.set(content.id, component);
+                        }
+                    } else if (content.type === "webSearchResult") {
+                        const component = host.pendingTools.get(content.toolUseId);
+                        if (component) {
+                            if (process.env.PI_OFFLINE === "1") {
+                                component.updateResult({
+                                    content: [{ type: "text", text: "Web search disabled (offline mode)" }],
+                                    isError: false,
+                                });
+                            } else {
+                                const searchContent = content.content;
+                                const isError = searchContent && typeof searchContent === "object" && "type" in (searchContent as any) && (searchContent as any).type === "web_search_tool_result_error";
+                                component.updateResult({
+                                    content: [{ type: "text", text: host.formatWebSearchResult(searchContent) }],
+                                    isError: !!isError,
+                                });
+                            }
+                        }
+                    }
+                }
+                host.ui.requestRender();
+            }
+            break;
 
-		case "tool_execution_update": {
-			if (event.toolName === "pty_start" || event.toolName === "pty_send" || event.toolName === "pty_read" || event.toolName === "pty_wait" || event.toolName === "pty_resize" || event.toolName === "pty_kill") {
-				const details = event.partialResult?.details as { sessionId?: string; screenText?: string; exitCode?: number; cancelled?: boolean; completed?: boolean } | undefined;
-				const sessionId = details?.sessionId ?? (event.args as { sessionId?: string } | undefined)?.sessionId;
-				if (sessionId) {
-					host.updateAgentPtyComponent(sessionId, {
-						command: event.toolName === "pty_start" ? (event.args as { command?: string } | undefined)?.command : undefined,
-						screenText: details?.screenText,
-						completed: details?.completed,
-						cancelled: details?.cancelled,
-						exitCode: details?.exitCode,
-					});
-					host.ui.requestRender();
-				}
-				break;
-			}
-			const component = host.pendingTools.get(event.toolCallId);
-			if (component) {
-				component.updateResult({ ...event.partialResult, isError: false }, true);
-				host.ui.requestRender();
-			}
-			break;
-		}
+        case "message_end":
+            if (event.message.role === "user") break;
+            if (host.streamingComponent && event.message.role === "assistant") {
+                host.streamingMessage = event.message;
+                let errorMessage: string | undefined;
+                if (host.streamingMessage.stopReason === "aborted") {
+                    const retryAttempt = host.session.retryAttempt;
+                    errorMessage = retryAttempt > 0
+                        ? `Aborted after ${retryAttempt} retry attempt${retryAttempt > 1 ? "s" : ""}`
+                        : "Operation aborted";
+                    host.streamingMessage.errorMessage = errorMessage;
+                }
+                host.streamingComponent.updateContent(host.streamingMessage);
+                if (host.streamingMessage.stopReason === "aborted" || host.streamingMessage.stopReason === "error") {
+                    host.playNotificationSoundOnAgentEnd = false;
+                    if (!errorMessage) {
+                        errorMessage = host.streamingMessage.errorMessage || "Error";
+                    }
+                    for (const [, component] of host.pendingTools.entries()) {
+                        component.updateResult({ content: [{ type: "text", text: errorMessage }], isError: true });
+                    }
+                    host.pendingTools.clear();
+                } else {
+                    host.playNotificationSoundOnAgentEnd = true;
+                    for (const [, component] of host.pendingTools.entries()) {
+                        component.setArgsComplete();
+                    }
+                }
+                host.streamingComponent = undefined;
+                host.streamingMessage = undefined;
+                resetCollapsedToolSummary();
+                host.footer.invalidate();
+            }
+            host.ui.requestRender();
+            break;
 
-		case "tool_execution_end": {
-			if (event.toolName === "pty_start" || event.toolName === "pty_send" || event.toolName === "pty_read" || event.toolName === "pty_wait" || event.toolName === "pty_resize" || event.toolName === "pty_kill") {
-				const details = event.result?.details as { sessionId?: string; screenText?: string; exitCode?: number; cancelled?: boolean; completed?: boolean } | undefined;
-				const sessionId = details?.sessionId;
-				if (sessionId) {
-					host.updateAgentPtyComponent(sessionId, {
-						command: undefined,
-						screenText: details?.screenText,
-						completed: event.toolName === "pty_kill" || !!details?.completed,
-						cancelled: details?.cancelled ?? event.toolName === "pty_kill",
-						exitCode: details?.exitCode,
-					});
-					host.ui.requestRender();
-				}
-				break;
-			}
-			const component = host.pendingTools.get(event.toolCallId);
-			if (component) {
-				component.updateResult({ ...event.result, isError: event.isError });
-				if (shouldCollapse(event.toolName, event.isError)) {
-					component.setHidden(true);
-					appendCollapsedToolSummary(event.toolName, component.getElapsed());
-				} else {
-					component.setHidden(false);
-					resetCollapsedToolSummary();
-				}
-				host.pendingTools.delete(event.toolCallId);
-				host.ui.requestRender();
-			}
-			break;
-		}
+        case "tool_execution_start":
+            if (event.toolName === "pty_start") {
+                return;
+            }
+            if (event.toolName === "pty_send" || event.toolName === "pty_read" || event.toolName === "pty_wait" || event.toolName === "pty_resize" || event.toolName === "pty_kill") {
+                return;
+            }
+            if (!host.pendingTools.has(event.toolCallId)) {
+                const component = new ToolExecutionComponent(
+                    event.toolName,
+                    event.args,
+                    {
+                        showImages: host.settingsManager.getShowImages(),
+                        renderMode: host.settingsManager.getToolOutputMode(),
+                        editorScheme: host.settingsManager.getEditorScheme(),
+                    },
+                    host.getRegisteredToolDefinition(event.toolName),
+                    host.ui,
+                );
+                component.setExpanded(host.toolOutputExpanded);
+                host.chatContainer.addChild(component);
+                host.pendingTools.set(event.toolCallId, component);
+                host.ui.requestRender();
+            }
+            break;
 
-		case "agent_end":
-			if (host.loadingAnimation) {
-				host.loadingAnimation.stop();
-				host.loadingAnimation = undefined;
-				host.statusContainer.clear();
-			}
-			if (host.streamingComponent) {
-				host.chatContainer.removeChild(host.streamingComponent);
-				host.streamingComponent = undefined;
-				host.streamingMessage = undefined;
-			}
-			host.pendingTools.clear();
-			resetCollapsedToolSummary();
-			// Update hint: show expand/collapse if tool outputs exist, else clear
-			host.defaultEditor.bottomHint = "";
-			host.updateEditorExpandHint();
-			// Play notification sound if enabled
-			if (host.notificationSoundEnabled) {
-				if (process.platform === "darwin") {
-					try {
-						const child = spawn("afplay", ["/System/Library/Sounds/Glass.aiff"], {
-							stdio: "ignore",
-							detached: true,
-						});
-						child.unref();
-					} catch {
-						host.ui.terminal.write("\x07");
-					}
-				} else {
-					host.ui.terminal.write("\x07");
-				}
-			}
-			await host.checkShutdownRequested();
-			host.ui.requestRender();
-			break;
+        case "tool_execution_update": {
+            if (event.toolName === "pty_start" || event.toolName === "pty_send" || event.toolName === "pty_read" || event.toolName === "pty_wait" || event.toolName === "pty_resize" || event.toolName === "pty_kill") {
+                const details = event.partialResult?.details as { sessionId?: string; screenText?: string; exitCode?: number; cancelled?: boolean; completed?: boolean } | undefined;
+                const sessionId = details?.sessionId ?? (event.args as { sessionId?: string } | undefined)?.sessionId;
+                if (sessionId) {
+                    host.updateAgentPtyComponent(sessionId, {
+                        command: event.toolName === "pty_start" ? (event.args as { command?: string } | undefined)?.command : undefined,
+                        screenText: details?.screenText,
+                        completed: details?.completed,
+                        cancelled: details?.cancelled,
+                        exitCode: details?.exitCode,
+                    });
+                    host.ui.requestRender();
+                }
+                break;
+            }
+            const component = host.pendingTools.get(event.toolCallId);
+            if (component) {
+                component.updateResult({ ...event.partialResult, isError: false }, true);
+                host.ui.requestRender();
+            }
+            break;
+        }
 
-		case "auto_compaction_start":
-			host.autoCompactionEscapeHandler = host.defaultEditor.onEscape;
-			host.defaultEditor.onEscape = () => host.session.abortCompaction();
-			host.statusContainer.clear();
-			host.autoCompactionLoader = new Loader(
-				host.ui,
-				(spinner) => theme.fg("text", spinner),
-				(text) => theme.fg("muted", text),
-				`${event.reason === "overflow" ? "Context overflow detected, " : ""}Auto-compacting... (${appKey(host.keybindings, "interrupt")} to cancel)`,
-			);
-			host.statusContainer.addChild(host.autoCompactionLoader);
-			host.ui.requestRender();
-			break;
+        case "tool_execution_end": {
+            if (event.toolName === "pty_start" || event.toolName === "pty_send" || event.toolName === "pty_read" || event.toolName === "pty_wait" || event.toolName === "pty_resize" || event.toolName === "pty_kill") {
+                const details = event.result?.details as { sessionId?: string; screenText?: string; exitCode?: number; cancelled?: boolean; completed?: boolean } | undefined;
+                const sessionId = details?.sessionId;
+                if (sessionId) {
+                    host.updateAgentPtyComponent(sessionId, {
+                        command: undefined,
+                        screenText: details?.screenText,
+                        completed: event.toolName === "pty_kill" || !!details?.completed,
+                        cancelled: details?.cancelled ?? event.toolName === "pty_kill",
+                        exitCode: details?.exitCode,
+                    });
+                    host.ui.requestRender();
+                }
+                break;
+            }
+            const component = host.pendingTools.get(event.toolCallId);
+            if (component) {
+                component.updateResult({ ...event.result, isError: event.isError });
+                if (shouldCollapse(event.toolName, event.isError)) {
+                    appendCollapsedToolSummary(event.toolName, component.getElapsed(), component);
+                    component.setHidden(true);
+                } else {
+                    component.setHidden(false);
+                    resetCollapsedToolSummary();
+                }
+                host.pendingTools.delete(event.toolCallId);
+                host.ui.requestRender();
+            }
+            break;
+        }
 
-		case "auto_compaction_end":
-			if (host.autoCompactionEscapeHandler) {
-				host.defaultEditor.onEscape = host.autoCompactionEscapeHandler;
-				host.autoCompactionEscapeHandler = undefined;
-			}
-			if (host.autoCompactionLoader) {
-				host.autoCompactionLoader.stop();
-				host.autoCompactionLoader = undefined;
-				host.statusContainer.clear();
-			}
-			if (event.aborted) {
-				host.showStatus("Auto-compaction cancelled");
-			} else if (event.result) {
-				host.chatContainer.clear();
-				host.rebuildChatFromMessages();
-				host.addMessageToChat({
-					role: "compactionSummary",
-					tokensBefore: event.result.tokensBefore,
-					summary: event.result.summary,
-					timestamp: Date.now(),
-				});
-				host.footer.invalidate();
-			} else if (event.errorMessage) {
-				host.chatContainer.addChild(new Spacer(1));
-				host.chatContainer.addChild(new Text(theme.fg("error", event.errorMessage), 1, 0));
-			}
-			void host.flushCompactionQueue({ willRetry: event.willRetry });
-			host.ui.requestRender();
-			break;
+        case "agent_end":
+            if (host.loadingAnimation) {
+                host.loadingAnimation.stop();
+                host.loadingAnimation = undefined;
+                host.statusContainer.clear();
+            }
+            if (host.streamingComponent) {
+                host.chatContainer.removeChild(host.streamingComponent);
+                host.streamingComponent = undefined;
+                host.streamingMessage = undefined;
+            }
+            host.pendingTools.clear();
+            resetCollapsedToolSummary();
+            // Update hint: show expand/collapse if tool outputs exist, else clear
+            host.defaultEditor.bottomHint = "";
+            host.updateEditorExpandHint();
+            // Play notification sound only for completed (non-aborted) assistant responses
+            if (host.notificationSoundEnabled && host.playNotificationSoundOnAgentEnd) {
+                if (process.platform === "darwin") {
+                    try {
+                        const child = spawn("afplay", ["/System/Library/Sounds/Glass.aiff"], {
+                            stdio: "ignore",
+                            detached: true,
+                        });
+                        child.unref();
+                    } catch {
+                        host.ui.terminal.write("\x07");
+                    }
+                } else {
+                    host.ui.terminal.write("\x07");
+                }
+            }
+            host.playNotificationSoundOnAgentEnd = false;
+            await host.checkShutdownRequested();
+            host.ui.requestRender();
+            break;
 
-		case "auto_retry_start":
-			host.chatContainer.clear();
-			host.rebuildChatFromMessages();
-			host.retryEscapeHandler = host.defaultEditor.onEscape;
-			host.defaultEditor.onEscape = () => host.session.abortRetry();
-			host.statusContainer.clear();
-			host.retryLoader = new Loader(
-				host.ui,
-				(spinner) => theme.fg("text", spinner),
-				(text) => theme.fg("muted", text),
-				`Retrying (${event.attempt}/${event.maxAttempts}) in ${Math.round(event.delayMs / 1000)}s... (${appKey(host.keybindings, "interrupt")} to cancel)`,
-			);
-			host.statusContainer.addChild(host.retryLoader);
-			host.ui.requestRender();
-			break;
+        case "auto_compaction_start":
+            host.autoCompactionEscapeHandler = host.defaultEditor.onEscape;
+            host.defaultEditor.onEscape = () => host.session.abortCompaction();
+            host.statusContainer.clear();
+            host.autoCompactionLoader = new Loader(
+                host.ui,
+                (spinner) => theme.fg("text", spinner),
+                (text) => theme.fg("muted", text),
+                `${event.reason === "overflow" ? "Context overflow detected, " : ""}Auto-compacting... (${appKey(host.keybindings, "interrupt")} to cancel)`,
+            );
+            host.statusContainer.addChild(host.autoCompactionLoader);
+            host.ui.requestRender();
+            break;
 
-		case "auto_retry_end":
-			if (host.retryEscapeHandler) {
-				host.defaultEditor.onEscape = host.retryEscapeHandler;
-				host.retryEscapeHandler = undefined;
-			}
-			if (host.retryLoader) {
-				host.retryLoader.stop();
-				host.retryLoader = undefined;
-				host.statusContainer.clear();
-			}
-			if (!event.success) {
-				host.showError(`Retry failed after ${event.attempt} attempts: ${event.finalError || "Unknown error"}`);
-			}
-			host.ui.requestRender();
-			break;
+        case "auto_compaction_end":
+            if (host.autoCompactionEscapeHandler) {
+                host.defaultEditor.onEscape = host.autoCompactionEscapeHandler;
+                host.autoCompactionEscapeHandler = undefined;
+            }
+            if (host.autoCompactionLoader) {
+                host.autoCompactionLoader.stop();
+                host.autoCompactionLoader = undefined;
+                host.statusContainer.clear();
+            }
+            if (event.aborted) {
+                host.showStatus("Auto-compaction cancelled");
+            } else if (event.result) {
+                host.chatContainer.clear();
+                host.rebuildChatFromMessages();
+                host.addMessageToChat({
+                    role: "compactionSummary",
+                    tokensBefore: event.result.tokensBefore,
+                    summary: event.result.summary,
+                    timestamp: Date.now(),
+                });
+                host.footer.invalidate();
+            } else if (event.errorMessage) {
+                host.chatContainer.addChild(new Spacer(1));
+                host.chatContainer.addChild(new Text(theme.fg("error", event.errorMessage), 1, 0));
+            }
+            void host.flushCompactionQueue({ willRetry: event.willRetry });
+            host.ui.requestRender();
+            break;
 
-		case "fallback_provider_switch":
-			host.showStatus(`Switched from ${event.from} → ${event.to} (${event.reason})`);
-			host.ui.requestRender();
-			break;
+        case "auto_retry_start":
+            host.chatContainer.clear();
+            host.rebuildChatFromMessages();
+            host.retryEscapeHandler = host.defaultEditor.onEscape;
+            host.defaultEditor.onEscape = () => host.session.abortRetry();
+            host.statusContainer.clear();
+            host.retryLoader = new Loader(
+                host.ui,
+                (spinner) => theme.fg("text", spinner),
+                (text) => theme.fg("muted", text),
+                `Retrying (${event.attempt}/${event.maxAttempts}) in ${Math.round(event.delayMs / 1000)}s... (${appKey(host.keybindings, "interrupt")} to cancel)`,
+            );
+            host.statusContainer.addChild(host.retryLoader);
+            host.ui.requestRender();
+            break;
 
-		case "fallback_provider_restored":
-			host.showStatus(`Restored to ${event.provider}`);
-			host.ui.requestRender();
-			break;
+        case "auto_retry_end":
+            if (host.retryEscapeHandler) {
+                host.defaultEditor.onEscape = host.retryEscapeHandler;
+                host.retryEscapeHandler = undefined;
+            }
+            if (host.retryLoader) {
+                host.retryLoader.stop();
+                host.retryLoader = undefined;
+                host.statusContainer.clear();
+            }
+            if (!event.success) {
+                host.showError(`Retry failed after ${event.attempt} attempts: ${event.finalError || "Unknown error"}`);
+            }
+            host.ui.requestRender();
+            break;
 
-		case "fallback_chain_exhausted":
-			host.showError(event.reason);
-			host.ui.requestRender();
-			break;
+        case "fallback_provider_switch":
+            host.showStatus(`Switched from ${event.from} → ${event.to} (${event.reason})`);
+            host.ui.requestRender();
+            break;
 
-		case "image_overflow_recovery":
-			host.showStatus(
-				`Removed ${event.strippedCount} older image(s) to comply with API limits. Retrying...`,
-			);
-			host.ui.requestRender();
-			break;
-	}
+        case "fallback_provider_restored":
+            host.showStatus(`Restored to ${event.provider}`);
+            host.ui.requestRender();
+            break;
+
+        case "fallback_chain_exhausted":
+            host.showError(event.reason);
+            host.ui.requestRender();
+            break;
+
+        case "image_overflow_recovery":
+            host.showStatus(
+                `Removed ${event.strippedCount} older image(s) to comply with API limits. Retrying...`,
+            );
+            host.ui.requestRender();
+            break;
+    }
 }
 

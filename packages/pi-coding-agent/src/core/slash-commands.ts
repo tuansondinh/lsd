@@ -27,6 +27,7 @@ export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<BuiltinSlashCommand> = [
 	{ name: "session", description: "Show session info and stats" },
 	{ name: "changelog", description: "Show changelog entries" },
 	{ name: "hotkeys", description: "Show all keyboard shortcuts" },
+	{ name: "btw", description: "Ask a side question without interrupting the current task" },
 	{ name: "fork", description: "Create a new fork from a previous message" },
 	{ name: "tree", description: "Navigate session tree (switch branches)" },
 	{ name: "provider", description: "Manage provider configuration" },

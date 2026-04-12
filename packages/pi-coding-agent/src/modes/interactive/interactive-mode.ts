@@ -330,8 +330,9 @@ export class InteractiveMode {
 	// Thinking block visibility state
 	private hideThinkingBlock = false;
 
-	// Notification sound (terminal bell on agent_end)
+	// Notification sound (terminal bell on completed agent response)
 	notificationSoundEnabled = false;
+	playNotificationSoundOnAgentEnd = false;
 
 	// Pin last prompt feature
 	private pinLastPromptEnabled = false;
@@ -442,6 +443,7 @@ export class InteractiveMode {
 
 		// Load notification sound setting
 		this.notificationSoundEnabled = this.settingsManager.getNotificationSound();
+		this.footer.setNotificationSoundEnabled(this.notificationSoundEnabled);
 
 		// Register themes from resource loader and initialize
 		setRegisteredThemes(this.session.resourceLoader.getThemes().themes);
@@ -2335,6 +2337,7 @@ export class InteractiveMode {
 		this.defaultEditor.onAction("cyclePermissionMode", () => this.cyclePermissionMode());
 		this.defaultEditor.onAction("showHotkeys", () => showHotkeys(this.getSlashCommandContext()));
 		this.defaultEditor.onAction("terminalFocus", () => this.toggleEmbeddedTerminalFocus());
+		this.defaultEditor.onAction("toggleNotificationSound", () => this.toggleNotificationSound());
 
 		// Global debug handler on TUI (works regardless of focus)
 		this.ui.onDebug = () => this.handleDebugCommand();
@@ -3043,6 +3046,14 @@ export class InteractiveMode {
 		}
 	}
 
+	private toggleNotificationSound(): void {
+		this.notificationSoundEnabled = !this.notificationSoundEnabled;
+		this.settingsManager.setNotificationSound(this.notificationSoundEnabled);
+		this.footer.setNotificationSoundEnabled(this.notificationSoundEnabled);
+		this.ui.requestRender();
+		this.showStatus(`Notification sound: ${this.notificationSoundEnabled ? "enabled" : "disabled"}`);
+	}
+
 	private async cycleModel(direction: "forward" | "backward"): Promise<void> {
 		try {
 			const result = await this.session.cycleModel(direction);
@@ -3693,6 +3704,8 @@ export class InteractiveMode {
 					onNotificationSoundChange: (enabled) => {
 						this.notificationSoundEnabled = enabled;
 						this.settingsManager.setNotificationSound(enabled);
+						this.footer.setNotificationSoundEnabled(enabled);
+						this.ui.requestRender();
 						this.showStatus(`Notification sound: ${enabled ? "enabled" : "disabled"}`);
 					},
 					onTelegramLiveRelayAutoConnectChange: (enabled) => {

@@ -18,6 +18,9 @@ import type {
 	MarkdownTheme,
 } from "@gsd/pi-tui";
 import {
+	streamSimple,
+} from "@gsd/pi-ai";
+import {
 	type Component,
 	Container,
 	Markdown,
@@ -32,17 +35,19 @@ import type { AgentSession } from "../../core/agent-session.js";
 import type { AppAction, KeybindingsManager } from "../../core/keybindings.js";
 import type { SessionManager } from "../../core/session-manager.js";
 import type { SettingsManager } from "../../core/settings-manager.js";
+import { convertToLlm } from "../../core/messages.js";
 import { copyToClipboard } from "../../utils/clipboard.js";
 import { getChangelogPath, parseChangelog } from "../../utils/changelog.js";
 import { ArminComponent } from "./components/armin.js";
 import { BorderedLoader } from "./components/bordered-loader.js";
+import { BtwOverlayComponent } from "./components/btw-overlay.js";
 import { DynamicBorder } from "./components/dynamic-border.js";
 import { BUILTIN_SLASH_COMMANDS } from "../../core/slash-commands.js";
 import { appKey, editorKey, formatKeyForDisplay } from "./components/keybinding-hints.js";
 import { SelectSubmenu, THINKING_DESCRIPTIONS } from "./components/settings-selector.js";
 import { theme } from "./theme/theme.js";
 
-import type { TUI } from "@gsd/pi-tui";
+import type { OverlayHandle, TUI } from "@gsd/pi-tui";
 
 // ---------------------------------------------------------------------------
 // Context interface — the subset of InteractiveMode needed by slash commands
@@ -171,6 +176,15 @@ export async function dispatchSlashCommand(
 	}
 	if (text === "/hotkeys") {
 		showHotkeys(ctx);
+		return true;
+	}
+	if (text === "/btw" || text.startsWith("/btw ")) {
+		const question = text.startsWith("/btw ") ? text.slice(5).trim() : "";
+		if (!question) {
+			ctx.showWarning("Usage: /btw <question>");
+			return true;
+		}
+		await handleBtwCommand(question, ctx);
 		return true;
 	}
 	if (text === "/fork") {
@@ -704,6 +718,7 @@ export function showHotkeys(ctx: SlashCommandContext): void {
 	const externalEditor = getAppKeyDisplay(ctx.keybindings, "externalEditor");
 	const followUp = getAppKeyDisplay(ctx.keybindings, "followUp");
 	const dequeue = getAppKeyDisplay(ctx.keybindings, "dequeue");
+	const toggleNotificationSound = getAppKeyDisplay(ctx.keybindings, "toggleNotificationSound");
 
 	let hotkeys = `
 **Navigation**
@@ -746,6 +761,7 @@ export function showHotkeys(ctx: SlashCommandContext): void {
 | \`${externalEditor}\` | Edit message in external editor |
 | \`${followUp}\` | Queue follow-up message |
 | \`${dequeue}\` | Restore queued messages |
+| \`${toggleNotificationSound}\` | Toggle notification sound |
 | \`Ctrl+V\` | Paste image from clipboard |
 | \`/\` | Slash commands |
 | \`!\` | Run bash command |
@@ -777,6 +793,49 @@ export function showHotkeys(ctx: SlashCommandContext): void {
 	ctx.chatContainer.addChild(new Markdown(hotkeys.trim(), 1, 1, ctx.getMarkdownThemeWithSettings()));
 	ctx.chatContainer.addChild(new DynamicBorder());
 	ctx.requestRender();
+}
+
+async function handleBtwCommand(question: string, ctx: SlashCommandContext): Promise<void> {
+	const model = ctx.session.model;
+	if (!model) {
+		ctx.showWarning("No model selected. Cannot use /btw.");
+		return;
+	}
+
+	if (!ctx.session.modelRegistry.isProviderRequestReady(model.provider)) {
+		ctx.showWarning(`No API key available for provider: ${model.provider}`);
+		return;
+	}
+
+	const systemPrompt = ctx.session.systemPrompt;
+	const messages = convertToLlm(ctx.session.messages);
+	const sessionId = ctx.session.sessionId;
+	const apiKey = await ctx.session.modelRegistry.getApiKey(model, sessionId);
+	let handle: OverlayHandle | undefined;
+
+	const overlay = new BtwOverlayComponent(
+		question,
+		model,
+		systemPrompt,
+		messages,
+		ctx.getMarkdownThemeWithSettings(),
+		ctx.ui,
+		() => {
+			handle?.hide();
+		},
+		() => {
+			ctx.requestRender();
+		},
+		streamSimple,
+		{ apiKey, sessionId },
+	);
+
+	handle = ctx.ui.showOverlay(overlay, {
+		width: "80%",
+		maxHeight: "70%",
+		anchor: "center",
+		margin: { top: 2, bottom: 2, left: 4, right: 4 },
+	});
 }
 
 async function handleCompactCommand(customInstructions: string | undefined, ctx: SlashCommandContext): Promise<void> {

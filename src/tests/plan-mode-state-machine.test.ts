@@ -172,9 +172,10 @@ test('plan mode presents the saved plan and approval options before approval', a
   const lastMessage = pi.sentMessages.at(-1) ?? ''
   assert.match(lastMessage, /do not restate the plan in a normal assistant response/i)
   assert.match(lastMessage, /ask for plan approval now via.*ask_user_questions/i)
-  assert.match(lastMessage, /Approve plan \(Recommended\)/)
+  assert.match(lastMessage, /Put "Approve plan" first with a "\(Recommended\)" suffix/i)
   assert.match(lastMessage, /Let other agent review/)
   assert.match(lastMessage, /Revise plan/)
+  assert.match(lastMessage, /type exact requested changes in the dialog notes field/i)
   assert.match(lastMessage, /Auto mode \(Recommended\)/)
   assert.match(lastMessage, /Bypass mode/)
   assert.doesNotMatch(lastMessage, /# Plan/)
@@ -423,7 +424,7 @@ test('plan mode pending → revising → pending → approved keeps preplan mode
   await pi.handlers.tool_result(
     {
       toolName: 'ask_user_questions',
-      details: makeAskUserDetails('Revise plan'),
+      details: makeAskUserDetails('Revise plan', undefined, false, 'Keep rollout section, only add fallback + confidence line'),
     },
     makeCtx({ model: preplanModel }),
   )
@@ -431,6 +432,11 @@ test('plan mode pending → revising → pending → approved keeps preplan mode
   assert.equal(testing.getState().approvalStatus, 'revising')
   assert.deepEqual(testing.getState().preplanModel, preplanModel)
   assert.equal(getPermissionMode(), 'plan')
+  const reviseKickoff = pi.sentMessages.at(-1) ?? ''
+  assert.match(reviseKickoff, /Revise the existing saved plan instead of drafting a fresh replacement/i)
+  assert.match(reviseKickoff, /Prefer the edit tool for targeted adjustments/i)
+  assert.match(reviseKickoff, /confidence is at least 8\/10/i)
+  assert.match(reviseKickoff, /User-requested changes: Keep rollout section, only add fallback \+ confidence line/)
 
   await pi.handlers.tool_result(
     { toolName: 'edit', input: { path: planPath } },
@@ -672,6 +678,15 @@ test('plan mode subagent-bypass approval honors configured planModeCodingAgent a
   assert.match(kickoff, /Execution permission mode is now "danger-full-access"/)
   assert.match(kickoff, /PLAN-subagent-bypass\.md/)
   assert.ok(pi.sentMessages.some(m => m.includes('generic')))
+})
+
+test('plan mode system prompt requires confidence line and targeted edits for revisions', async () => {
+  const { buildPlanModeSystemPrompt } = (await import('../resources/extensions/slash-commands/plan.ts')).__testing
+  const prompt = buildPlanModeSystemPrompt()
+  assert.match(prompt, /confidence is at least 8\/10/i)
+  assert.match(prompt, /Confidence: 8\/10/i)
+  assert.match(prompt, /prefer the edit tool for targeted changes/i)
+  assert.match(prompt, /rewrite the whole file only when the structure changes substantially/i)
 })
 
 // ─── Auto-suggest plan mode tests (system-prompt approach) ────────────────────

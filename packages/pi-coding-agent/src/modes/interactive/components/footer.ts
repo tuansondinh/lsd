@@ -46,6 +46,7 @@ export function formatPromptCost(cost: number): string {
 export class FooterComponent implements Component {
 	private autoCompactEnabled = true;
 	private permissionMode: PermissionMode = "danger-full-access";
+	private notificationSoundEnabled = false;
 
 	constructor(
 		private session: AgentSession,
@@ -58,6 +59,10 @@ export class FooterComponent implements Component {
 
 	setPermissionMode(mode: PermissionMode): void {
 		this.permissionMode = mode;
+	}
+
+	setNotificationSoundEnabled(enabled: boolean): void {
+		this.notificationSoundEnabled = enabled;
 	}
 
 	/**
@@ -123,6 +128,9 @@ export class FooterComponent implements Component {
 		const hotkeysHints = ["Ctrl+K • /hotkeys", "/hotkeys", "Ctrl+K"];
 		const firstLineMinPadding = 2;
 		const firstLineRightParts = cacheTimerStatus ? [cacheTimerStatus] : [];
+		if (this.notificationSoundEnabled) {
+			firstLineRightParts.push(theme.fg("success", "🔔"));
+		}
 		const firstLineRightBase = firstLineRightParts.join("  ");
 		const hotkeysHint = hotkeysHints.find((hint) => {
 			const candidate = firstLineRightBase ? `${firstLineRightBase}  ${hint}` : hint;

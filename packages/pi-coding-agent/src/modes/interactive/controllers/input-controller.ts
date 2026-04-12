@@ -54,6 +54,13 @@ export function setupEditorSubmitHandler(host: InteractiveModeStateHost & {
 		}
 
 		if (host.session.isStreaming) {
+			if (text === "/btw" || text.startsWith("/btw ")) {
+				const handled = await dispatchSlashCommand(text, host.getSlashCommandContext());
+				if (handled) {
+					host.editor.setText("");
+					return;
+				}
+			}
 			host.editor.addToHistory?.(text);
 			host.editor.setText("");
 			host.recordLastSentPrompt?.(text);
