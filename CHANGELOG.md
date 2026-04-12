@@ -6,6 +6,17 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.3.6] - 2026-04-12
+
+### Added
+- `/fast` command and settings toggle for OpenAI/Codex fast mode
+- push-to-talk voice activation with Space hold/release support in Kitty-compatible terminals
+
+### Changed
+- OpenAI Responses and Codex providers now route supported requests through `service_tier=priority` when fast mode is enabled
+- interactive settings and persistence now expose fast mode alongside Codex rotate and cache timer controls
+- voice extension input handling now separates toggle and push-to-talk flows
+
 ## [1.3.5] - 2026-04-12
 
 ### Added
@@ -2518,7 +2529,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 - License updated to MIT
 
-[Unreleased]: https://github.com/gsd-build/gsd-2/compare/v1.3.4...HEAD
+[Unreleased]: https://github.com/gsd-build/gsd-2/compare/v1.3.6...HEAD
+[1.3.6]: https://github.com/gsd-build/gsd-2/compare/v1.3.4...v1.3.6
 [1.3.4]: https://github.com/gsd-build/gsd-2/compare/v1.3.1...v1.3.4
 [1.3.1]: https://github.com/gsd-build/gsd-2/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/gsd-build/gsd-2/compare/v1.2.3...v1.3.0
