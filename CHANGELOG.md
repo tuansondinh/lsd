@@ -6,6 +6,18 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.3.9] - 2026-04-13
+
+### Added
+- MCP servers now warm up automatically when enabled or reloaded — tools are pre-fetched and connection errors are reported immediately
+- Context usage calculation now cached with revision tracking to reduce redundant recomputation
+
+### Fixed
+- Plan mode setting renamed from `autoSwitchPlanModel` to `planModeAutoSwitchModel` for consistency
+- Removed incorrect model switch to reasoning model during plan approval/execution — reasoning model is only used during plan-mode investigation
+
+## [1.3.8] - 2026-04-13
+
 ### Added
 - `/usage` now shows average output token speed (`tok/s`) alongside token and cost totals
 
