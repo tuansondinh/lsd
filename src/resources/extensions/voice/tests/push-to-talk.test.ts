@@ -15,6 +15,7 @@ describe("voice push-to-talk handler", () => {
             activationMode: null,
             editorText: "",
             holdToTalkSupported: true,
+            isEditorFocused: true,
             startPushToTalk: () => { startCalls += 1; },
             stopVoice: () => { stopCalls += 1; },
         });
@@ -32,6 +33,7 @@ describe("voice push-to-talk handler", () => {
             activationMode: null,
             editorText: "hello",
             holdToTalkSupported: true,
+            isEditorFocused: true,
             startPushToTalk: () => { startCalls += 1; },
             stopVoice: () => { },
         });
@@ -48,6 +50,7 @@ describe("voice push-to-talk handler", () => {
             activationMode: "push-to-talk",
             editorText: "",
             holdToTalkSupported: true,
+            isEditorFocused: true,
             startPushToTalk: () => { startCalls += 1; },
             stopVoice: () => { },
         });
@@ -64,6 +67,7 @@ describe("voice push-to-talk handler", () => {
             activationMode: "push-to-talk",
             editorText: "",
             holdToTalkSupported: true,
+            isEditorFocused: true,
             startPushToTalk: () => { },
             stopVoice: () => { stopCalls += 1; },
         });
@@ -80,6 +84,7 @@ describe("voice push-to-talk handler", () => {
             activationMode: "toggle",
             editorText: "",
             holdToTalkSupported: true,
+            isEditorFocused: true,
             startPushToTalk: () => { },
             stopVoice: () => { stopCalls += 1; },
         });
@@ -97,6 +102,7 @@ describe("voice push-to-talk handler", () => {
             activationMode: null,
             editorText: "",
             holdToTalkSupported: false,
+            isEditorFocused: true,
             onUnsupported: () => { notifyCalls += 1; },
             startPushToTalk: () => { startCalls += 1; },
             stopVoice: () => { },
