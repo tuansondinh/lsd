@@ -66,3 +66,4 @@ bun.lock
 
 # ── GSD baseline (auto-generated) ──
 .gsd
+.npm-cache-local/

@@ -93,7 +93,7 @@ export class ToolSummaryLine extends Container {
 		if (this.hidden || this.tools.length === 0) {
 			return [];
 		}
-		return [...super.render(width), ""];
+		return super.render(width);
 	}
 
 	private updateDisplay(): void {

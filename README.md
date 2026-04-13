@@ -365,6 +365,88 @@ LSD discovers and connects to MCP servers configured in:
 
 Use `/configs` inside a session to scan for MCP servers from other AI tools (Claude Code, Cursor, Copilot, etc.) and import them.
 
+### Adding MCP servers to LSD config
+
+LSD supports two transport types: **stdio** (launch a local process) and **HTTP** (connect to a running server).
+
+#### Stdio server (local process)
+
+Add to `.mcp.json` or `.lsd/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "my-server": {
+      "type": "stdio",
+      "command": "/absolute/path/to/executable",
+      "args": ["arg1", "arg2"],
+      "env": {
+        "API_KEY": "your-key",
+        "DEBUG": "true"
+      }
+    }
+  }
+}
+```
+
+If the server is installed as an npm package:
+
+```json
+{
+  "mcpServers": {
+    "my-server": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["@my-org/mcp-server"],
+      "env": {
+        "API_KEY": "sk-..."
+      }
+    }
+  }
+}
+```
+
+#### HTTP server (remote connection)
+
+For MCP servers already running on a network endpoint:
+
+```json
+{
+  "mcpServers": {
+    "remote-server": {
+      "type": "http",
+      "url": "http://localhost:8080/mcp",
+      "headers": {
+        "Authorization": "Bearer ${MCP_TOKEN}"
+      }
+    }
+  }
+}
+```
+
+Environment variables in `headers` and `env` are resolved at startup (use `${VAR_NAME}` syntax).
+
+#### File placement
+
+- **`.mcp.json`** — repo-shared configuration (commit to git)
+- **`.lsd/mcp.json`** — local-only configuration (git-ignored, not shared)
+
+If both files exist, server names are merged and the first definition found wins.
+
+#### Managing MCP servers
+
+Use the `/mcp` slash command inside a session:
+
+| Command | Description |
+|---------|-------------|
+| `/mcp list` | List all configured servers and their status |
+| `/mcp inspect <server>` | Connect and show available tools for a server |
+| `/mcp enable <server>` | Enable a server |
+| `/mcp disable <server>` | Disable a server |
+| `/mcp reload` | Reload config and reconnect enabled servers |
+
+MCP servers connect lazily — `/mcp inspect` or the first tool call triggers the connection.
+
 ---
 
 ## Sessions

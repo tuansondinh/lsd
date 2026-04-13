@@ -273,6 +273,15 @@ export class AgentSession {
 	/** Cost of the most recent assistant response (for per-prompt display). */
 	private _lastTurnCost = 0;
 
+	/** Incremented whenever context-affecting state changes. */
+	private _contextUsageRevision = 0;
+	private _contextUsageCache:
+		| {
+				revision: number;
+				modelKey: string | null;
+				usage: ContextUsage | undefined;
+		  }
+		| undefined;
 
 	// Bash execution state
 	private _bashAbortController: AbortController | undefined = undefined;
@@ -402,8 +411,14 @@ export class AgentSession {
 	// Event Subscription
 	// =========================================================================
 
+	private _invalidateContextUsageCache(): void {
+		this._contextUsageRevision += 1;
+		this._contextUsageCache = undefined;
+	}
+
 	/** Emit an event to all listeners */
 	private _emit(event: AgentSessionEvent): void {
+		this._invalidateContextUsageCache();
 		for (const l of this._eventListeners) {
 			l(event);
 		}
@@ -2683,6 +2698,7 @@ export class AgentSession {
 
 			// Save to session
 			this.sessionManager.appendMessage(bashMessage);
+			this._invalidateContextUsageCache();
 		}
 	}
 
@@ -2719,6 +2735,7 @@ export class AgentSession {
 		}
 
 		this._pendingBashMessages = [];
+		this._invalidateContextUsageCache();
 	}
 
 	// =========================================================================
@@ -3170,6 +3187,14 @@ export class AgentSession {
 		const contextWindow = model.contextWindow ?? 0;
 		if (contextWindow <= 0) return undefined;
 
+		const modelKey = `${model.provider}/${model.id}:${contextWindow}`;
+		const cached = this._contextUsageCache;
+		if (cached && cached.revision === this._contextUsageRevision && cached.modelKey === modelKey) {
+			return cached.usage;
+		}
+
+		let usage: ContextUsage;
+
 		// After compaction, the last assistant usage reflects pre-compaction context size.
 		// We can only trust usage from an assistant that responded after the latest compaction.
 		// If no such assistant exists, context token count is unknown until the next LLM response.
@@ -3195,18 +3220,31 @@ export class AgentSession {
 			}
 
 			if (!hasPostCompactionUsage) {
-				return { tokens: null, contextWindow, percent: null };
+				usage = { tokens: null, contextWindow, percent: null };
+				this._contextUsageCache = {
+					revision: this._contextUsageRevision,
+					modelKey,
+					usage,
+				};
+				return usage;
 			}
 		}
 
 		const estimate = estimateContextTokens(this.messages);
 		const percent = (estimate.tokens / contextWindow) * 100;
 
-		return {
+		usage = {
 			tokens: estimate.tokens,
 			contextWindow,
 			percent,
 		};
+		this._contextUsageCache = {
+			revision: this._contextUsageRevision,
+			modelKey,
+			usage,
+		};
+
+		return usage;
 	}
 
 	/**

@@ -62,6 +62,14 @@ interface McpState {
 const connections = new Map<string, ManagedConnection>();
 let configCache: McpServerConfig[] | null = null;
 const toolCache = new Map<string, McpToolSchema[]>();
+let warmupPromise: Promise<McpWarmupResult[]> | null = null;
+
+interface McpWarmupResult {
+    name: string;
+    status: "connected" | "error";
+    toolCount?: number;
+    error?: string;
+}
 
 const MCP_STATE_PATH = join(process.cwd(), ".lsd", "mcp-state.json");
 
@@ -263,6 +271,49 @@ async function getOrConnect(name: string, signal?: AbortSignal): Promise<Client>
     return client;
 }
 
+async function warmupEnabledServers(): Promise<McpWarmupResult[]> {
+    if (warmupPromise) return warmupPromise;
+
+    warmupPromise = (async () => {
+        const enabledServers = readConfigs().filter((server) => server.enabled);
+        if (enabledServers.length === 0) return [];
+
+        const results = await Promise.allSettled(enabledServers.map(async (server) => {
+            const client = await getOrConnect(server.name);
+            const result = await client.listTools(undefined, { timeout: 30000 });
+            const tools: McpToolSchema[] = (result.tools ?? []).map((tool) => ({
+                name: tool.name,
+                description: tool.description ?? "",
+                inputSchema: tool.inputSchema as Record<string, unknown> | undefined,
+            }));
+            toolCache.set(server.name, tools);
+            return {
+                name: server.name,
+                status: "connected" as const,
+                toolCount: tools.length,
+            };
+        }));
+
+        return results.map((result, index) => {
+            if (result.status === "fulfilled") {
+                return result.value;
+            }
+
+            return {
+                name: enabledServers[index]?.name ?? `server-${index + 1}`,
+                status: "error" as const,
+                error: result.reason instanceof Error ? result.reason.message : String(result.reason),
+            };
+        });
+    })();
+
+    try {
+        return await warmupPromise;
+    } finally {
+        warmupPromise = null;
+    }
+}
+
 async function closeAll(): Promise<void> {
     const closing = Array.from(connections.entries()).map(async ([name, conn]) => {
         try {
@@ -277,6 +328,7 @@ async function closeAll(): Promise<void> {
 }
 
 async function reloadMcpState(): Promise<void> {
+    warmupPromise = null;
     await closeAll();
     configCache = null;
 }
@@ -402,6 +454,14 @@ async function handleMcpCommand(args: string, ctx: ExtensionCommandContext): Pro
             const action = enabled ? "enabled" : "disabled";
             const changeText = result.changed ? action : `already ${action}`;
             ctx.ui.notify(`MCP server ${result.canonicalName} ${changeText}.`, "info");
+
+            if (enabled) {
+                const warmupResults = await warmupEnabledServers();
+                const warmupResult = warmupResults.find((entry) => entry.name === result.canonicalName);
+                if (warmupResult?.status === "error") {
+                    ctx.ui.notify(`Failed to connect ${result.canonicalName}: ${warmupResult.error}`, "error");
+                }
+            }
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             ctx.ui.notify(message, "error");
@@ -412,7 +472,12 @@ async function handleMcpCommand(args: string, ctx: ExtensionCommandContext): Pro
     if (subcommand === "reload") {
         await reloadMcpState();
         const servers = readConfigs();
-        ctx.ui.notify(`Reloaded MCP config — ${servers.length} server(s) available.`, "info");
+        const warmupResults = await warmupEnabledServers();
+        const failed = warmupResults.filter((entry) => entry.status === "error");
+        const summary = failed.length > 0
+            ? `Reloaded MCP config — ${servers.length} server(s) available, ${failed.length} failed to connect.`
+            : `Reloaded MCP config — ${servers.length} server(s) available.`;
+        ctx.ui.notify(summary, failed.length > 0 ? "warning" : "info");
         return;
     }
 
@@ -733,17 +798,31 @@ export default function(pi: ExtensionAPI) {
 
     pi.on("session_start", async (_event, ctx) => {
         const servers = readConfigs();
+        const enabledServers = servers.filter((server) => server.enabled);
         if (servers.length > 0) {
-            ctx.ui.notify(`MCP client ready — ${servers.filter((server) => server.enabled).length}/${servers.length} server(s) enabled`, "info");
+            ctx.ui.notify(`MCP client ready — ${enabledServers.length}/${servers.length} server(s) enabled`, "info");
         }
+        if (enabledServers.length === 0) return;
+
+        void warmupEnabledServers().then((results) => {
+            const failed = results.filter((entry) => entry.status === "error");
+            if (failed.length > 0) {
+                const failureSummary = failed.map((entry) => `${entry.name}: ${entry.error}`).join("; ");
+                ctx.ui.notify(`MCP autoconnect partial failure — ${failureSummary}`, "warning");
+            }
+        }).catch((error) => {
+            const message = error instanceof Error ? error.message : String(error);
+            ctx.ui.notify(`MCP autoconnect failed: ${message}`, "warning");
+        });
     });
 
     pi.on("session_shutdown", async () => {
+        warmupPromise = null;
         await closeAll();
     });
 
     pi.on("session_switch", async () => {
-        await closeAll();
-        configCache = null;
+        await reloadMcpState();
+        void warmupEnabledServers();
     });
 }

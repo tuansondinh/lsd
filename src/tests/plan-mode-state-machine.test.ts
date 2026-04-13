@@ -246,7 +246,7 @@ test('plan mode enters with immediate reasoning-model switch when auto-switch is
   writeFileSync(
     join(tmp, 'settings.json'),
     JSON.stringify({
-      autoSwitchPlanModel: true,
+      planModeAutoSwitchModel: true,
       planModeReasoningModel: 'anthropic/claude-sonnet-4-6',
     }),
   )

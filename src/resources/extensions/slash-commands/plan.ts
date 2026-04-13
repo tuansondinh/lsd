@@ -191,8 +191,8 @@ function readAutoSwitchPlanModelSetting(): boolean {
     const settingsPath = join(getAgentDir(), "settings.json");
     if (!existsSync(settingsPath)) return false;
     const raw = readFileSync(settingsPath, "utf-8");
-    const parsed = JSON.parse(raw) as { autoSwitchPlanModel?: unknown };
-    return parsed.autoSwitchPlanModel === true;
+    const parsed = JSON.parse(raw) as { planModeAutoSwitchModel?: unknown };
+    return parsed.planModeAutoSwitchModel === true;
   } catch {
     return false;
   }
@@ -418,10 +418,10 @@ async function approvePlan(
   permissionMode: RestorablePermissionMode,
   executeWithSubagent = false,
 ): Promise<void> {
-  const reasoningModel = parseQualifiedModelRef(readPlanModeReasoningModel());
-  if (reasoningModel) {
-    await setModelIfNeeded(pi, ctx, reasoningModel);
-  }
+  // Do NOT switch to reasoning model during execution.
+  // The reasoning model is only for plan-mode investigation, not execution.
+  // If a coding model is configured and we're using a subagent, the explicit
+  // model="<planModeCodingModel>" in the kickoff message will handle it.
 
   state = {
     ...state,

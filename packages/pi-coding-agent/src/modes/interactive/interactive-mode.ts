@@ -1538,7 +1538,7 @@ export class InteractiveMode {
 		this.defaultEditor.onExtensionShortcut = undefined;
 		this.updateTerminalTitle();
 		if (this.loadingAnimation) {
-			this.loadingAnimation.setCycleMessages(this.workingMessages);
+			this.loadingAnimation.setCycleMessages(this.workingMessages, 10_000);
 		}
 	}
 
@@ -1881,7 +1881,7 @@ export class InteractiveMode {
 	/** Reset the loading animation back to cycling working messages. */
 	private resetLoadingMessage(): void {
 		if (this.loadingAnimation) {
-			this.loadingAnimation.setCycleMessages(this.workingMessages);
+			this.loadingAnimation.setCycleMessages(this.workingMessages, 10_000);
 		}
 	}
 

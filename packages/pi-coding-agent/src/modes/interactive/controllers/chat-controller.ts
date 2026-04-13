@@ -180,7 +180,7 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
                 (text) => theme.fg("accent", text),
                 host.defaultWorkingMessage,
             );
-            host.loadingAnimation.setCycleMessages(host.workingMessages, 3000);
+            host.loadingAnimation.setCycleMessages(host.workingMessages, 10_000);
             host.statusContainer.addChild(host.loadingAnimation);
             host.startLoadingTips();
             // Show steer/queue + expand hint in editor bottom border while agent is running

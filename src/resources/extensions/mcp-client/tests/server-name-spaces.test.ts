@@ -53,3 +53,19 @@ test("#3029: getOrConnect normalizes name for connection cache lookup", () => {
 		"getOrConnect should use config.name (canonical) as the connections cache key",
 	);
 });
+
+test("enabled MCP servers are warmed up on session start", () => {
+	assert.match(
+		source,
+		/pi\.on\("session_start", async \(_event, ctx\) => {[\s\S]*?warmupEnabledServers\(/,
+		"session_start should trigger MCP autoconnect warmup for enabled servers",
+	);
+});
+
+test("warmupEnabledServers preloads tool schemas during autoconnect", () => {
+	assert.match(
+		source,
+		/async function warmupEnabledServers\([\s\S]*?client\.listTools\(undefined, \{ timeout: 30000 \}\)[\s\S]*?toolCache\.set\(/,
+		"warmupEnabledServers should list tools and populate tool cache during startup",
+	);
+});
