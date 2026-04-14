@@ -6,6 +6,21 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.3.10] - 2026-04-14
+
+### Added
+- plan execution prompts now include user execution notes and a verification checklist for implementation follow-up.
+- chain-mode subagent summaries now show live step progress while a chain is running.
+
+### Changed
+- plan artifacts must include explicit Acceptance Criteria and Verification Plan sections before approval.
+- assistant messages now preserve content order around tool calls, keeping post-tool text and thinking blocks in the right place.
+- MCP client now waits for autoconnect warmup on startup and reports success or partial failure inline.
+
+### Fixed
+- explicit subagent model requests in plan execution are now forwarded instead of being dropped.
+- plan mode approval flow now keeps execution prompts aligned with selected model and permission mode.
+
 ## [1.3.9] - 2026-04-13
 
 ### Added
@@ -2560,7 +2575,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 - License updated to MIT
 
-[Unreleased]: https://github.com/gsd-build/gsd-2/compare/v1.3.7...HEAD
+[Unreleased]: https://github.com/gsd-build/gsd-2/compare/v1.3.10...HEAD
+[1.3.10]: https://github.com/gsd-build/gsd-2/compare/v1.3.7...v1.3.10
 [1.3.7]: https://github.com/gsd-build/gsd-2/compare/v1.3.6...v1.3.7
 [1.3.6]: https://github.com/gsd-build/gsd-2/compare/v1.3.4...v1.3.6
 [1.3.4]: https://github.com/gsd-build/gsd-2/compare/v1.3.1...v1.3.4
