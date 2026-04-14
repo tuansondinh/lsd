@@ -318,6 +318,7 @@ export class InteractiveMode {
 	// Streaming message tracking
 	private streamingComponent: AssistantMessageComponent | undefined = undefined;
 	private streamingMessage: AssistantMessage | undefined = undefined;
+	streamingPostToolComponents: Array<{ index: number; component: any }> = [];
 
 	// Tool execution tracking: toolCallId -> component
 	private pendingTools = new Map<string, ToolExecutionComponent>();
@@ -2773,9 +2774,24 @@ export class InteractiveMode {
 		for (const message of sessionContext.messages) {
 			// Assistant messages need special handling for tool calls
 			if (message.role === "assistant") {
+				// Render content blocks in order to preserve correct visual ordering.
+				// Text/thinking blocks before tools go into AssistantMessageComponent.
+				// Tool blocks are added as separate ToolExecutionComponent instances.
+				// Text/thinking blocks after tools are added as individual Markdown components.
+				const lastToolIdx = (() => {
+					for (let i = message.content.length - 1; i >= 0; i--) {
+						if (message.content[i].type === "toolCall" || message.content[i].type === "serverToolUse") return i;
+					}
+					return -1;
+				})();
+
+				// Phase 1: Render pre-tool text/thinking via AssistantMessageComponent
 				this.addMessageToChat(message);
-				// Render tool call components
-				for (const content of message.content) {
+
+				// Phase 2: Render tool blocks and post-tool text/thinking in content order
+				for (let ci = 0; ci < message.content.length; ci++) {
+					const content = message.content[ci];
+
 					if (content.type === "toolCall") {
 						const component = new ToolExecutionComponent(
 							content.name,
@@ -2836,6 +2852,19 @@ export class InteractiveMode {
 						} else {
 							// No result yet (aborted stream?) - show as pending
 							this.pendingTools.set(content.id, component);
+						}
+					} else if (ci > lastToolIdx && lastToolIdx >= 0) {
+						// Text/thinking blocks after tools — render as individual components
+						// to maintain correct visual ordering relative to tool rows.
+						if (content.type === "text" && content.text.trim()) {
+							const md = new Markdown(content.text.trim(), 1, 0, this.getMarkdownThemeWithSettings());
+							this.chatContainer.addChild(md);
+						} else if (content.type === "thinking" && content.thinking.trim() && !this.hideThinkingBlock) {
+							const md = new Markdown(content.thinking.trim(), 1, 0, this.getMarkdownThemeWithSettings(), {
+								color: (text: string) => theme.fg("thinkingText", text),
+								italic: true,
+							});
+							this.chatContainer.addChild(md);
 						}
 					}
 				}

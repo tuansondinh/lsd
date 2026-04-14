@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { Loader, Spacer, Text } from "@gsd/pi-tui";
+import { Loader, Markdown, Spacer, Text } from "@gsd/pi-tui";
 
 import type { InteractiveModeEvent, InteractiveModeStateHost } from "../interactive-mode-state.js";
 import { theme } from "../theme/theme.js";
@@ -144,6 +144,25 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
         return summary;
     };
 
+    const clearStreamingPostToolComponents = (): void => {
+        for (const entry of host.streamingPostToolComponents) {
+            host.chatContainer.removeChild(entry.component);
+        }
+        host.streamingPostToolComponents = [];
+    };
+
+    /**
+     * Find the index of the last tool-type content block (toolCall or serverToolUse).
+     */
+    const findLastToolBlockIndex = (content: Array<{ type: string }>): number => {
+        for (let i = content.length - 1; i >= 0; i--) {
+            if (content[i].type === "toolCall" || content[i].type === "serverToolUse") {
+                return i;
+            }
+        }
+        return -1;
+    };
+
     switch (event.type) {
         case "session_state_changed":
             switch (event.reason) {
@@ -153,6 +172,7 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
                     resetCollapsedToolSummary();
                     host.streamingComponent = undefined;
                     host.streamingMessage = undefined;
+                    host.streamingPostToolComponents = [];
                     host.pendingTools.clear();
                     host.clearAgentPtyComponents();
                     host.pendingMessagesContainer.clear();
@@ -247,7 +267,15 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
             if (host.streamingComponent && event.message.role === "assistant") {
                 host.streamingMessage = event.message;
                 host.streamingComponent.updateContent(host.streamingMessage);
-                for (const content of host.streamingMessage.content) {
+
+                // Remove previously added post-tool text components (they'll be re-created below)
+                clearStreamingPostToolComponents();
+
+                const lastToolIdx = findLastToolBlockIndex(host.streamingMessage.content);
+
+                for (let ci = 0; ci < host.streamingMessage.content.length; ci++) {
+                    const content = host.streamingMessage.content[ci];
+
                     // Keep collapsed summary active across assistant text updates.
                     // Streamed message updates include all prior text blocks, so resetting
                     // here fragments one contiguous collapsed-tool group into many lines.
@@ -334,6 +362,22 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
                                 });
                             }
                         }
+                    } else if (content.type === "text" && content.text.trim() && ci > lastToolIdx && lastToolIdx >= 0) {
+                        // Text blocks that appear AFTER tool blocks need to be rendered
+                        // after the tool rows to preserve content order.
+                        const mdTheme = host.getMarkdownThemeWithSettings();
+                        const component = new Markdown(content.text.trim(), 1, 0, mdTheme);
+                        host.chatContainer.addChild(component);
+                        host.streamingPostToolComponents.push({ index: ci, component });
+                    } else if (content.type === "thinking" && content.thinking.trim() && ci > lastToolIdx && lastToolIdx >= 0 && !host.hideThinkingBlock) {
+                        // Thinking blocks after tool blocks — render in correct position.
+                        const mdTheme = host.getMarkdownThemeWithSettings();
+                        const component = new Markdown(content.thinking.trim(), 1, 0, mdTheme, {
+                            color: (text: string) => theme.fg("thinkingText", text),
+                            italic: true,
+                        });
+                        host.chatContainer.addChild(component);
+                        host.streamingPostToolComponents.push({ index: ci, component });
                     }
                 }
                 host.ui.requestRender();
@@ -487,6 +531,7 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
                 host.chatContainer.removeChild(host.streamingComponent);
                 host.streamingComponent = undefined;
                 host.streamingMessage = undefined;
+                clearStreamingPostToolComponents();
             }
             host.pendingTools.clear();
             clearPendingCollapsedToolSummaries();

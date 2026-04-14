@@ -26,6 +26,7 @@ export interface InteractiveModeStateHost {
 	workingMessages: string[];
 	streamingComponent?: any;
 	streamingMessage?: any;
+	streamingPostToolComponents: Array<{ index: number; component: any }>;
 	retryEscapeHandler?: () => void;
 	retryLoader?: any;
 	autoCompactionLoader?: any;

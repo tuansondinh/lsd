@@ -492,6 +492,10 @@ interface SubagentDetails {
     agentScope: AgentScope;
     projectAgentsDir: string | null;
     results: SingleResult[];
+    /** Total planned steps for chain mode (undefined for single/parallel). */
+    totalChainSteps?: number;
+    /** Currently executing chain step (1-indexed, undefined if chain completed). */
+    currentChainStep?: number;
 }
 
 function getFinalOutput(messages: Message[]): string {
@@ -1254,11 +1258,13 @@ export default function(pi: ExtensionAPI) {
 
             const makeDetails =
                 (mode: "single" | "parallel" | "chain") =>
-                    (results: SingleResult[]): SubagentDetails => ({
+                    (results: SingleResult[], opts?: { totalSteps?: number; currentStep?: number }): SubagentDetails => ({
                         mode,
                         agentScope,
                         projectAgentsDir: discovery.projectAgentsDir,
                         results,
+                        totalChainSteps: opts?.totalSteps,
+                        currentChainStep: opts?.currentStep,
                     });
 
             const trackInProcessDepth = (
@@ -1362,7 +1368,8 @@ export default function(pi: ExtensionAPI) {
                     const step = params.chain[i];
                     const taskWithContext = step.task.replace(/\{previous\}/g, previousOutput);
 
-                    // Create update callback that includes all previous results
+                    // Create update callback that includes all previous results + chain progress
+                    const chainTotalSteps = params.chain.length;
                     const chainUpdate: OnUpdateCallback | undefined = onUpdate
                         ? (partial) => {
                             // Combine completed results with current streaming result
@@ -1371,7 +1378,10 @@ export default function(pi: ExtensionAPI) {
                                 const allResults = [...results, currentResult];
                                 onUpdate({
                                     content: partial.content,
-                                    details: makeDetails("chain")(allResults),
+                                    details: makeDetails("chain")(allResults, {
+                                        totalSteps: chainTotalSteps,
+                                        currentStep: i + 1,
+                                    }),
                                 });
                             }
                         }
@@ -1425,7 +1435,7 @@ export default function(pi: ExtensionAPI) {
                             result.errorMessage || result.stderr || getFinalOutput(result.messages) || "(no output)";
                         return {
                             content: [{ type: "text", text: `Chain stopped at step ${i + 1} (${step.agent}): ${errorMsg}` }],
-                            details: makeDetails("chain")(results),
+                            details: makeDetails("chain")(results, { totalSteps: params.chain.length }),
                             isError: true,
                         };
                     }
@@ -1433,7 +1443,7 @@ export default function(pi: ExtensionAPI) {
                 }
                 return {
                     content: [{ type: "text", text: getFinalOutput(results[results.length - 1].messages) || "(no output)" }],
-                    details: makeDetails("chain")(results),
+                    details: makeDetails("chain")(results, { totalSteps: params.chain.length }),
                 };
             }
 
@@ -2109,7 +2119,19 @@ export default function(pi: ExtensionAPI) {
 
             if (details.mode === "chain") {
                 const successCount = details.results.filter((r) => r.exitCode === 0).length;
-                const icon = successCount === details.results.length ? theme.fg("success", "✓") : theme.fg("error", "✗");
+                const isRunning = details.currentChainStep != null;
+                const icon = !isRunning && successCount === details.results.length
+                    ? theme.fg("success", "✓")
+                    : isRunning
+                        ? theme.fg("accent", "◉")
+                        : theme.fg("error", "✗");
+
+                const totalLabel = details.totalChainSteps != null
+                    ? `${details.results.length}/${details.totalChainSteps} steps`
+                    : `${details.results.length} steps`;
+                const progressLabel = isRunning
+                    ? ` (step ${details.currentChainStep} running)`
+                    : "";
 
                 if (expanded) {
                     const container = new Container();
@@ -2118,7 +2140,7 @@ export default function(pi: ExtensionAPI) {
                             icon +
                             " " +
                             theme.fg("toolTitle", theme.bold("chain ")) +
-                            theme.fg("accent", `${successCount}/${details.results.length} steps`),
+                            theme.fg("accent", `${totalLabel}${progressLabel}`),
                             0,
                             0,
                         ),
@@ -2175,7 +2197,7 @@ export default function(pi: ExtensionAPI) {
                     icon +
                     " " +
                     theme.fg("toolTitle", theme.bold("chain ")) +
-                    theme.fg("accent", `${successCount}/${details.results.length} steps`);
+                    theme.fg("accent", `${totalLabel}${progressLabel}`);
                 for (const r of details.results) {
                     const rIcon = r.exitCode === 0 ? theme.fg("success", "✓") : theme.fg("error", "✗");
                     const displayItems = getDisplayItems(r.messages);

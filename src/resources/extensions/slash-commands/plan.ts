@@ -340,8 +340,8 @@ async function setModelIfNeeded(pi: ExtensionAPI, ctx: any, modelRef: ModelRef |
   return true;
 }
 
-function buildExecutionKickoffMessage(options: { permissionMode: RestorablePermissionMode; executeWithSubagent?: boolean }): string {
-  const { permissionMode, executeWithSubagent = false } = options;
+function buildExecutionKickoffMessage(options: { permissionMode: RestorablePermissionMode; executeWithSubagent?: boolean; executionNote?: string }): string {
+  const { permissionMode, executeWithSubagent = false, executionNote } = options;
   const task = state.task.trim();
 
   if (!executeWithSubagent) {
@@ -350,6 +350,10 @@ function buildExecutionKickoffMessage(options: { permissionMode: RestorablePermi
     ];
     if (task) details.push(`Original task: ${task}`);
     if (state.latestPlanPath) details.push(`Use the approved plan artifact at ${state.latestPlanPath} as the execution plan.`);
+    if (executionNote) details.push(`User execution note: ${executionNote}`);
+    details.push(
+      "After implementation: guide the user through verification by presenting a concise checklist based on the plan's Acceptance Criteria and Verification Plan. Run applicable checks (build, lint, tests) and report results.",
+    );
     return details.join(" ");
   }
 
@@ -366,6 +370,16 @@ function buildExecutionKickoffMessage(options: { permissionMode: RestorablePermi
   ];
   if (task) details.push(`Original task: ${task}`);
   if (state.latestPlanPath) details.push(`Primary plan artifact: ${state.latestPlanPath}`);
+  if (executionNote) {
+    details.push(`User execution note: ${executionNote}`);
+    // If the note contains a model request, surface it explicitly so the agent
+    // doesn't silently drop it. The model override will be resolved by
+    // normalizeSubagentModel when the subagent tool is invoked.
+    const modelMatch = executionNote.match(/\b(?:model|use\s+model)\s+["']?([\w.-]+(?:\/[\w.-]+)?)["']?\b/i);
+    if (modelMatch?.[1]) {
+      details.push(`The user explicitly requested model "${modelMatch[1]}". You MUST pass model="${modelMatch[1]}" in the subagent tool call. If normalizeSubagentModel cannot resolve this model, report the error to the user instead of silently falling back.`);
+    }
+  }
   details.push(
     "Important: if the plan is large and you estimate it would exceed a single subagent's context window (~200k tokens), " +
     "split execution across multiple sequential subagents instead of one. " +
@@ -375,7 +389,8 @@ function buildExecutionKickoffMessage(options: { permissionMode: RestorablePermi
   );
   details.push(
     "After all subagents complete: (1) do a quick review of the implementation — check that the plan steps were actually carried out, spot obvious issues or missed pieces, and verify the code compiles/passes lint if applicable. " +
-    "(2) Then summarize what was done, what (if anything) needs follow-up, and flag any concerns found during review.",
+    "(2) Then guide the user through verification: present a concise checklist based on the plan's Acceptance Criteria and Verification Plan sections. Run applicable checks (build, lint, tests) and report results. " +
+    "(3) Summarize what was done, what (if anything) needs follow-up, and flag any concerns found during review.",
   );
   return details.join(" ");
 }
@@ -417,6 +432,7 @@ async function approvePlan(
   ctx: any,
   permissionMode: RestorablePermissionMode,
   executeWithSubagent = false,
+  executionNote?: string,
 ): Promise<void> {
   // Do NOT switch to reasoning model during execution.
   // The reasoning model is only for plan-mode investigation, not execution.
@@ -434,7 +450,7 @@ async function approvePlan(
   // subagent tool with the default session model BEFORE it ever sees the
   // explicit model="<planModeCodingModel>" instruction. Steering ensures the
   // configured plan-mode coding model reaches the subagent invocation.
-  await pi.sendUserMessage(buildExecutionKickoffMessage({ permissionMode, executeWithSubagent }), { deliverAs: "steer" });
+  await pi.sendUserMessage(buildExecutionKickoffMessage({ permissionMode, executeWithSubagent, executionNote }), { deliverAs: "steer" });
 }
 
 async function cancelPlan(pi: ExtensionAPI, ctx: any, clearTask = true): Promise<RestorablePermissionMode> {
@@ -448,10 +464,12 @@ async function cancelPlan(pi: ExtensionAPI, ctx: any, clearTask = true): Promise
 function buildPlanModeSystemPrompt(): string {
   const details: string[] = [
     "You are currently in plan mode.",
+    "Terse output. All technical substance stays. Only fluff dies. Fragments OK.",
     "Investigate, clarify scope, and produce a persisted execution plan before making source changes.",
     "If requirements are ambiguous or constraints are missing, ask concise clarifying questions before drafting or saving a plan.",
     `Before writing or updating a plan artifact, make sure your confidence is at least ${MIN_PLAN_CONFIDENCE}/10. If confidence is lower, investigate more or ask clarifying questions first.`,
     "Include an explicit confidence line in every saved plan, for example: \"Confidence: 8/10\" or higher.",
+    "Every saved plan MUST include explicit \"Acceptance Criteria\" and \"Verification Plan\" sections. Plans missing these sections will be rejected for approval.",
     "When adjusting an existing saved plan, prefer the edit tool for targeted changes. Rewrite the whole file only when the structure changes substantially or an exact edit is impractical.",
     "Do not modify source files or run side-effect commands while plan mode is active.",
     "Persist plan artifacts under .lsd/plan/.",
@@ -500,6 +518,32 @@ function buildApprovalActionInstructions(): string {
 // Keep for external callers that reference the combined form (headless path)
 function buildApprovalDialogInstructions(): string {
   return buildApprovalActionInstructions();
+}
+
+/** Required heading patterns for plan artifacts. Matches common variants. */
+const REQUIRED_PLAN_SECTIONS: Array<{ pattern: RegExp; label: string }> = [
+  { pattern: /\b(acceptance\s*criteria|success\s*criteria|done\s*criteria)\b/i, label: "Acceptance Criteria" },
+  { pattern: /\b(verification\s*(plan|steps|strategy)|how\s+to\s+verify|testing\s*plan)\b/i, label: "Verification Plan" },
+];
+
+function validatePlanArtifact(markdown: string): { valid: boolean; missing: string[] } {
+  const missing: string[] = [];
+  for (const section of REQUIRED_PLAN_SECTIONS) {
+    if (!section.pattern.test(markdown)) {
+      missing.push(section.label);
+    }
+  }
+  return { valid: missing.length === 0, missing };
+}
+
+function buildPlanValidationSteeringMessage(planPath: string, missing: string[]): string {
+  const missingList = missing.map((m) => `- **${m}**`).join("\n");
+  return [
+    `Plan artifact saved at ${planPath}.`,
+    `The plan is missing required sections before it can be approved for implementation:`,
+    missingList,
+    `Please revise the plan to include these sections, then re-save. Do not ask for approval until all required sections are present.`,
+  ].join("\n\n");
 }
 
 function buildApprovalSteeringMessage(planPath: string): string {
@@ -739,13 +783,24 @@ export default function planCommand(pi: ExtensionAPI) {
         }
 
         const planMarkdown = readPlanArtifact(path);
-        pi.sendMessage({
-          customType: "plan-mode-preview",
-          content: buildPlanPreviewMessage(path, planMarkdown),
-          display: true,
-        });
-        ctx.ui?.notify?.("/plan to show plan", "info");
-        pi.sendUserMessage(buildApprovalSteeringMessage(path), { deliverAs: "steer" });
+        if (!planMarkdown) {
+          ctx.ui?.notify?.("Plan artifact could not be read for validation", "warning");
+          pi.sendUserMessage(buildApprovalSteeringMessage(path), { deliverAs: "steer" });
+        } else {
+          const validation = validatePlanArtifact(planMarkdown);
+          if (!validation.valid) {
+            ctx.ui?.notify?.("Plan missing required sections — see guidance below", "warning");
+            pi.sendUserMessage(buildPlanValidationSteeringMessage(path, validation.missing), { deliverAs: "steer" });
+          } else {
+            pi.sendMessage({
+              customType: "plan-mode-preview",
+              content: buildPlanPreviewMessage(path, planMarkdown),
+              display: true,
+            });
+            ctx.ui?.notify?.("/plan to show plan", "info");
+            pi.sendUserMessage(buildApprovalSteeringMessage(path), { deliverAs: "steer" });
+          }
+        }
       }
       return;
     }
@@ -808,12 +863,13 @@ export default function planCommand(pi: ExtensionAPI) {
         permissionMode: DEFAULT_APPROVAL_PERMISSION_MODE,
         executeWithSubagent: false,
       };
+      const permissionNote = getAnswerNote(permissionAnswer);
       state = { ...state, targetPermissionMode: executionMode.permissionMode };
       if (executionMode.executeWithSubagent) {
         const modeLabel = executionMode.permissionMode === "danger-full-access" ? "bypass" : "auto";
         ctx.ui?.notify?.(`Plan approved: subagent(${modeLabel})`, "info");
       }
-      await approvePlan(pi, ctx, executionMode.permissionMode, executionMode.executeWithSubagent);
+      await approvePlan(pi, ctx, executionMode.permissionMode, executionMode.executeWithSubagent, permissionNote);
       return;
     }
 
@@ -833,12 +889,13 @@ export default function planCommand(pi: ExtensionAPI) {
         permissionMode: DEFAULT_APPROVAL_PERMISSION_MODE,
         executeWithSubagent: false,
       };
+      const actionNote = getAnswerNote(actionAnswer);
       state = { ...state, targetPermissionMode: executionMode.permissionMode };
       if (executionMode.executeWithSubagent) {
         const modeLabel = executionMode.permissionMode === "danger-full-access" ? "bypass" : "auto";
         ctx.ui?.notify?.(`Plan approved: subagent(${modeLabel})`, "info");
       }
-      await approvePlan(pi, ctx, executionMode.permissionMode, executionMode.executeWithSubagent);
+      await approvePlan(pi, ctx, executionMode.permissionMode, executionMode.executeWithSubagent, actionNote);
       return;
     }
 

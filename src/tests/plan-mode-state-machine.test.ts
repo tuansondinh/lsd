@@ -156,7 +156,7 @@ test('plan mode presents the saved plan and approval options before approval', a
 
   const planPath = '.lsd/plan/PLAN-3.md'
   mkdirSync('.lsd/plan', { recursive: true })
-  writeFileSync(planPath, '# Plan\n\n- Step 1\n- Step 2\n')
+  writeFileSync(planPath, '# Plan\n\n- Step 1\n- Step 2\n\n## Acceptance Criteria\n- [ ] Steps 1 and 2 complete\n\n## Verification Plan\n- Run build to confirm no errors\n')
 
   await pi.handlers.tool_result(
     { toolName: 'write', input: { path: planPath } },
@@ -214,7 +214,7 @@ test('re-running /plan while plan mode is active re-shows the saved plan instead
 
   const planPath = '.lsd/plan/PLAN-7.md'
   mkdirSync('.lsd/plan', { recursive: true })
-  writeFileSync(planPath, '# Current Plan\n\n- Step A\n')
+  writeFileSync(planPath, '# Current Plan\n\n- Step A\n\n## Acceptance Criteria\n- [ ] Step A done\n\n## Verification Plan\n- Verify output\n')
 
   await pi.handlers.tool_result(
     { toolName: 'write', input: { path: planPath } },
@@ -308,7 +308,7 @@ test('plan mode pending → approved switches to configured reasoning model and 
 
   const planPath = '.lsd/plan/PLAN-3.md'
   mkdirSync('.lsd/plan', { recursive: true })
-  writeFileSync(planPath, '# Plan\n')
+  writeFileSync(planPath, '# Plan\n\n## Acceptance Criteria\n- [ ] Done\n\n## Verification Plan\n- Check\n')
 
   await pi.handlers.tool_result(
     { toolName: 'write', input: { path: planPath } },
@@ -365,7 +365,7 @@ test('plan mode review option delegates to another agent with configured review 
 
   const planPath = '.lsd/plan/PLAN-9.md'
   mkdirSync('.lsd/plan', { recursive: true })
-  writeFileSync(planPath, '# Review Plan\n\n- Validate steps\n')
+  writeFileSync(planPath, '# Review Plan\n\n- Validate steps\n\n## Acceptance Criteria\n- [ ] Validated\n\n## Verification Plan\n- Review\n')
 
   await pi.handlers.tool_result(
     { toolName: 'write', input: { path: planPath } },
@@ -415,7 +415,7 @@ test('plan mode pending → revising → pending → approved keeps preplan mode
 
   const planPath = '.lsd/plan/PLAN-3.md'
   mkdirSync('.lsd/plan', { recursive: true })
-  writeFileSync(planPath, '# Plan\n')
+  writeFileSync(planPath, '# Plan\n\n## Acceptance Criteria\n- [ ] Done\n\n## Verification Plan\n- Check\n')
 
   await pi.handlers.tool_result(
     { toolName: 'write', input: { path: planPath } },
@@ -485,7 +485,7 @@ test('plan mode pending → cancelled restores preplan model and original permis
 
   const planPath = '.lsd/plan/PLAN-3.md'
   mkdirSync('.lsd/plan', { recursive: true })
-  writeFileSync(planPath, '# Plan\n')
+  writeFileSync(planPath, '# Plan\n\n## Acceptance Criteria\n- [ ] Done\n\n## Verification Plan\n- Check\n')
 
   await pi.handlers.tool_result(
     { toolName: 'write', input: { path: planPath } },
@@ -533,7 +533,7 @@ test('plan mode non-interactive plan write auto-approves with default auto mode 
 
   const planPath = '.lsd/plan/PLAN-3.md'
   mkdirSync('.lsd/plan', { recursive: true })
-  writeFileSync(planPath, '# Plan\n')
+  writeFileSync(planPath, '# Plan\n\n## Acceptance Criteria\n- [ ] Done\n\n## Verification Plan\n- Check\n')
 
   await pi.handlers.tool_result(
     { toolName: 'write', input: { path: planPath } },
@@ -579,7 +579,7 @@ test('plan mode subagent-auto approval uses configured planModeCodingSubagent wi
 
   const planPath = '.lsd/plan/PLAN-subagent-auto.md'
   mkdirSync('.lsd/plan', { recursive: true })
-  writeFileSync(planPath, '# Plan\n\n- Step 1\n')
+  writeFileSync(planPath, '# Plan\n\n- Step 1\n\n## Acceptance Criteria\n- [ ] Step 1 done\n\n## Verification Plan\n- Verify\n')
 
   await pi.handlers.tool_result(
     { toolName: 'write', input: { path: planPath } },
@@ -649,7 +649,7 @@ test('plan mode subagent-bypass approval honors configured planModeCodingAgent a
 
   const planPath = '.lsd/plan/PLAN-subagent-bypass.md'
   mkdirSync('.lsd/plan', { recursive: true })
-  writeFileSync(planPath, '# Plan\n\n- Step 1\n')
+  writeFileSync(planPath, '# Plan\n\n- Step 1\n\n## Acceptance Criteria\n- [ ] Step 1 done\n\n## Verification Plan\n- Verify\n')
 
   await pi.handlers.tool_result(
     { toolName: 'write', input: { path: planPath } },

@@ -21,6 +21,7 @@ const BARE_MODEL_PROVIDER_RULES: Array<{ provider: string; matches: (modelId: st
 		matches: (modelId) => /^(mistral-|ministral-|codestral-)/.test(modelId),
 	},
 	{ provider: "groq", matches: (modelId) => modelId.startsWith("llama-") || modelId.startsWith("mixtral-") },
+	{ provider: "zhipu", matches: (modelId) => modelId.startsWith("glm-") },
 ];
 
 export function inferProviderForBareModel(modelId: string): string | undefined {

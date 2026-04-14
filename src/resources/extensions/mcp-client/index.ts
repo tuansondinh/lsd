@@ -916,20 +916,26 @@ export default function(pi: ExtensionAPI) {
         const servers = readConfigs();
         const enabledServers = servers.filter((server) => server.enabled);
         if (servers.length > 0) {
-            ctx.ui.notify(`MCP client ready — ${enabledServers.length}/${servers.length} server(s) enabled`, "info");
+            ctx.ui.notify(`MCP client ready — ${enabledServers.length}/${servers.length} server(s) enabled, warming up…`, "info");
         }
         if (enabledServers.length === 0) return;
 
-        void warmupEnabledServers().then((results) => {
+        try {
+            const warmupTimeout = new Promise<never>((_, reject) => setTimeout(() => reject(new Error("warmup timed out after 30s")), 30_000));
+            const results = await Promise.race([warmupEnabledServers(), warmupTimeout]);
+            const succeeded = results.filter((entry) => entry.status === "connected");
             const failed = results.filter((entry) => entry.status === "error");
+            if (succeeded.length > 0) {
+                ctx.ui.notify(`MCP autoconnect complete — ${succeeded.length} server(s) connected`, "success");
+            }
             if (failed.length > 0) {
                 const failureSummary = failed.map((entry) => `${entry.name}: ${entry.error}`).join("; ");
                 ctx.ui.notify(`MCP autoconnect partial failure — ${failureSummary}`, "warning");
             }
-        }).catch((error) => {
+        } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             ctx.ui.notify(`MCP autoconnect failed: ${message}`, "warning");
-        });
+        }
     });
 
     pi.on("session_shutdown", async () => {
@@ -939,6 +945,6 @@ export default function(pi: ExtensionAPI) {
 
     pi.on("session_switch", async () => {
         await reloadMcpState();
-        void warmupEnabledServers();
+        await warmupEnabledServers();
     });
 }
