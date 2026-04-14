@@ -63,9 +63,25 @@ test("enabled MCP servers are warmed up on session start", () => {
 });
 
 test("warmupEnabledServers preloads tool schemas during autoconnect", () => {
+	assert.ok(
+		source.includes("async function warmupServer(") &&
+			source.includes("toolCache.set(canonicalName, tools)") &&
+			source.includes("warmupEnabledServers()"),
+		"warmup path should list tools and populate tool cache during startup",
+	);
+});
+
+test("global MCP config path is supported", () => {
+	assert.ok(
+		source.includes('join(homedir(), ".lsd", "mcp.json")'),
+		"readConfigs should include ~/.lsd/mcp.json",
+	);
+});
+
+test("bare /mcp opens interactive manager when custom UI exists", () => {
 	assert.match(
 		source,
-		/async function warmupEnabledServers\([\s\S]*?client\.listTools\(undefined, \{ timeout: 30000 \}\)[\s\S]*?toolCache\.set\(/,
-		"warmupEnabledServers should list tools and populate tool cache during startup",
+		/if \(!args\.trim\(\) && typeof ctx\.ui\.custom === "function"\) {[\s\S]*?openMcpManager\(ctx\)/,
+		"bare /mcp should open the manager UI when custom UI is available",
 	);
 });

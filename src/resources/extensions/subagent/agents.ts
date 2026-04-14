@@ -9,6 +9,9 @@ import { getAgentDir, parseFrontmatter } from "@gsd/pi-coding-agent";
 
 const PROJECT_AGENT_DIR_CANDIDATES = [".lsd", ".gsd", ".pi"] as const;
 
+/** Fixed read-only tool set for the reserved `scout` agent. */
+const SCOUT_ALLOWED_TOOLS = ["read", "lsp", "grep", "find", "ls"] as const;
+
 export type AgentScope = "user" | "project" | "both";
 
 export interface AgentConfig {
@@ -141,6 +144,12 @@ export function discoverAgents(cwd: string, scope: AgentScope): AgentDiscoveryRe
 		addAgents(userAgents);
 	} else {
 		addAgents(projectAgents);
+	}
+
+	// Enforce reserved agent tool policies — scout is always read-only
+	const scout = agentMap.get("scout");
+	if (scout) {
+		scout.tools = [...SCOUT_ALLOWED_TOOLS];
 	}
 
 	return { agents: Array.from(agentMap.values()), projectAgentsDir };

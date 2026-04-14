@@ -1,8 +1,8 @@
 /**
  * MCP Client Extension — Native MCP server integration for pi
  *
- * Provides on-demand access to MCP servers configured in project files
- * (.mcp.json, .lsd/mcp.json, with legacy .gsd/mcp.json fallback) using the
+ * Provides on-demand access to MCP servers configured in global (~/.lsd/mcp.json)
+ * and project files (.mcp.json, .lsd/mcp.json, with legacy .gsd/mcp.json fallback) using the
  * @modelcontextprotocol/sdk Client directly — no external CLI dependency
  * required.
  *
@@ -25,7 +25,9 @@ import { Client } from "@modelcontextprotocol/sdk/client";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
+import { McpManagerComponent, type McpManagerServerInfo } from "./mcp-manager-component.js";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -154,6 +156,7 @@ function readConfigs(): McpServerConfig[] {
         join(process.cwd(), ".mcp.json"),
         join(process.cwd(), ".lsd", "mcp.json"),
         join(process.cwd(), ".gsd", "mcp.json"),
+        join(homedir(), ".lsd", "mcp.json"),
     ];
 
     for (const configPath of configPaths) {
@@ -241,8 +244,6 @@ async function getOrConnect(name: string, signal?: AbortSignal): Promise<Client>
     if (!config) throw new Error(`Unknown MCP server: "${name}". Use mcp_servers to list available servers.`);
     if (!config.enabled) throw new Error(`Server "${config.name}" is disabled. Use /mcp enable ${config.name}.`);
 
-    // Always use config.name as the canonical cache key so that variant
-    // casing / whitespace still hits the same connection.
     const existing = connections.get(config.name);
     if (existing) return existing.client;
 
@@ -271,40 +272,118 @@ async function getOrConnect(name: string, signal?: AbortSignal): Promise<Client>
     return client;
 }
 
+function mapToolSchemas(tools: Array<{ name: string; description?: string; inputSchema?: unknown }>): McpToolSchema[] {
+    return tools.map((tool) => ({
+        name: tool.name,
+        description: tool.description ?? "",
+        inputSchema: tool.inputSchema as Record<string, unknown> | undefined,
+    }));
+}
+
+function shouldRetryMcpOperation(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/unknown mcp server/i.test(message)) return false;
+    if (/is disabled/i.test(message)) return false;
+    if (/unsupported transport/i.test(message)) return false;
+    if (/abort|cancel/i.test(message)) return false;
+    return true;
+}
+
+async function listServerTools(
+    name: string,
+    signal?: AbortSignal,
+    options?: { forceReconnect?: boolean; useCache?: boolean },
+): Promise<{ canonicalName: string; tools: McpToolSchema[]; cached: boolean }> {
+    const canonicalName = getCanonicalServerName(name);
+    if (options?.useCache !== false) {
+        const cached = toolCache.get(canonicalName);
+        if (cached) {
+            return { canonicalName, tools: cached, cached: true };
+        }
+    }
+
+    let attempt = 0;
+    while (attempt < 2) {
+        try {
+            if (attempt === 0 && options?.forceReconnect) {
+                await closeServerConnection(canonicalName);
+            }
+            if (attempt > 0) {
+                await closeServerConnection(canonicalName);
+            }
+            const client = await getOrConnect(canonicalName, signal);
+            const result = await client.listTools(undefined, { signal, timeout: 30000 });
+            const tools = mapToolSchemas(result.tools ?? []);
+            toolCache.set(canonicalName, tools);
+            return { canonicalName, tools, cached: false };
+        } catch (error) {
+            attempt += 1;
+            await closeServerConnection(canonicalName);
+            if (attempt >= 2 || !shouldRetryMcpOperation(error)) {
+                throw error;
+            }
+        }
+    }
+
+    throw new Error(`Failed to list tools for ${canonicalName}`);
+}
+
+async function callServerTool(
+    serverName: string,
+    toolName: string,
+    args: Record<string, unknown>,
+    signal?: AbortSignal,
+): Promise<{ canonicalServer: string; result: Awaited<ReturnType<Client["callTool"]>> }> {
+    const canonicalServer = getCanonicalServerName(serverName);
+    let attempt = 0;
+    while (attempt < 2) {
+        try {
+            if (attempt > 0) {
+                await closeServerConnection(canonicalServer);
+            }
+            const client = await getOrConnect(canonicalServer, signal);
+            const result = await client.callTool(
+                { name: toolName, arguments: args },
+                undefined,
+                { signal, timeout: 60000 },
+            );
+            return { canonicalServer, result };
+        } catch (error) {
+            attempt += 1;
+            await closeServerConnection(canonicalServer);
+            if (attempt >= 2 || !shouldRetryMcpOperation(error)) {
+                throw error;
+            }
+        }
+    }
+
+    throw new Error(`Failed to call ${canonicalServer}.${toolName}`);
+}
+
+async function warmupServer(name: string, signal?: AbortSignal): Promise<McpWarmupResult> {
+    try {
+        const { canonicalName, tools } = await listServerTools(name, signal, { useCache: false });
+        return {
+            name: canonicalName,
+            status: "connected",
+            toolCount: tools.length,
+        };
+    } catch (error) {
+        return {
+            name: getCanonicalServerName(name),
+            status: "error",
+            error: error instanceof Error ? error.message : String(error),
+        };
+    }
+}
+
 async function warmupEnabledServers(): Promise<McpWarmupResult[]> {
     if (warmupPromise) return warmupPromise;
 
     warmupPromise = (async () => {
         const enabledServers = readConfigs().filter((server) => server.enabled);
         if (enabledServers.length === 0) return [];
-
-        const results = await Promise.allSettled(enabledServers.map(async (server) => {
-            const client = await getOrConnect(server.name);
-            const result = await client.listTools(undefined, { timeout: 30000 });
-            const tools: McpToolSchema[] = (result.tools ?? []).map((tool) => ({
-                name: tool.name,
-                description: tool.description ?? "",
-                inputSchema: tool.inputSchema as Record<string, unknown> | undefined,
-            }));
-            toolCache.set(server.name, tools);
-            return {
-                name: server.name,
-                status: "connected" as const,
-                toolCount: tools.length,
-            };
-        }));
-
-        return results.map((result, index) => {
-            if (result.status === "fulfilled") {
-                return result.value;
-            }
-
-            return {
-                name: enabledServers[index]?.name ?? `server-${index + 1}`,
-                status: "error" as const,
-                error: result.reason instanceof Error ? result.reason.message : String(result.reason),
-            };
-        });
+        return Promise.all(enabledServers.map((server) => warmupServer(server.name)));
     })();
 
     try {
@@ -333,10 +412,43 @@ async function reloadMcpState(): Promise<void> {
     configCache = null;
 }
 
+function getSourceLabel(sourcePath?: string): string {
+    if (!sourcePath) return "";
+    return sourcePath.startsWith(homedir()) ? "global" : "project";
+}
+
+function getManagerServerInfo(): McpManagerServerInfo[] {
+    return readConfigs().map((server) => ({
+        name: server.name,
+        enabled: server.enabled,
+        connected: connections.has(server.name),
+        transport: server.transport,
+        toolCount: toolCache.get(server.name)?.length ?? 0,
+        sourceLabel: getSourceLabel(server.sourcePath),
+    }));
+}
+
 // ─── Formatters ───────────────────────────────────────────────────────────────
 
 function formatServerList(servers: McpServerConfig[]): string {
-    if (servers.length === 0) return "No MCP servers configured. Add servers to .mcp.json or .lsd/mcp.json.";
+    if (servers.length === 0) {
+        return [
+            "No MCP servers configured.\n",
+            "Configuration guide:",
+            "  Global (all projects):   ~/.lsd/mcp.json",
+            "  Project-level:           .mcp.json or .lsd/mcp.json\n",
+            'Example ~/.lsd/mcp.json:',
+            '{',
+            '  "mcpServers": {',
+            '    "my-server": {',
+            '      "command": "path/to/server",',
+            '      "args": ["--working-dir", "."]',
+            '    }',
+            '  }',
+            '}\n',
+            "After editing, run: /mcp reload",
+        ].join("\n");
+    }
 
     const lines: string[] = ["MCP servers\n"];
 
@@ -349,11 +461,14 @@ function formatServerList(servers: McpServerConfig[]): string {
         lines.push(`  connected: ${connected}`);
         lines.push(`  transport: ${s.transport}`);
         lines.push(`  tools: ${tools}`);
-        if (s.sourcePath) lines.push(`  source: ${basename(s.sourcePath)}`);
+        if (s.sourcePath) {
+            lines.push(`  source: ${getSourceLabel(s.sourcePath)} — ${basename(s.sourcePath)}`);
+        }
         lines.push("");
     }
 
     lines.push("Hints:");
+    lines.push("  /mcp");
     lines.push("  /mcp inspect <server>");
     lines.push("  /mcp enable <server>");
     lines.push("  /mcp disable <server>");
@@ -394,6 +509,42 @@ function formatMcpCommandHelp(): string {
     ].join("\n");
 }
 
+async function openMcpManager(ctx: ExtensionCommandContext): Promise<void> {
+    await ctx.ui.custom<void>(
+        (tui, theme, _keybindings, done) => new McpManagerComponent({
+            getServers: () => getManagerServerInfo(),
+            onToggle: async (name) => {
+                const config = getServerConfig(name);
+                if (!config) return null;
+                const result = await setServerEnabled(name, !config.enabled);
+                const updated = getServerConfig(result.canonicalName);
+                if (updated?.enabled) {
+                    await warmupServer(updated.name);
+                }
+                return getManagerServerInfo().find((server) => server.name === result.canonicalName) ?? null;
+            },
+            onInspect: async (name) => {
+                const { canonicalName, tools } = await listServerTools(name, undefined, { useCache: true });
+                return formatToolList(canonicalName, tools);
+            },
+            onReconnect: async (name) => {
+                const { canonicalName } = await listServerTools(name, undefined, { forceReconnect: true, useCache: false });
+                return getManagerServerInfo().find((server) => server.name === canonicalName) ?? null;
+            },
+            onClose: () => done(undefined),
+            requestRender: () => tui.requestRender(),
+        }, theme),
+        {
+            overlay: true,
+            overlayOptions: {
+                width: "80%",
+                maxHeight: "70%",
+                anchor: "center",
+            },
+        },
+    );
+}
+
 async function handleMcpCommand(args: string, ctx: ExtensionCommandContext): Promise<void> {
     const trimmed = args.trim();
     const parts = trimmed.split(/\s+/).filter(Boolean);
@@ -418,21 +569,9 @@ async function handleMcpCommand(args: string, ctx: ExtensionCommandContext): Pro
         }
 
         const canonicalName = config.name;
-        const cached = toolCache.get(canonicalName);
-        if (cached) {
-            ctx.ui.notify(formatToolList(canonicalName, cached), "info");
-            return;
-        }
 
         try {
-            const client = await getOrConnect(canonicalName);
-            const result = await client.listTools(undefined, { timeout: 30000 });
-            const tools: McpToolSchema[] = (result.tools ?? []).map((tool) => ({
-                name: tool.name,
-                description: tool.description ?? "",
-                inputSchema: tool.inputSchema as Record<string, unknown> | undefined,
-            }));
-            toolCache.set(canonicalName, tools);
+            const { tools } = await listServerTools(canonicalName, undefined, { useCache: true });
             ctx.ui.notify(formatToolList(canonicalName, tools), "info");
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
@@ -456,9 +595,8 @@ async function handleMcpCommand(args: string, ctx: ExtensionCommandContext): Pro
             ctx.ui.notify(`MCP server ${result.canonicalName} ${changeText}.`, "info");
 
             if (enabled) {
-                const warmupResults = await warmupEnabledServers();
-                const warmupResult = warmupResults.find((entry) => entry.name === result.canonicalName);
-                if (warmupResult?.status === "error") {
+                const warmupResult = await warmupServer(result.canonicalName);
+                if (warmupResult.status === "error") {
                     ctx.ui.notify(`Failed to connect ${result.canonicalName}: ${warmupResult.error}`, "error");
                 }
             }
@@ -542,6 +680,10 @@ export default function(pi: ExtensionAPI) {
             return [];
         },
         handler: async (args, ctx) => {
+            if (!args.trim() && typeof ctx.ui.custom === "function") {
+                await openMcpManager(ctx);
+                return;
+            }
             await handleMcpCommand(args, ctx);
         },
     });
@@ -552,7 +694,8 @@ export default function(pi: ExtensionAPI) {
         name: "mcp_servers",
         label: "MCP Servers",
         description:
-            "List all available MCP servers configured in project files (.mcp.json, .lsd/mcp.json, legacy .gsd/mcp.json). " +
+            "List all available MCP servers from global (~/.lsd/mcp.json) and project-level " +
+            "(.mcp.json, .lsd/mcp.json, legacy .gsd/mcp.json) config files. " +
             "Shows server names, transport type, and connection status. Use mcp_discover to get full tool schemas for a server.",
         promptSnippet:
             "List available MCP servers from project configuration",
@@ -623,32 +766,7 @@ export default function(pi: ExtensionAPI) {
 
         async execute(_id, params, signal) {
             try {
-                const canonicalServer = getCanonicalServerName(params.server);
-
-                // Return cached tools if available
-                const cached = toolCache.get(canonicalServer);
-                if (cached) {
-                    const text = formatToolList(canonicalServer, cached);
-                    const truncation = truncateHead(text, { maxLines: DEFAULT_MAX_LINES, maxBytes: DEFAULT_MAX_BYTES });
-                    let finalText = truncation.content;
-                    if (truncation.truncated) {
-                        finalText += `\n\n[Truncated: ${truncation.outputLines}/${truncation.totalLines} lines (${formatSize(truncation.outputBytes)} of ${formatSize(truncation.totalBytes)})]`;
-                    }
-                    return {
-                        content: [{ type: "text", text: finalText }],
-                        details: { server: canonicalServer, toolCount: cached.length, cached: true },
-                    };
-                }
-
-                const client = await getOrConnect(canonicalServer, signal);
-                const result = await client.listTools(undefined, { signal, timeout: 30000 });
-                const tools: McpToolSchema[] = (result.tools ?? []).map((t) => ({
-                    name: t.name,
-                    description: t.description ?? "",
-                    inputSchema: t.inputSchema as Record<string, unknown> | undefined,
-                }));
-                toolCache.set(canonicalServer, tools);
-
+                const { canonicalName: canonicalServer, tools, cached } = await listServerTools(params.server, signal, { useCache: true });
                 const text = formatToolList(canonicalServer, tools);
                 const truncation = truncateHead(text, { maxLines: DEFAULT_MAX_LINES, maxBytes: DEFAULT_MAX_BYTES });
                 let finalText = truncation.content;
@@ -658,7 +776,7 @@ export default function(pi: ExtensionAPI) {
 
                 return {
                     content: [{ type: "text", text: finalText }],
-                    details: { server: canonicalServer, toolCount: tools.length, cached: false },
+                    details: { server: canonicalServer, toolCount: tools.length, cached },
                 };
             } catch (err: unknown) {
                 const msg = err instanceof Error ? err.message : String(err);
@@ -717,15 +835,13 @@ export default function(pi: ExtensionAPI) {
 
         async execute(_id, params, signal) {
             try {
-                const canonicalServer = getCanonicalServerName(params.server);
-                const client = await getOrConnect(canonicalServer, signal);
-                const result = await client.callTool(
-                    { name: params.tool, arguments: params.args ?? {} },
-                    undefined,
-                    { signal, timeout: 60000 },
+                const { canonicalServer, result } = await callServerTool(
+                    params.server,
+                    params.tool,
+                    params.args ?? {},
+                    signal,
                 );
 
-                // Serialize result content to text
                 const contentItems = result.content as Array<{ type: string; text?: string }>;
                 const raw = contentItems
                     .map((c) => (c.type === "text" ? c.text ?? "" : JSON.stringify(c)))
