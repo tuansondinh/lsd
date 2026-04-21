@@ -6,6 +6,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.3.11] - 2026-04-21
+
+### Changed
+- removed stale GSD extension remnants and cleaned related obsolete tests and config references.
+
 ## [1.3.10] - 2026-04-14
 
 ### Added
@@ -2575,7 +2580,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 - License updated to MIT
 
-[Unreleased]: https://github.com/gsd-build/gsd-2/compare/v1.3.10...HEAD
+[Unreleased]: https://github.com/gsd-build/gsd-2/compare/v1.3.11...HEAD
+[1.3.11]: https://github.com/gsd-build/gsd-2/compare/v1.3.10...v1.3.11
 [1.3.10]: https://github.com/gsd-build/gsd-2/compare/v1.3.7...v1.3.10
 [1.3.7]: https://github.com/gsd-build/gsd-2/compare/v1.3.6...v1.3.7
 [1.3.6]: https://github.com/gsd-build/gsd-2/compare/v1.3.4...v1.3.6
