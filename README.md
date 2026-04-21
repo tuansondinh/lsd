@@ -639,7 +639,7 @@ lsd list               # list installed packages
 
 Sources: `npm:@scope/pkg`, `git:github.com/user/repo`, `https://...`, local paths.
 
-Bundled extensions include: memory, remote-questions, browser-tools, subagent, codex-rotate, usage, voice, bg-shell, async-jobs, context7, universal-config, search-the-web, cache-timer, mac-tools, aws-auth.
+Bundled extensions include: memory, remote-questions, browser-tools, subagent, codex-rotate, usage, voice, bg-shell, async-jobs, context7, universal-config, search-the-web, cache-timer, mac-tools.
 
 ---
 

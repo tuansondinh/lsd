@@ -204,7 +204,6 @@ Every file in `src/` with its responsibility:
 | `mcp-client/` | MCP server client integration |
 | `universal-config/` | Discovers config files from other AI tools (Claude, Cursor, etc.) |
 | `cmux/` | Terminal multiplexer integration |
-| `aws-auth/` | AWS authentication helpers |
 | `slash-commands/` | Built-in slash commands (audit, plan, clear, context, tools) |
 | `google-search/` | Google-backed web search via Gemini |
 | `shared/` | Shared utilities (UI helpers, formatters, preference readers, tests) |
